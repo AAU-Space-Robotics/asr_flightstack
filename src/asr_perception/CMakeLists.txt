@@ -41,7 +41,12 @@ ament_python_install_package(${PROJECT_NAME})
 
 install(PROGRAMS
   scripts/detect_probe.py
+  test/probe_filter_sim.py
   DESTINATION lib/${PROJECT_NAME}
+)
+
+install(FILES test/probe_filter_test.launch.py
+  DESTINATION share/${PROJECT_NAME}/launch
 )
 
 install(DIRECTORY models/

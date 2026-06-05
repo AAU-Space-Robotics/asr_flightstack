@@ -22,27 +22,33 @@ find_package(rosidl_default_generators REQUIRED)
 
 # Generate all custom interfaces (formerly the interfaces package)
 rosidl_generate_interfaces(${PROJECT_NAME}
-  "ros/msg/LinkStats.msg"
-  "ros/msg/ManualControlInput.msg"
-  "ros/msg/DroneCommand.msg"
-  "ros/msg/MotionCapturePose.msg"
-  "ros/msg/DroneScope.msg"
-  "ros/msg/TrajectorySetpoint.msg"
-  "ros/msg/ControlDetail.msg"
-  "ros/msg/CommsHealth.msg"
-  "ros/msg/GcsHeartbeat.msg"
-  "ros/msg/ProbeDetections.msg"
-  "ros/msg/ProbeLocations.msg"
-  "ros/msg/AttitudeSetpointRPY.msg"
-  "ros/msg/ServoCommand.msg"
+  # command
   "ros/msg/command/UAVCommand.msg"
   "ros/msg/command/CommandAck.msg"
+  "ros/msg/command/AttitudeSetpointRPY.msg"
+  "ros/msg/command/DroneCommand.msg"
+  "ros/msg/command/ManualControlInput.msg"
+  "ros/msg/command/ServoCommand.msg"
+  "ros/msg/command/TrajectorySetpoint.msg"
+  # comms
+  "ros/msg/comms/CommsHealth.msg"
+  "ros/msg/comms/LinkStats.msg"
+  "ros/msg/comms/GcsHeartbeat.msg"
+  "ros/msg/comms/CameraStreamRequest.msg"
+  # control
+  "ros/msg/control/ControlDetail.msg"
+  "ros/msg/control/DroneScope.msg"
+  # probe
+  "ros/msg/probe/ProbeDetections.msg"
+  "ros/msg/probe/ProbeLocations.msg"
+  # sensing
+  "ros/msg/sensing/MotionCapturePose.msg"
+  # telemetry
   "ros/msg/telemetry/TelemetryPosition.msg"
   "ros/msg/telemetry/TelemetryAttitude.msg"
   "ros/msg/telemetry/TelemetryBattery.msg"
   "ros/msg/telemetry/TelemetryGPS.msg"
   "ros/msg/telemetry/TelemetryStatus.msg"
-  "ros/msg/CameraStreamRequest.msg"
   "ros/action/DroneCommand.action"
   "ros/action/MissionComand.action"
   "ros/action/SystemControl.action"

@@ -6,11 +6,12 @@
 [![Flight tested](https://img.shields.io/badge/flight_tested-not_performed-red)](https://github.com/AAU-Space-Robotics/drone-software)
 
 ## Setup
-To set up the drone software, refer to the [wiki](https://github.com/AAU-Space-Robotics/drone-software/wiki/Old-guide).
+To set up the drone software, refer to the project wiki Home page: https://github.com/AAU-Space-Robotics/drone-software/wiki/Home
 
-Two setup scripts are available in the `setup/` directory:
+Primary (recommended) onboard platform: Jetson Orin. Two setup scripts are available in the `setup/` directory:
 - `setup_workspace.sh` — for the development machine (includes PX4 SITL simulation)
-- `setup_pi.sh` — for the onboard Raspberry Pi (includes RealSense camera, no simulation)
+- `setup_workspace_jetson.sh` — for the onboard Jetson Orin (primary baseline)
+- `setup_workspace_pi.sh` — legacy Raspberry Pi setup (archived)
 
 ## How to Use the Drone Software
 ### 1. Ground Control Station

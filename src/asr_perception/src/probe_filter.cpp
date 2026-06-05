@@ -12,6 +12,7 @@
 
 #include <vector>
 #include <cstdint>
+#include <limits>
 
 using ProbeDetections = asr_comms::msg::ProbeDetections;
 using ProbeLocations  = asr_comms::msg::ProbeLocations;
@@ -19,62 +20,103 @@ using Image           = sensor_msgs::msg::Image;
 using PoseStamped     = geometry_msgs::msg::PoseStamped;
 
 // ---------------------------------------------------------------------------
-// KalmanTrack — one tracked probe
+// ProbeTrack — one tracked probe
 // State:       x = [px, py, pz, bx, by, bz]^T   (6x1)
 // Observation: z = [px, py, pz]^T                (3x1)
+// Model:       z = H*x + noise,  H = [I | I]
+//              position is measured directly; bias drifts slowly via Q
 // ---------------------------------------------------------------------------
-struct KalmanTrack {
+struct ProbeTrack {
     uint32_t id;
     int      observations{0};
-    float    confidence{0.0f};
+    double   last_update_s{0.0};
 
-    Eigen::Matrix<double, 6, 1> x;   // state
-    Eigen::Matrix<double, 6, 6> P;   // covariance
+    Eigen::Matrix<double, 6, 1> x;   // state:               [position | bias]
+    Eigen::Matrix<double, 6, 6> P;   // state covariance
+    Eigen::Matrix<double, 3, 3> S;   // innovation covariance (cached for gating)
 
-    // Observation matrix: we measure position directly, and add bias terms
-    static const Eigen::Matrix<double, 3, 6> H() {
+    ProbeTrack() = delete;
+
+    ProbeTrack(uint32_t id, const Eigen::Vector3d& z_init, double now_s)
+        : id(id), observations(1), last_update_s(now_s)
+    {
+        x.head<3>() = z_init;
+        x.tail<3>() = Eigen::Vector3d::Zero();           // bias unknown, start at zero
+
+        P = Eigen::Matrix<double, 6, 6>::Zero();
+        P.topLeftCorner<3,3>()     = (0.05 * 0.05) * Eigen::Matrix3d::Identity(); // sigma_meas²
+        P.bottomRightCorner<3,3>() = (0.10 * 0.10) * Eigen::Matrix3d::Identity(); // bias unknown
+        
+        const auto Hk = H();
+        S = Hk * P * Hk.transpose() + R(); // ~(0.05² + 0.05²) * I  →  σ ≈ 7 cm, gate ≈ 20 cm
+    }
+
+    // Observation matrix:  z = [I | I] * x  →  measures position + bias
+    static Eigen::Matrix<double, 3, 6> H() {
         Eigen::Matrix<double, 3, 6> mat = Eigen::Matrix<double, 3, 6>::Zero();
-        mat.leftCols<3>() = Eigen::Matrix3d::Identity();
+        mat.leftCols<3>()  = Eigen::Matrix3d::Identity();
         mat.rightCols<3>() = Eigen::Matrix3d::Identity();
         return mat;
     }
 
-    // Process noise. Not more uncertain over time
-    static Eigen::Matrix<double, 6, 6> Q()
-    {
-        double sigma_pos = 0.01; // meters
-        double sigma_bias = 0.001; // meters
+    // Process noise — position and bias drift slowly
+    static Eigen::Matrix<double, 6, 6> Q() {
+        constexpr double sigma_pos  = 0.01;   // meters
+        constexpr double sigma_bias = 0.001;  // meters
 
         Eigen::Matrix<double, 6, 6> mat = Eigen::Matrix<double, 6, 6>::Zero();
-        mat.topLeftCorner<3, 3>()     = sigma_pos * sigma_pos * Eigen::Matrix3d::Identity();
-        mat.bottomRightCorner<3, 3>() = sigma_bias * sigma_bias * Eigen::Matrix3d::Identity();
+        mat.topLeftCorner<3,3>()     = (sigma_pos  * sigma_pos)  * Eigen::Matrix3d::Identity();
+        mat.bottomRightCorner<3,3>() = (sigma_bias * sigma_bias) * Eigen::Matrix3d::Identity();
         return mat;
     }
 
-    // Measurement noise
-    static Eigen::Matrix<double, 3, 3> R(double confidence = 1.0f) {
-        double sigma_meas = 0.05; // meters
-        return sigma_meas * sigma_meas * (1.0 / confidence) *  Eigen::Matrix3d::Identity();
+    // Measurement noise — scaled by detection confidence
+    static Eigen::Matrix<double, 3, 3> R(double confidence = 1.0) {
+        constexpr double sigma_meas = 0.05;   // meters
+        return (sigma_meas * sigma_meas / confidence) * Eigen::Matrix3d::Identity();
     }
 
-    // Predict forward by dt seconds.
+    // Mahalanobis distance from a candidate measurement — used for data association
+    double mahalanobis(const Eigen::Vector3d& z) const {
+        const Eigen::Vector3d innov = z - H() * x;
+        // S.ldlt().solve is more stable than S.inverse(); .dot avoids 1×1 matrix.
+        return std::sqrt(innov.dot(S.ldlt().solve(innov)));
+    }
+
+    // Predict — grow covariance (static model, probes don't move)
     void predict() {
         P = P + Q();
     }
 
-    // Update with a new 3-D measurement.
-    void update(const Eigen::Vector3d& z_meas, double confidence) {
-        const auto  Hk = H();
-        const auto  Rk = R(confidence); // Measurement noise scaled by confidence
-        const auto  S  = Hk * P * Hk.transpose() + Rk;
-        const auto K = S.llt().solve(Hk * P).transpose(); // Kalman gain (6×3)
-        auto IKH = Eigen::Matrix<double,6,6>::Identity() - K * Hk;
+    // Update with a new 3-D measurement
+    void update(const Eigen::Vector3d& z_meas, double meas_confidence, double now_s) {
+        const auto Hk = H();
+        const auto Rk = R(meas_confidence);
+
+        S = Hk * P * Hk.transpose() + Rk;
+        // Explicit type forces immediate evaluation — avoids dangling reference to
+        // the temporary LLT object that auto would otherwise capture lazily.
+        const Eigen::Matrix<double, 6, 3> K = S.llt().solve(Hk * P).transpose();
+        const Eigen::Matrix<double, 6, 6> IKH =
+            Eigen::Matrix<double,6,6>::Identity() - K * Hk;
+
         x = x + K * (z_meas - Hk * x);
-        P = IKH * P * IKH.transpose() + K * Rk * K.transpose();
+        P = IKH * P * IKH.transpose() + K * Rk * K.transpose();  // Joseph form
+
         ++observations;
+        last_update_s = now_s;
     }
 
+    // Position estimate
     Eigen::Vector3d position() const { return x.head<3>(); }
+
+    // Bias estimate
+    Eigen::Vector3d bias() const { return x.tail<3>(); }
+
+    // Per-axis 1-sigma uncertainty from the filter — this is your confidence
+    Eigen::Vector3d position_std() const {
+        return P.topLeftCorner<3,3>().diagonal().cwiseSqrt();
+    }
 };
 
 // ---------------------------------------------------------------------------
@@ -93,7 +135,6 @@ public:
         declare_parameter("min_observations",   2);
         declare_parameter("merge_distance_m",   0.6);
         declare_parameter("max_distance_m",     4.0);
-        declare_parameter("track_timeout_s",   10.0);
 
         fx_ = get_parameter("fx").as_double();
         fy_ = get_parameter("fy").as_double();
@@ -111,9 +152,7 @@ public:
         }
 
         min_observations_ = get_parameter("min_observations").as_int();
-        merge_distance_   = get_parameter("merge_distance_m").as_double();
         max_distance_     = get_parameter("max_distance_m").as_double();
-        track_timeout_    = get_parameter("track_timeout_s").as_double();
 
         // --- Sync subscribers ---
         auto qos = rclcpp::QoS(5).best_effort();
@@ -167,19 +206,11 @@ private:
             confidences.push_back(detections->confidence[i]);
         }
 
-        // 4. TODO: Data association — match measurements to existing tracks.
-        //    Hungarian algorithm or nearest-neighbour within merge_distance_.
-        //    For each matched pair: track.predict(dt); track.update(measurement);
-        //    For unmatched measurements: initialise new KalmanTrack.
-        //    For unmatched tracks: track.predict(dt) with no update (coasting).
         update_tracks(measurements, confidences, now_s);
-
-        // 5. Publish confirmed probes
         publish_locations(detections->header);
     }
 
     // --- 3-D projection ---
-    // Reads a single depth pixel (16UC1, millimetres) and back-projects.
     Eigen::Vector3d project_to_3d(float u, float v, const Image& depth_img) const
     {
         const int iu = static_cast<int>(std::round(u));
@@ -190,7 +221,6 @@ private:
             iv >= static_cast<int>(depth_img.height))
             return Eigen::Vector3d::Zero();
 
-        // depth_img.encoding should be "16UC1" — millimetres
         const uint16_t d_mm = *reinterpret_cast<const uint16_t*>(
             depth_img.data.data() + iv * depth_img.step + iu * sizeof(uint16_t));
 
@@ -217,30 +247,37 @@ private:
                        const std::vector<float>&            confidences,
                        double                               now_s)
     {
-        // TODO: implement proper data association here.
-        //
-        // Suggested approach:
-        //   - For each measurement, find the nearest track within merge_distance_.
-        //   - Compute dt = now_s - track.last_update_s, then:
-        //       track.predict(dt);
-        //       track.update(measurement);
-        //       track.confidence = 0.8f * track.confidence + 0.2f * new_confidence;
-        //       track.last_update_s = now_s;
-        //   - For unmatched measurements: create a new track (see init_track below).
-        //   - Expire tracks where (now_s - last_update_s) > track_timeout_.
-        (void)measurements; (void)confidences; (void)now_s;
-    }
+        // sqrt(chi2(3, 0.95)) — 95% confidence gate in 3D
+        constexpr double CHI2_GATE = 2.79;
 
-    KalmanTrack init_track(const Eigen::Vector3d& pos, float confidence)
-    {
-        KalmanTrack t;
-        t.id           = next_id_++;
-        t.observations = 1;
-        t.confidence   = confidence;
-        t.x            = Eigen::Matrix<double, 6, 1>::Zero();
-        t.x.head<3>()  = pos;
-        t.P            = Eigen::Matrix<double, 6, 6>::Identity() * 1.0;
-        return t;
+        for (size_t i = 0; i < measurements.size(); ++i) {
+            // Seed the very first track unconditionally
+            if (tracks_.empty()) {
+                tracks_.push_back(ProbeTrack(next_id_++, measurements[i], now_s));
+                continue;
+            }
+
+            // Find nearest track in Mahalanobis space
+            double      best_dist  = std::numeric_limits<double>::max();
+            ProbeTrack* best_track = nullptr;
+
+            for (auto& track : tracks_) {
+                const double d = track.mahalanobis(measurements[i]);
+                if (d < best_dist) {
+                    best_dist  = d;
+                    best_track = &track;
+                }
+            }
+
+            if (best_dist < CHI2_GATE) {
+                // Statistically consistent — update existing track
+                best_track->predict();
+                best_track->update(measurements[i], confidences[i], now_s);
+            } else {
+                // Outside all gates — new probe
+                tracks_.push_back(ProbeTrack(next_id_++, measurements[i], now_s));
+            }
+        }
     }
 
     // --- Publish ---
@@ -251,11 +288,18 @@ private:
 
         for (const auto& track : tracks_) {
             if (track.observations < min_observations_) continue;
+
             const auto pos = track.position();
+            const auto std = track.position_std();
+
             msg.positions.push_back(static_cast<float>(pos.x()));
             msg.positions.push_back(static_cast<float>(pos.y()));
             msg.positions.push_back(static_cast<float>(pos.z()));
-            msg.confidence.push_back(track.confidence);
+
+            msg.uncertainty.push_back(static_cast<float>(std.x()));
+            msg.uncertainty.push_back(static_cast<float>(std.y()));
+            msg.uncertainty.push_back(static_cast<float>(std.z()));
+
             ++msg.num_probes;
         }
 
@@ -271,12 +315,10 @@ private:
     double fx_, fy_, cx_, cy_;
     Eigen::Matrix4d T_cam_to_drone_;
     int    min_observations_;
-    double merge_distance_;
     double max_distance_;
-    double track_timeout_;
 
-    std::vector<KalmanTrack> tracks_;
-    uint32_t                 next_id_{0};
+    std::vector<ProbeTrack> tracks_;
+    uint32_t                next_id_{0};
 
     message_filters::Subscriber<ProbeDetections> det_sub_;
     message_filters::Subscriber<Image>           depth_sub_;

@@ -454,7 +454,7 @@ void CommsUav::publish_gps_inject(const uint8_t* data, size_t len)
         px4_msgs::msg::GpsInjectData out{};
         out.timestamp = static_cast<uint64_t>(get_clock()->now().nanoseconds() / 1000);
         out.len       = static_cast<uint16_t>(chunk);
-        out.flags     = (len > 300u) ? 1u : 0u;
+        out.flags     = (offset + chunk < len) ? 1u : 0u;
         std::memcpy(out.data.data(), data + offset, chunk);
 
         gps_inject_pub_->publish(out);
