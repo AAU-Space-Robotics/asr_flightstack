@@ -632,7 +632,7 @@ void CommsGcs::on_uav_command(const asr_comms::msg::UAVCommand::SharedPtr msg)
     }
 
     send_mavlink(mav);
-    RCLCPP_INFO(get_logger(), "Sent command '%s' over MAVLink", cmd.c_str());
+    RCLCPP_INFO(get_logger(), "Sent command '%s'", cmd.c_str());
 }
 
 // --- Camera streaming ---

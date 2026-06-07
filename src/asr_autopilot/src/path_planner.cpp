@@ -37,7 +37,7 @@ bool PathPlanner::GenerateTrajectory(
     float distance_angular = std::fabs(std::atan2(std::sin(target_yaw - current_yaw), std::cos(target_yaw - current_yaw)));
     float trajectory_duration_cartesian = calculateDuration(distance, current_linear_velocity_, min_linear_velocity_, max_linear_velocity_);
     float trajectory_duration_angular = calculateDuration(distance_angular, current_angular_velocity_, min_angular_velocity_, max_angular_velocity_);
-    total_time = std::max(trajectory_duration_cartesian, trajectory_duration_angular);
+    total_time = std::max({trajectory_duration_cartesian, trajectory_duration_angular, 0.1f});
     start_vel = current_velocity;
     start_acc = current_acceleration;
     this->start_quat = start_quat.normalized();
@@ -160,9 +160,10 @@ FullTrajectoryPoint PathPlanner::getTrajectoryPoint(double t, trajectoryMethod m
             point.orientation = Eigen::Quaterniond(Eigen::AngleAxisd(yaw.position, Eigen::Vector3d::UnitZ())).normalized();
         }
     } else if (method == MIN_SNAP) {
-        TrajectoryPoint x = evaluatePolynomial(segments[0].coefficient, t);
-        TrajectoryPoint y = evaluatePolynomial(segments[1].coefficient, t);
-        TrajectoryPoint z = evaluatePolynomial(segments[2].coefficient, t);
+        double t_clamped = std::min(t, total_time);
+        TrajectoryPoint x = evaluatePolynomial(segments[0].coefficient, t_clamped);
+        TrajectoryPoint y = evaluatePolynomial(segments[1].coefficient, t_clamped);
+        TrajectoryPoint z = evaluatePolynomial(segments[2].coefficient, t_clamped);
         point.position = Eigen::Vector3d(x.position, y.position, z.position);
         point.velocity = Eigen::Vector3d(x.velocity, y.velocity, z.velocity);
         point.acceleration = Eigen::Vector3d(x.acceleration, y.acceleration, z.acceleration);

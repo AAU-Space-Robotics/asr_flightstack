@@ -474,7 +474,7 @@ void CommsUav::handle_peer_beacon(const mavlink_v2_extension_t& ext)
     wifi_transport_->set_target(beacon.ip, port);
     char ip_str[INET_ADDRSTRLEN];
     inet_ntop(AF_INET, &beacon.ip, ip_str, sizeof(ip_str));
-    RCLCPP_INFO(get_logger(), "WiFi path to GCS: %s:%u", ip_str, port);
+    RCLCPP_DEBUG(get_logger(), "WiFi path to GCS: %s:%u", ip_str, port);
 
     gcs_wifi_ip_.store(beacon.ip);
 

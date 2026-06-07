@@ -1507,6 +1507,10 @@ private:
             } else if (drone_state.arming_state != ArmingState::ARMED) {
                 RCLCPP_WARN(get_logger(), "Rejected: drone not armed for takeoff.");
                 return rclcpp_action::GoalResponse::REJECT;
+            } else if (drone_state.flight_mode != FlightMode::LANDED &&
+                       drone_state.flight_mode != FlightMode::STANDBY) {
+                RCLCPP_WARN(get_logger(), "Rejected: takeoff only allowed from ground (LANDED/STANDBY).");
+                return rclcpp_action::GoalResponse::REJECT;
             } else if (!std::isfinite(goal->target_pose[0])){
                 RCLCPP_WARN(get_logger(), "Rejected: takeoff altitude is not a finite real number (value: %f).", goal->target_pose[0]);
                 return rclcpp_action::GoalResponse::REJECT;
@@ -1618,8 +1622,8 @@ private:
         Eigen::Vector3d target_position = {init_state.position.x(), init_state.position.y(), 
                                           std::min(goal->target_pose[0], takeoff_height_ + init_state.position.z())};
 
-        path_planner_.GenerateTrajectory(init_state.position, target_position, init_state.orientation, 
-                                        target_quat, init_state.velocity, init_state.acceleration, 
+        path_planner_.GenerateTrajectory(init_state.position, target_position, init_state.orientation,
+                                        target_quat, Eigen::Vector3d::Zero(), Eigen::Vector3d::Zero(),
                                         trajectoryMethod::MIN_SNAP);
         activateTrajectory(path_planner_.getTotalTime());
 
@@ -1638,8 +1642,8 @@ private:
         Eigen::Vector3d target_position = {goal->target_pose[0], goal->target_pose[1], goal->target_pose[2]};
         Eigen::Quaterniond target_quat = transformations_.eulerToQuaternion(0.0, 0.0, target_yaw).normalized();
 
-        path_planner_.GenerateTrajectory(init_state.position, target_position, init_state.orientation, 
-                                        target_quat, init_state.velocity, init_state.acceleration, 
+        path_planner_.GenerateTrajectory(init_state.position, target_position, init_state.orientation,
+                                        target_quat, Eigen::Vector3d::Zero(), Eigen::Vector3d::Zero(),
                                         trajectoryMethod::MIN_SNAP);
         activateTrajectory(path_planner_.getTotalTime());
 

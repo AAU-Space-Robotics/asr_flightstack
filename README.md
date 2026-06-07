@@ -100,3 +100,5 @@ ros2 action send_goal /system_control interfaces/action/SystemControl "{command_
 
 # Bonus command:
 ros2 run asr_comms comms_uav --ros-args -p serial_port:=auto
+
+source ./.venv/bin/activate
