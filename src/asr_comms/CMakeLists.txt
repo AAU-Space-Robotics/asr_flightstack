@@ -41,6 +41,8 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   # probe
   "ros/msg/probe/ProbeDetections.msg"
   "ros/msg/probe/ProbeLocations.msg"
+  "ros/msg/probe/ArucoDetections.msg"
+  "ros/msg/probe/ArucoLocations.msg"
   # sensing
   "ros/msg/sensing/MotionCapturePose.msg"
   # telemetry

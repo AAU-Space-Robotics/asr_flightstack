@@ -8,6 +8,7 @@ PathPlanner::PathPlanner() {
 }
 
 double PathPlanner::getTotalTime() const {
+    std::lock_guard<std::recursive_mutex> lock(planner_mutex_);
     return total_time;
 }
 
@@ -27,13 +28,14 @@ bool PathPlanner::GenerateTrajectory(
     const Eigen::Vector3d& current_velocity,
     const Eigen::Vector3d& current_acceleration,
     trajectoryMethod method) {
+    std::lock_guard<std::recursive_mutex> lock(planner_mutex_);
     use_yaw_polynomial = false;
     is_multi_waypoint_ = false;  // Single segment trajectory
 
     // Calculate the time required for the trajectory based on distance and velocity
     float distance = (end_pos - start_pos).norm();
-    float current_yaw = transformations_.unwrapAngle(transformations_.quaternionToEuler(start_quat).x(), 2 * M_PI, 0);
-    float target_yaw = transformations_.unwrapAngle(transformations_.quaternionToEuler(end_quat).x(), 2 * M_PI, 0);
+    float current_yaw = transformations_.unwrapAngle(transformations_.quaternionToEuler(start_quat).yaw, 2 * M_PI, 0);
+    float target_yaw = transformations_.unwrapAngle(transformations_.quaternionToEuler(end_quat).yaw, 2 * M_PI, 0);
     float distance_angular = std::fabs(std::atan2(std::sin(target_yaw - current_yaw), std::cos(target_yaw - current_yaw)));
     float trajectory_duration_cartesian = calculateDuration(distance, current_linear_velocity_, min_linear_velocity_, max_linear_velocity_);
     float trajectory_duration_angular = calculateDuration(distance_angular, current_angular_velocity_, min_angular_velocity_, max_angular_velocity_);
@@ -59,9 +61,10 @@ bool PathPlanner::GenerateSpinTrajectory(
     double num_rotations,
     bool use_longest_path,
     trajectoryMethod method) {
+    std::lock_guard<std::recursive_mutex> lock(planner_mutex_);
     // Position remains constant (no translation during spin)
     // Get current yaw from start quaternion
-    float current_yaw = transformations_.unwrapAngle(transformations_.quaternionToEuler(start_quat).x(), 2 * M_PI, 0);
+    float current_yaw = transformations_.unwrapAngle(transformations_.quaternionToEuler(start_quat).yaw, 2 * M_PI, 0);
     
     // Normalize target yaw to [0, 2π)
     float target_yaw_normalized = transformations_.unwrapAngle(target_yaw, 2 * M_PI, 0);
@@ -126,8 +129,9 @@ TrajectoryPoint PathPlanner::evaluatePolynomial(const std::vector<double>& coeff
 }
 
 FullTrajectoryPoint PathPlanner::getTrajectoryPoint(double t, trajectoryMethod method) {
+    std::lock_guard<std::recursive_mutex> lock(planner_mutex_);
     FullTrajectoryPoint point;
-    
+
     if (is_multi_waypoint_) {
         // Find which segment this time belongs to
         int segment_idx = -1;
@@ -211,6 +215,7 @@ std::vector<double> PathPlanner::generatePolynomialCoefficients(
 }
 
 bool PathPlanner::setLinearVelocity(float linear_velocity) {
+    std::lock_guard<std::recursive_mutex> lock(planner_mutex_);
     if (linear_velocity < min_linear_velocity_ || linear_velocity > max_linear_velocity_) {
         return false; // Invalid velocity
     }
@@ -219,6 +224,7 @@ bool PathPlanner::setLinearVelocity(float linear_velocity) {
 }
 
 bool PathPlanner::setAngularVelocity(float angular_velocity) {
+    std::lock_guard<std::recursive_mutex> lock(planner_mutex_);
     if (angular_velocity < min_angular_velocity_ || angular_velocity > max_angular_velocity_) {
         return false; // Invalid velocity
     }
@@ -231,10 +237,12 @@ bool PathPlanner::GenerateMultiWaypointTrajectory(
     const Eigen::Vector3d& start_velocity,
     const Eigen::Vector3d& start_acceleration,
     double /*start_yaw*/,
-    trajectoryMethod method) {    if (waypoints.empty()) {
+    trajectoryMethod method) {
+    std::lock_guard<std::recursive_mutex> lock(planner_mutex_);
+    if (waypoints.empty()) {
         return false;
     }
-    
+
     is_multi_waypoint_ = true;
     use_yaw_polynomial = false;
     
@@ -317,10 +325,12 @@ bool PathPlanner::GenerateMultiWaypointTrajectory(
 }
 
 std::vector<TrajectorySegmentInfo> PathPlanner::getSegmentInfo() const {
+    std::lock_guard<std::recursive_mutex> lock(planner_mutex_);
     return segment_info_;
 }
 
 ConstraintCheckResult PathPlanner::checkConstraints(int num_samples) const {
+    std::lock_guard<std::recursive_mutex> lock(planner_mutex_);
     ConstraintCheckResult result;
     result.satisfied = true;
     result.max_velocity = 0.0;

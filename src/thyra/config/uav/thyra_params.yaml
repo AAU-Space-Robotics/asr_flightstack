@@ -59,6 +59,7 @@
       check_geofence: false              # Check for geofence violations
       check_battery: true               # Check battery status
       battery_threshold: 0.05           # Battery threshold for safety (0-1 scale)
+      battery_timeout_threshold: 3.0    # Max age (s) of battery telemetry while armed before treating it as a fault
       gcs_timeout_threshold: 15.0        # Timeout for ground control station input (seconds)
       position_timeout_threshold: 0.2   # Timeout for position data (seconds)
       safety_thrust_initial: -0.72      # Initial thrust for safety landing (negative for downward)

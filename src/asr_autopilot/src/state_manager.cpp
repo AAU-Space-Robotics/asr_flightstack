@@ -269,15 +269,15 @@ TrajectoryInitState StateManager::getTrajectoryInitState() {
     
     Eigen::Quaterniond quat = attitude_.data.normalized();
     Transformations transformations;
-    Eigen::Vector3d euler = transformations.quaternionToEuler(quat);
-    
+    EulerAngles euler = transformations.quaternionToEuler(quat);
+
     return {
         .position = {position_global_.x(), position_global_.y(), position_global_.z()},
         .position_target_prev = {target_position_profile_.x(), target_position_profile_.y(), target_position_profile_.z()},
         .orientation = quat,
         .velocity = velocity_global_.data,
         .acceleration = acceleration_global_.data,
-        .yaw = euler.z()
+        .yaw = euler.yaw
     };
 }
 

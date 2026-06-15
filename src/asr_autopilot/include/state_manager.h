@@ -248,8 +248,9 @@ struct DroneState {
 // Battery state
 struct BatteryState {
     rclcpp::Time timestamp = rclcpp::Time(0, 0);
-    
+
     //Battery state data
+    bool connected = false;     // Whether a battery is currently reported as connected
     int cell_count = 0;
     float voltage = 0.0f;
     float charge_remaining = 0.0f;

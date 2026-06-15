@@ -248,6 +248,7 @@ public:
         this->declare_parameter("safety.safety_thrust_final", -0.45);
         this->declare_parameter("safety.safety_thrustdown_rate", 0.0005);
         this->declare_parameter("safety.check_battery", true);
+        this->declare_parameter("safety.battery_timeout_threshold", 3.0); // Max age of battery telemetry while armed (s)
         this->declare_parameter("safety.check_geofence", true);
         this->declare_parameter("safety.geofence_radius", 2.0);
         this->declare_parameter("safety.battery_threshold", 0.10); // 5% battery threshold
@@ -264,6 +265,7 @@ public:
         this->get_parameter("safety.safety_thrustdown_rate", safety_thrustdown_rate_);
         this->get_parameter("safety.check_battery", safety_check_battery_);
         this->get_parameter("safety.battery_threshold", safety_battery_threshold_);
+        this->get_parameter("safety.battery_timeout_threshold", battery_timeout_threshold_);
         this->get_parameter("safety.check_geofence", safety_check_geofence_);
         this->get_parameter("safety.geofence_radius", safety_geofence_radius_);
         this->get_parameter("safety.geofence_height", safety_geofence_height_);
@@ -588,7 +590,17 @@ private:
         {
             // Get the latest battery state
             BatteryState battery_state = state_manager_.getBatteryState();
-            if (battery_state.charge_remaining < safety_battery_threshold_)
+            double battery_age = (get_time() - battery_state.timestamp).seconds();
+
+            if (!battery_state.connected || battery_age > battery_timeout_threshold_)
+            {
+                // No trustworthy battery telemetry while armed: treat as a fault and land.
+                RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 2000,
+                    "Battery telemetry unavailable (connected=%d, age=%.1fs > %.1fs), triggering emergency land",
+                    battery_state.connected, battery_age, battery_timeout_threshold_);
+                trigger_emergency_land = true;
+            }
+            else if (battery_state.charge_remaining < safety_battery_threshold_)
             {
                 RCLCPP_WARN(get_logger(), "Battery charge low (%.2f < %.2f), triggering emergency land",
                             battery_state.charge_remaining, safety_battery_threshold_);
@@ -653,22 +665,44 @@ private:
 
     void localPositionCallback(const VehicleLocalPosition::SharedPtr msg)
     {
+        // Reject invalid/non-finite EKF output. Dropping the message leaves the stored
+        // position timestamp stale, which engages the staleness failsafe instead of
+        // feeding garbage (or NaN) into the controller.
+        if (!msg->xy_valid || !msg->z_valid ||
+            !std::isfinite(msg->x) || !std::isfinite(msg->y) || !std::isfinite(msg->z)) {
+            RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 1000,
+                "Rejecting invalid local position (xy_valid=%d z_valid=%d)",
+                msg->xy_valid, msg->z_valid);
+            return;
+        }
+
         // Note that local position refers to coordinates being expressed in cartesian coordinates from some origin point.
         Stamped3DVector origin = state_manager_.getOrigin();
         Stamped3DVector local_position(get_time(), msg->x - origin.x(), msg->y - origin.y(), msg->z - origin.z());
         state_manager_.setGlobalPosition(local_position);
 
-        // Set the velocity in the state manager
-        Stamped3DVector local_velocity(get_time(), msg->vx, msg->vy, msg->vz);
-        state_manager_.setGlobalVelocity(local_velocity);
+        // Velocity: only trust it when the EKF marks it valid and finite. A zero velocity
+        // estimate is safe for the controller; a NaN is not.
+        if (msg->v_xy_valid && msg->v_z_valid &&
+            std::isfinite(msg->vx) && std::isfinite(msg->vy) && std::isfinite(msg->vz)) {
+            state_manager_.setGlobalVelocity(Stamped3DVector(get_time(), msg->vx, msg->vy, msg->vz));
+        } else {
+            state_manager_.setGlobalVelocity(Stamped3DVector(get_time(), 0.0, 0.0, 0.0));
+        }
 
-        // set the acceleration in the state manager
-        Stamped3DVector local_acceleration(get_time(), msg->ax, msg->ay, msg->az);
-        state_manager_.setGlobalAcceleration(local_acceleration);
+        // Acceleration has no dedicated validity flag; guard against non-finite values only.
+        if (std::isfinite(msg->ax) && std::isfinite(msg->ay) && std::isfinite(msg->az)) {
+            state_manager_.setGlobalAcceleration(Stamped3DVector(get_time(), msg->ax, msg->ay, msg->az));
+        }
     }
 
     void motionCaptureLocalPositionCallback(const asr_comms::msg::MotionCapturePose::SharedPtr msg)
     {
+        if (!std::isfinite(msg->x) || !std::isfinite(msg->y) || !std::isfinite(msg->z)) {
+            RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 1000,
+                "Rejecting non-finite motion-capture pose");
+            return;
+        }
         Stamped3DVector origin = state_manager_.getOrigin();
         Stamped3DVector local_position(get_time(), msg->x - origin.x(), msg->y - origin.y(), msg->z- origin.z());
 
@@ -677,19 +711,32 @@ private:
 
     void batteryStatusCallback(const BatteryStatus::SharedPtr msg)
     {
-        BatteryState battery_state;
+        // Preserve the last valid charge estimate when a message arrives with an invalid one.
+        BatteryState battery_state = state_manager_.getBatteryState();
         battery_state.timestamp = get_time();
+        battery_state.connected = msg->connected;
         battery_state.cell_count = msg->cell_count;
         battery_state.voltage = msg->voltage_v;
-        battery_state.charge_remaining = msg->remaining;
         battery_state.discharged_mah = msg->discharged_mah;
         battery_state.average_current = msg->current_a;
-        
+
+        // PX4 sets remaining = -1 when the estimate is invalid; only accept the [0,1] range.
+        if (msg->connected && std::isfinite(msg->remaining) &&
+            msg->remaining >= 0.0f && msg->remaining <= 1.0f) {
+            battery_state.charge_remaining = msg->remaining;
+        }
+
         state_manager_.setBatteryState(battery_state);
     }
 
     void attitudeCallback(const VehicleAttitude::SharedPtr msg)
     {
+        if (!std::isfinite(msg->q[0]) || !std::isfinite(msg->q[1]) ||
+            !std::isfinite(msg->q[2]) || !std::isfinite(msg->q[3])) {
+            RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 1000,
+                "Rejecting non-finite attitude quaternion");
+            return;
+        }
         StampedQuaternion attitude(get_time(), Eigen::Quaterniond(msg->q[0], msg->q[1], msg->q[2], msg->q[3]));
         state_manager_.setAttitude(attitude);
     }
@@ -811,7 +858,7 @@ private:
         const Stamped3DVector&   velocity       = state_manager_.getGlobalVelocity();
         const StampedQuaternion& attitude       = state_manager_.getAttitude();
         const Stamped4DVector&   target_profile = state_manager_.getTargetPositionProfile();
-        const Eigen::Vector3d    euler          = transformations_.quaternionToEuler(attitude.quaternion());
+        const EulerAngles        euler          = transformations_.quaternionToEuler(attitude.quaternion());
 
         // 10 Hz — position and attitude
         {
@@ -832,9 +879,9 @@ private:
         {
             asr_comms::msg::TelemetryAttitude msg{};
             msg.timestamp   = attitude.timestamp.seconds();
-            msg.orientation = {static_cast<float>(euler.x()),   // roll
-                               static_cast<float>(euler.y()),   // pitch
-                               static_cast<float>(euler.z())};  // yaw
+            msg.orientation = {static_cast<float>(euler.roll),
+                               static_cast<float>(euler.pitch),
+                               static_cast<float>(euler.yaw)};
             telemetry_attitude_pub_->publish(msg);
         }
 
@@ -949,8 +996,8 @@ private:
                 tsp.ref_acc_x = static_cast<float>(target_point.acceleration.x());
                 tsp.ref_acc_y = static_cast<float>(target_point.acceleration.y());
                 tsp.ref_acc_z = static_cast<float>(target_point.acceleration.z());
-                const Eigen::Vector3d ref_euler = transformations_.quaternionToEuler(target_point.orientation);
-                tsp.ref_yaw = static_cast<float>(ref_euler.x());
+                const EulerAngles ref_euler = transformations_.quaternionToEuler(target_point.orientation);
+                tsp.ref_yaw = static_cast<float>(ref_euler.yaw);
                 trajectory_setpoint_pub_->publish(tsp);
             }
         }
@@ -980,8 +1027,14 @@ private:
         double dt = (get_time() - position.getTime()).seconds(); //
 
         if (dt > timeout_threshold_) {
-            RCLCPP_WARN(get_logger(), "No position or velocity data received!");
-            return Eigen::Vector4d::Zero();
+            // Do NOT return a zero vector here: thrust 0 means zero motor thrust (free-fall).
+            // Hold a level attitude at the estimated hover thrust so the aircraft maintains
+            // altitude. The (5 Hz) safety timer independently escalates to blind land when
+            // position-timeout checking is enabled.
+            RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 500,
+                "Stale position/velocity (dt=%.2fs) — holding level attitude at hover thrust", dt);
+            const EulerAngles euler_now = transformations_.quaternionToEuler(attitude.quaternion());
+            return Eigen::Vector4d(0.0, 0.0, euler_now.yaw, controller_.hover_thrust_estimate_);
         }
 
         // Keep trajectory velocity in NED frame
@@ -1050,10 +1103,10 @@ private:
         control_detail_pub_->publish(cd);
 
         // Set yaw from trajectory
-        Eigen::Vector3d target_euler = transformations_.quaternionToEuler(
+        EulerAngles target_euler = transformations_.quaternionToEuler(
             state_manager_.getTargetAttitude().quaternion()
         );
-        output.z() = target_euler.x();
+        output.z() = target_euler.yaw;
 
         return output;
     }
@@ -1168,6 +1221,16 @@ private:
             drone_state.timestamp = get_time();
             drone_state.flight_time = rclcpp::Duration(0, 0);
             state_manager_.setDroneState(drone_state);
+
+            // Fresh control session: clear PID error/integral state so windup from a previous
+            // flight is not carried into this takeoff. Safe to touch here — control_timer_ is
+            // null (controlLoop not running) and we hold current_control_mode_mutex_.
+            prev_position_error_ = PositionError{};
+            prev_velocity_error_ = VelocityError{};
+            prev_acceleration_error_ = AccelerationError{};
+            state_manager_.setLatestControlSignalPosition(Eigen::Vector3d::Zero());
+            state_manager_.setLatestControlSignalVelocity(Eigen::Vector4d::Zero());
+
             control_timer_ = create_wall_timer(10ms, [this]() { controlLoop(); });
             RCLCPP_INFO(get_logger(), "Control loop started with mode: %d", mode);
         }
@@ -1176,9 +1239,9 @@ private:
     Eigen::Vector4d safetyLandBlindMode(){
         DroneState drone_state = state_manager_.getDroneState();
         // Get current yaw of the drone
-        StampedQuaternion attitude = state_manager_.getAttitude(); 
-        Eigen::Vector3d euler = transformations_.quaternionToEuler(attitude.quaternion());
-        
+        StampedQuaternion attitude = state_manager_.getAttitude();
+        EulerAngles euler = transformations_.quaternionToEuler(attitude.quaternion());
+
         if (drone_state.flight_mode != FlightMode::SAFETYLAND_BLIND)
         {
             // Make the drone go into safety land mode
@@ -1211,7 +1274,8 @@ private:
             }
         }
 
-        return Eigen::Vector4d(euler.x(), euler.y(), euler.z(), safety_thrust_);
+        // Hold the current attitude while ramping thrust down (blind descent).
+        return Eigen::Vector4d(euler.roll, euler.pitch, euler.yaw, safety_thrust_);
     }
 
     void landPositionMode()
@@ -1308,7 +1372,11 @@ private:
 
     void publishAttitudeSetpoint(const Eigen::Vector4d &input)
     {
-        Eigen::Quaterniond q = transformations_.eulerToQuaternion(input.x(), input.y(), input.z());
+        // Defense-in-depth: never command roll/pitch beyond the tilt limit, regardless of
+        // which control mode produced the setpoint (yaw is unconstrained heading).
+        const double roll  = std::clamp(input.x(), -controller_.max_tilt_angle_, controller_.max_tilt_angle_);
+        const double pitch = std::clamp(input.y(), -controller_.max_tilt_angle_, controller_.max_tilt_angle_);
+        Eigen::Quaterniond q = transformations_.eulerToQuaternion(roll, pitch, input.z());
         VehicleAttitudeSetpoint msg{};
         msg.timestamp = get_time().nanoseconds() / 1000;
         msg.q_d = {static_cast<float>(q.w()), static_cast<float>(q.x()), static_cast<float>(q.y()), static_cast<float>(q.z())};
@@ -1533,15 +1601,14 @@ private:
                 RCLCPP_WARN(get_logger(), "Rejected: goto yaw is not a finite real number (value: %f).", goal->yaw);
                 return rclcpp_action::GoalResponse::REJECT;
             } else if (geofence_violated(Eigen::Vector3d(goal->target_pose[0], goal->target_pose[1], goal->target_pose[2]))) {
-                RCLCPP_WARN(get_logger(), "Rejected: target position (x: %f, y: %f, z: %f) would violate geofence.", 
+                RCLCPP_WARN(get_logger(), "Rejected: target position (x: %f, y: %f, z: %f) would violate geofence.",
                             goal->target_pose[0], goal->target_pose[1], goal->target_pose[2]);
                 return rclcpp_action::GoalResponse::REJECT;
             }
-            else if (goal->command_type == "manual_aided") {
+        } else if (goal->command_type == "manual_aided") {
             if (drone_state.flight_mode == FlightMode::MANUAL_AIDED || drone_state.arming_state != ArmingState::ARMED) {
                 RCLCPP_WARN(get_logger(), "Rejected: already in manual aided mode or drone not armed.");
                 return rclcpp_action::GoalResponse::REJECT;
-            }
             }
         } else if (goal->command_type == "test_multi_waypoint") {
             if (drone_state.arming_state != ArmingState::ARMED) {
@@ -1924,6 +1991,7 @@ private:
     rclcpp::Time safety_land_start_time_;
     bool safety_check_battery_;
     float safety_battery_threshold_;
+    float battery_timeout_threshold_;
     bool safety_check_geofence_;
     float safety_geofence_radius_;
     float safety_geofence_height_;

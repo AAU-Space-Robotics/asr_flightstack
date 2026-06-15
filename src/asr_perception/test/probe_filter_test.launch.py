@@ -47,16 +47,17 @@ def _load_camera_params() -> dict:
 def generate_launch_description():
     camera_params = _load_camera_params()
 
-    probe_filter = Node(
+    detection_filter = Node(
         package='asr_perception',
-        executable='probe_filter',
-        name='probe_filter',
+        executable='detection_filter',
+        name='detection_filter',
         parameters=[{
             **camera_params,
-            'min_observations':  3,
-            'merge_distance_m':  0.6,
-            'max_distance_m':    4.0,
-            'track_timeout_s':  10.0,
+            'min_observations':       3,
+            'merge_distance_m':       0.6,
+            'max_distance_m':         4.0,
+            'aruco_min_observations': 2,
+            'publish_rate_hz':        1.0,
         }],
     )
 
@@ -87,4 +88,4 @@ def generate_launch_description():
         }],
     )
 
-    return LaunchDescription([probe_filter, probe_filter_sim])
+    return LaunchDescription([detection_filter, probe_filter_sim])

@@ -19,14 +19,14 @@ Eigen::Quaterniond Transformations::eulerToQuaternion(double roll, double pitch,
     return q.normalized();
 }
 
-Eigen::Vector3d Transformations::quaternionToEuler(const Eigen::Quaterniond& q) const {
-    // Get Euler angles in ZYX convention (yaw, pitch, roll)
-    Eigen::Vector3d euler = q.toRotationMatrix().eulerAngles(2, 1, 0);
-    
+EulerAngles Transformations::quaternionToEuler(const Eigen::Quaterniond& q) const {
+    // Get Euler angles in ZYX convention. eulerAngles(2,1,0) returns [Z, Y, X] = [yaw, pitch, roll].
+    Eigen::Vector3d zyx = q.toRotationMatrix().eulerAngles(2, 1, 0);
+
     // Extract yaw, pitch, roll
-    double yaw = euler.x();
-    double pitch = euler.y();
-    double roll = euler.z();
+    double yaw = zyx.x();
+    double pitch = zyx.y();
+    double roll = zyx.z();
 
     // Normalize pitch to [-π/2, π/2] to avoid gimbal lock ambiguities
     if (std::abs(pitch) > M_PI / 2) {
@@ -41,8 +41,7 @@ Eigen::Vector3d Transformations::quaternionToEuler(const Eigen::Quaterniond& q) 
     pitch = unwrapAngle(pitch, 2 * M_PI, 0);
     roll = unwrapAngle(roll, 2 * M_PI, 0);
 
-    // Ensure yaw is in [0, 2π] and consistent with input
-    return Eigen::Vector3d(yaw, pitch, roll);
+    return EulerAngles{roll, pitch, yaw};
 }
 
 Eigen::Vector3d Transformations::errorGlobalToLocal(const Eigen::Vector3d& error_ned_earth, 
