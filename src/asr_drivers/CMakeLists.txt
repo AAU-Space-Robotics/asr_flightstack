@@ -57,6 +57,7 @@ install(PROGRAMS
 
 install(PROGRAMS
   script/rtk_base/rtcm_reader.py
+  script/rtk_base/ublox_diag.py
   DESTINATION lib/${PROJECT_NAME}
 )
 

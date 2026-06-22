@@ -2,6 +2,8 @@
 #include "serial_port.h"
 #include "udp_socket.h"
 
+#include <algorithm>
+#include <cctype>
 #include <chrono>
 #include <cstring>
 #include <glob.h>
@@ -15,16 +17,44 @@ static constexpr char     DEFAULT_TARGET_IP[] = "127.0.0.1";
 static constexpr uint16_t DEFAULT_TARGET_PORT = 14551;
 static constexpr size_t   UDP_BUF_SIZE        = 2048;
 
+// The u-blox GNSS receiver belongs to rtcm_reader, not us. Identify it by its
+// stable by-id name so auto-detection never collides with the RTK base.
+static bool looks_like_gps(const std::string& name)
+{
+    std::string lower(name);
+    std::transform(lower.begin(), lower.end(), lower.begin(),
+                   [](unsigned char c) { return std::tolower(c); });
+    return lower.find("u-blox") != std::string::npos ||
+           lower.find("gnss")   != std::string::npos;
+}
+
+// Pick the telemetry radio's serial device, independent of USB enumeration
+// order. Prefer the stable /dev/serial/by-id/ symlinks and skip the GPS; fall
+// back to raw tty nodes only when by-id is unavailable.
 static std::string auto_detect_serial()
 {
-    for (const char* pattern : {"/dev/ttyUSB*", "/dev/ttyACM*"}) {
-        glob_t g{};
-        if (glob(pattern, 0, nullptr, &g) == 0 && g.gl_pathc > 0) {
-            std::string path = g.gl_pathv[0];
-            globfree(&g);
-            return path;
+    glob_t g{};
+    if (glob("/dev/serial/by-id/*", 0, nullptr, &g) == 0) {
+        std::string pick;
+        for (size_t i = 0; i < g.gl_pathc; ++i) {
+            const std::string path = g.gl_pathv[i];
+            if (!looks_like_gps(path)) { pick = path; break; }
         }
         globfree(&g);
+        if (!pick.empty()) return pick;
+    } else {
+        globfree(&g);
+    }
+
+    // Fallback: no by-id available, take the first raw device node.
+    for (const char* pattern : {"/dev/ttyUSB*", "/dev/ttyACM*"}) {
+        glob_t gf{};
+        if (glob(pattern, 0, nullptr, &gf) == 0 && gf.gl_pathc > 0) {
+            std::string path = gf.gl_pathv[0];
+            globfree(&gf);
+            return path;
+        }
+        globfree(&gf);
     }
     throw std::runtime_error("No serial radio found — is the USB radio module plugged in?");
 }

@@ -95,6 +95,7 @@
       focal_length:
         x: 910.7153
         y: 910.8062
+      baseline: 0.05   # meters
       principal_point:
         x: 641.7375
         y: 370.1866

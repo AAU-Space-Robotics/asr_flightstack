@@ -65,10 +65,18 @@ static Eigen::Matrix<double, 6, 6> probe_Q()
     return Q;
 }
 
-static Eigen::Matrix<double, 3, 3> probe_R(double confidence = 1.0)
+static Eigen::Matrix3d probe_R(double depth, double fx, double baseline)
 {
-    constexpr double kSigma = 0.05 * 0.05;
-    return (kSigma / confidence) * Eigen::Matrix3d::Identity();
+    constexpr double kAlpha = 1.0;
+    constexpr double kBias  = 0.0;
+    constexpr double kBaseSigma2 = 0.05 * 0.05;
+
+    const double depth_sq = depth * depth;
+    const double fb = fx * baseline;
+    double distance_variance = kAlpha * (depth_sq * depth_sq) / (fb * fb) + kBias;
+    double total_variance = kBaseSigma2 + distance_variance;
+
+    return total_variance * Eigen::Matrix3d::Identity();
 }
 
 // ---------------------------------------------------------------------------
@@ -112,7 +120,8 @@ static Eigen::Matrix<double, 6, 6> aruco_R()
 // ---------------------------------------------------------------------------
 // Track initializers
 // ---------------------------------------------------------------------------
-static ProbeTrack init_probe_track(uint32_t id, const Eigen::Vector3d& z, double now_s)
+static ProbeTrack init_probe_track(uint32_t id, const Eigen::Vector3d& z, double now_s,
+                                    double depth, double fx, double baseline)
 {
     ProbeTrack t;
     t.id             = id;
@@ -124,7 +133,7 @@ static ProbeTrack init_probe_track(uint32_t id, const Eigen::Vector3d& z, double
     t.P.topLeftCorner<3, 3>()     = (0.05 * 0.05) * Eigen::Matrix3d::Identity();
     t.P.bottomRightCorner<3, 3>() = (0.10 * 0.10) * Eigen::Matrix3d::Identity();
     const auto H = probe_H();
-    t.S = H * t.P * H.transpose() + probe_R();
+    t.S = H * t.P * H.transpose() + probe_R(depth, fx, baseline);
     return t;
 }
 
@@ -158,6 +167,7 @@ public:
         declare_parameter("fy", 425.88);
         declare_parameter("cx", 430.51);
         declare_parameter("cy", 238.53);
+        declare_parameter("baseline", 0.05);  // for depth variance model
         declare_parameter("camera_to_drone_transform", std::vector<double>(16, 0.0));
         declare_parameter("min_observations",          3);
         declare_parameter("merge_distance_m",          0.6);
@@ -169,6 +179,7 @@ public:
         fy_ = get_parameter("fy").as_double();
         cx_ = get_parameter("cx").as_double();
         cy_ = get_parameter("cy").as_double();
+        baseline_ = get_parameter("baseline").as_double();
 
         const auto T_flat = get_parameter("camera_to_drone_transform").as_double_array();
         if (T_flat.size() == 16) {
@@ -239,17 +250,19 @@ private:
         constexpr double CHI2_GATE = 2.79;  // sqrt(chi2_inv(0.95, 3))
 
         for (uint32_t i = 0; i < det->num_detections; ++i) {
+            // Back-project to camera frame
             const Eigen::Vector3d p_cam =
                 project_to_3d(det->centroid_x[i], det->centroid_y[i], *depth);
             if (p_cam.z() <= 0.0 || p_cam.norm() > max_distance_) continue;
 
+            // Transform to world frame
             const Eigen::Vector4d p_h(p_cam.x(), p_cam.y(), p_cam.z(), 1.0);
             const Eigen::Vector3d p_body  = (T_cam_to_drone_ * p_h).head<3>();
             const Eigen::Vector3d p_world = to_global(p_body, *pose);
 
             const Eigen::Vector3d         z_meas = p_world;
-            const Eigen::Matrix3d         R_meas = probe_R(det->confidence[i]);
-
+            const Eigen::Matrix3d         R_meas = probe_R(p_cam.z(), fx_, baseline_);
+           
             // Nearest-neighbour Mahalanobis association
             double      best_d     = std::numeric_limits<double>::max();
             ProbeTrack* best_track = nullptr;
@@ -263,7 +276,7 @@ private:
                 best_track->predict(Q);
                 best_track->update(z_meas, H, R_meas, now_s);
             } else {
-                probe_tracks_.push_back(init_probe_track(next_probe_id_++, p_world, now_s));
+                probe_tracks_.push_back(init_probe_track(next_probe_id_++, p_world, now_s, p_cam.z(), fx_, baseline_));
             }
         }
     }
@@ -415,7 +428,7 @@ private:
     // -----------------------------------------------------------------------
     // Members
     // -----------------------------------------------------------------------
-    double          fx_, fy_, cx_, cy_;
+    double          fx_, fy_, cx_, cy_, baseline_;
     Eigen::Matrix4d T_cam_to_drone_;
     int             min_obs_probe_;
     int             min_obs_aruco_;

@@ -1,5 +1,6 @@
 # GCS-side comms parameters.
-# serial_port: "auto" picks the first /dev/ttyUSB* or /dev/ttyACM* found.
+# serial_port: "auto" picks the telemetry radio from /dev/serial/by-id/,
+#   skipping the u-blox GNSS receiver (which belongs to rtcm_reader).
 # Set serial_port to "" to fall back to UDP (bind_port / target_ip / target_port).
 
 /asr/gcs/comms_gcs:
@@ -19,8 +20,9 @@
 
 /asr/gcs/rtcm_reader:
   ros__parameters:
-    port: "/dev/ttyACM0"         # Serial device for u-blox receiver
+    port: "auto"                 # "auto" finds the u-blox by its by-id name; or set an explicit device
     baudrate: 115200
     configure_receiver: true     # Run u-blox config + survey-in on startup
     survey_min_duration: 220     # Survey-in minimum duration (seconds)
     survey_accuracy_mm: 25000    # Survey-in accuracy limit in mm (25000 mm = 25 m)
+    measurement_rate_hz: 1.0     # RTCM observation rate (Hz); 1 Hz is the RTK standard and keeps the telemetry link light
