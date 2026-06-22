@@ -66,12 +66,22 @@ NMEA_IDS = [0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x08]
 # Observations go out every epoch; the static base position (1005) and GLONASS
 # code-phase biases (1230) only change slowly, so a larger divisor sends them
 # every few seconds and keeps the telemetry link light.
+# RTCM_MSGS = [
+#     (0xF5, 0x05, 1005, 5),  # base station position      — static, every 5th epoch
+#     (0xF5, 0x4A, 1074, 1),  # GPS MSM4                    — every epoch
+#     (0xF5, 0x54, 1084, 1),  # GLONASS MSM4                — every epoch
+#     (0xF5, 0x5E, 1094, 1),  # Galileo MSM4                — every epoch
+#     (0xF5, 0x7D, 1124, 1),  # BeiDou MSM4 — every epoch
+#     (0xF5, 0x7B, 1230, 5),  # GLONASS code-phase biases   — static, every 5th epoch
+# ]
+
+
 RTCM_MSGS = [
-    (0xF5, 0x05, 1005, 5),  # base station position      — static, every 5th epoch
-    (0xF5, 0x4A, 1074, 1),  # GPS MSM4                    — every epoch
-    (0xF5, 0x54, 1084, 1),  # GLONASS MSM4                — every epoch
-    (0xF5, 0x5E, 1094, 1),  # Galileo MSM4                — every epoch
-    (0xF5, 0x7B, 1230, 5),  # GLONASS code-phase biases   — static, every 5th epoch
+    (0xF5, 0x05, 1005, 5),   # base station position
+    (0xF5, 0x4D, 1077, 1),   # GPS MSM7        — was 0x4A/1074
+    (0xF5, 0x57, 1087, 1),   # GLONASS MSM7     — was 0x54/1084
+    (0xF5, 0x61, 1097, 1),   # Galileo MSM7     — was 0x5E/1094
+    (0xF5, 0x7B, 1230, 5),   # GLONASS biases
 ]
 
 

@@ -24,5 +24,5 @@
     baudrate: 115200
     configure_receiver: true     # Run u-blox config + survey-in on startup
     survey_min_duration: 220     # Survey-in minimum duration (seconds)
-    survey_accuracy_mm: 25000    # Survey-in accuracy limit in mm (25000 mm = 25 m)
-    measurement_rate_hz: 1.0     # RTCM observation rate (Hz); 1 Hz is the RTK standard and keeps the telemetry link light
+    survey_accuracy_mm: 600    # Survey-in accuracy limit in mm (25000 mm = 25 m)
+    measurement_rate_hz: 2.0     # RTCM observation rate (Hz); 1 Hz is the RTK standard and keeps the telemetry link light
