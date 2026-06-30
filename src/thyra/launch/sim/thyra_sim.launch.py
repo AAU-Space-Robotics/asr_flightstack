@@ -12,7 +12,7 @@ def generate_launch_description():
     pkg_share = FindPackageShare('asr_autopilot')
     thyra_pkg_share = FindPackageShare('thyra')
 
-    px4_dir = os.path.expanduser('~/asr_workspace/PX4-Autopilot_thyra')
+    px4_dir = os.path.expanduser('~/aau_workspace/PX4-Autopilot_thyra')
     
     # Path to the thyra simulation config file
     params_path = PathJoinSubstitution([thyra_pkg_share, 'config', 'uav', 'thyra_params_sim.yaml'])
@@ -62,7 +62,7 @@ def generate_launch_description():
                 echo "Trying to cd into: {px4_dir}" && \
                 cd {px4_dir} && \
                 echo "Now in: $(pwd)" && \
-                export GAZEBO_RESOURCE_PATH=~/asr_workspace/PX4-Autopilot_thyra/Tools/simulation/gz/worlds:$GAZEBO_RESOURCE_PATH && \
+                export GAZEBO_RESOURCE_PATH=~/aau_workspace/PX4-Autopilot_thyra/Tools/simulation/gz/worlds:$GAZEBO_RESOURCE_PATH && \
                 echo "Now running PX4 SITL with Gazebo X500 world" && \
                 make px4_sitl gz_x500_lidar_down_windy > /dev/null 2>&1
                 '''

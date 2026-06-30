@@ -48,6 +48,70 @@ enum trajectoryMethod {
     MIN_SNAP
 };
 
+struct QuinticCoeffs{
+    std::array<double, 6> coeffs;
+
+    static QuinticCoeffs solve(double init_pos, double final_pos, double T,
+                              double init_vel = 0, double final_vel = 0,
+                              double init_acc = 0, double final_acc = 0) {
+       double T2 = T * T, T3 = T2 * T, T4 = T3 * T, T5 = T4 * T;
+       double A[6][6] = {
+        {0, 0, 0, 0, 0, 1},
+        {T5, T4, T3, T2, T, 1},
+        {0, 0, 0, 0, 1, 0},
+        {5*T4, 4*T3, 3*T2, 2*T, 1, 0},
+        {0, 0, 0, 2, 0, 0},
+        {20*T3, 12*T2, 6*T, 2, 0, 0}
+       };
+
+       double b[6] = {init_pos, final_pos, init_vel, final_vel, init_acc, final_acc};
+
+        // Gaussian stuff
+        for (int i= 0; i < 6; ++i) {
+            int piv = i;
+            for ( int k = i + 1; k < 6; ++k) {
+                if (std::abs(A[k][i]) > std::abs(A[piv][i])) {
+                    piv = k;
+                }
+            }
+            std::swap(A[i], A[piv]);
+            std::swap(b[i], b[piv]);
+            for (int k = i + 1; k < 6; ++k) {
+                double factor = A[k][i] / A[i][i];
+                for (int j = i; j < 6; ++j) {
+                    A[k][j] -= factor * A[i][j];
+                }
+                b[k] -= factor * b[i];
+            }
+        }
+        QuinticCoeffs out{};
+         for (int i = 5; i >= 0; --i) {
+            double sum = b[i];
+            for (int j = i + 1; j < 6; ++j) {
+                sum -= A[i][j] * out.coeffs[j];
+            }
+            out.coeffs[i] = sum / A[i][i];
+        }
+        return out;
+    }
+    // Evaluate the polynomial and its derivatives at a given time t
+    std::array<double, 3> eval(double x) const {
+        double p   = ((((coeffs[0]*x + coeffs[1])*x + coeffs[2])*x + coeffs[3])*x + coeffs[4])*x + coeffs[5];
+        double dp  = (((5*coeffs[0]*x + 4*coeffs[1])*x + 3*coeffs[2])*x + 2*coeffs[3])*x + coeffs[4];
+        double ddp = ((20*coeffs[0]*x + 12*coeffs[1])*x + 6*coeffs[2])*x + 2*coeffs[3];
+        return {p, dp, ddp};
+    }
+};
+
+struct CircleTrajectory {
+    Eigen::Vector3d position;
+    Eigen::Vector3d velocity;
+    Eigen::Vector3d acceleration;
+    Eigen::Quaterniond orientation; // yaw = theta, i.e. facing radially outward
+    double theta;      // current angle
+    double theta_dot; 
+};
+
 class PathPlanner {
 public:
     PathPlanner();
@@ -60,7 +124,9 @@ public:
     float max_angular_velocity_ = 0.2;       
       
     double getTotalTime() const;
-    
+
+    double totalTime() const { return T; }
+
     // Multi-waypoint trajectory generation
     bool GenerateMultiWaypointTrajectory(
         const std::vector<Waypoint>& waypoints,
@@ -109,6 +175,12 @@ public:
 
     bool setAngularVelocity(float angular_velocity);
 
+    void Circle_plan(const Eigen::Vector3d& center, double radius, double revolutions, double start_theta = 0.0);
+
+    CircleTrajectory get_Circle_Trajectory(double t) const;
+
+    bool isCircle() const { return is_circle;}
+    
 private:
     double total_time;
     Eigen::Vector3d start_vel;
@@ -118,6 +190,12 @@ private:
     Eigen::Quaterniond end_quat;
     trajectorySegment yaw_segment;
     bool use_yaw_polynomial = false;
+
+    double T = 0.0;
+    bool is_circle = false;
+    Eigen::Vector3d circle_center;
+    QuinticCoeffs radius_poly;
+    QuinticCoeffs theta_poly;
     
     // Multi-waypoint support
     std::vector<TrajectorySegmentInfo> segment_info_;

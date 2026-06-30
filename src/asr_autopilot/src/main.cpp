@@ -967,10 +967,22 @@ private:
         // Sample trajectory if active, else if landed, disarm
         if (drone_state.trajectory_mode == TrajectoryMode::ACTIVE) {
             double dt = (get_time() - drone_state.trajectory_start_time_).seconds();
+
             if (dt > path_planner_.getTotalTime()) {
                 drone_state.trajectory_mode = TrajectoryMode::COMPLETED;
                 state_manager_.setDroneState(drone_state);
-                FullTrajectoryPoint final_point = path_planner_.getTrajectoryPoint(path_planner_.getTotalTime(), trajectoryMethod::MIN_SNAP);
+                FullTrajectoryPoint final_point;
+                
+                if (path_planner_.isCircle()) {
+                    CircleTrajectory c = path_planner_.get_Circle_Trajectory(path_planner_.getTotalTime());
+                    final_point.position = c.position;
+                    final_point.velocity = c.velocity;
+                    final_point.acceleration = c.acceleration;
+                    final_point.orientation = c.orientation;
+                }
+                else{
+                    final_point = path_planner_.getTrajectoryPoint(path_planner_.getTotalTime(), trajectoryMethod::MIN_SNAP);
+                }
                 Stamped4DVector target_profile(get_time(), final_point.position.x(), final_point.position.y(), final_point.position.z(), 0.0);
                 Stamped3DVector target_velocity_profile(get_time(), final_point.velocity.x(), final_point.velocity.y(), final_point.velocity.z());
                 state_manager_.setTargetPositionProfile(target_profile);
@@ -978,7 +990,17 @@ private:
                 state_manager_.setTargetAttitude(StampedQuaternion(get_time(), final_point.orientation));
             }
             else { // If trajectory is still active
-                FullTrajectoryPoint target_point = path_planner_.getTrajectoryPoint(dt, trajectoryMethod::MIN_SNAP);
+                FullTrajectoryPoint target_point;
+                if (path_planner_.isCircle()){
+                    CircleTrajectory c = path_planner_.get_Circle_Trajectory(dt);
+                    target_point.position = c.position;
+                    target_point.velocity = c.velocity;
+                    target_point.acceleration = c.acceleration;
+                    target_point.orientation = c.orientation;
+                } else {
+                    target_point = path_planner_.getTrajectoryPoint(dt, trajectoryMethod::MIN_SNAP);
+                }
+                             
                 Stamped4DVector target_profile(get_time(), target_point.position.x(), target_point.position.y(), target_point.position.z(), 0.0);
                 Stamped3DVector target_velocity_profile(get_time(), target_point.velocity.x(), target_point.velocity.y(), target_point.velocity.z());
                 state_manager_.setTargetPositionProfile(target_profile);
@@ -1278,6 +1300,7 @@ private:
         return Eigen::Vector4d(euler.roll, euler.pitch, euler.yaw, safety_thrust_);
     }
 
+
     void landPositionMode()
     {
         // Get current state of the drone
@@ -1508,7 +1531,9 @@ private:
     rclcpp_action::GoalResponse handleDroneCommand(const rclcpp_action::GoalUUID & /*uuid*/,
                                                 std::shared_ptr<const DroneCommand::Goal> goal)
     {
-        static const std::vector<std::string> allowed_commands = {"arm", "disarm", "takeoff", "goto", "land", "estop", "eland", "manual", "manual_aided", "set_origin", "set_linear_speed", "set_angular_speed", "spin", "test_multi_waypoint"};
+        static const std::vector<std::string> allowed_commands = {"arm", "disarm", "takeoff", "goto", "land", "estop", "eland", 
+            "manual", "manual_aided", "set_origin", "set_linear_speed",
+            "set_angular_speed", "spin", "test_multi_waypoint", "circle"};
         RCLCPP_INFO(get_logger(), "Received goal request with command_type: %s", goal->command_type.c_str());
 
         DroneState drone_state = state_manager_.getDroneState();
@@ -1566,6 +1591,19 @@ private:
                 goal->target_pose[1] < 0.0 || (goal->target_pose[2] != 0.0 && goal->target_pose[2] != 1.0) ||
                 !std::isfinite(goal->target_pose[0]) || !std::isfinite(goal->target_pose[1]) || !std::isfinite(goal->target_pose[2])) {
                 RCLCPP_WARN(get_logger(), "Rejected: invalid spin parameters, drone not armed, negative rotations, invalid path selection, or non-finite values.");
+                return rclcpp_action::GoalResponse::REJECT;
+            }
+        
+        }else if (goal->command_type == "circle") {
+            if (goal->target_pose.size() != 2 || drone_state.arming_state != ArmingState::ARMED){
+                RCLCPP_WARN(get_logger(), "Rejected: invalid circle parameters, radius, revolutions, or armed");
+                return rclcpp_action::GoalResponse::REJECT;
+            } else if(goal->target_pose[0] < 0.0 ||  goal->target_pose[1] < 0.0){
+                RCLCPP_WARN(get_logger(), "Rejected: values have to be more than 0");
+                return rclcpp_action::GoalResponse::REJECT;
+            } else if(!std::isfinite(goal->target_pose[0]) || !std::isfinite(goal->target_pose[1])){
+                RCLCPP_WARN(get_logger(), "Rejected: values are not finite real numbers (radius: %f, revolutions: %f).", 
+                            goal->target_pose[0], goal->target_pose[1]);
                 return rclcpp_action::GoalResponse::REJECT;
             }
         } else if (goal->command_type == "takeoff") {
@@ -1846,6 +1884,31 @@ private:
         }
     }
 
+    void executeCircle(const std::shared_ptr<const DroneCommand::Goal> goal,
+                            std::shared_ptr<DroneCommand::Result> result){
+
+        setDroneMode(FlightMode::POSITION);
+        ensureControlLoopRunning(2);
+        
+        TrajectoryInitState init_state = state_manager_.getTrajectoryInitState();
+
+        double radius = goal->target_pose[0];
+        double revolutions = goal->target_pose[1];
+        double start_theta = transformations_.unwrapAngle(
+                                transformations_.quaternionToEuler(init_state.orientation).yaw, 2 * M_PI, 0
+                                );
+
+
+        path_planner_.Circle_plan(init_state.position, radius, revolutions, start_theta);
+
+        activateTrajectory(path_planner_.totalTime());
+
+        result->success = true;
+        result->message = "Drone moving in a circle";
+        
+
+    }
+
     void execute(const std::shared_ptr<GoalHandleDroneCommand> goal_handle)
     {
         const auto goal = goal_handle->get_goal();
@@ -1893,6 +1956,9 @@ private:
             }
             else if (goal->command_type == "set_angular_speed") {
                 executeSetAngularSpeed(goal, result);
+            }
+            else if (goal->command_type == "circle") {
+                executeCircle(goal, result);
             }
             else
             {

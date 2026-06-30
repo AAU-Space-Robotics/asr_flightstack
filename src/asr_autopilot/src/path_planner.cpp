@@ -31,7 +31,7 @@ bool PathPlanner::GenerateTrajectory(
     std::lock_guard<std::recursive_mutex> lock(planner_mutex_);
     use_yaw_polynomial = false;
     is_multi_waypoint_ = false;  // Single segment trajectory
-
+    is_circle = false;
     // Calculate the time required for the trajectory based on distance and velocity
     float distance = (end_pos - start_pos).norm();
     float current_yaw = transformations_.unwrapAngle(transformations_.quaternionToEuler(start_quat).yaw, 2 * M_PI, 0);
@@ -62,6 +62,7 @@ bool PathPlanner::GenerateSpinTrajectory(
     bool use_longest_path,
     trajectoryMethod method) {
     std::lock_guard<std::recursive_mutex> lock(planner_mutex_);
+    is_circle = false;
     // Position remains constant (no translation during spin)
     // Get current yaw from start quaternion
     float current_yaw = transformations_.unwrapAngle(transformations_.quaternionToEuler(start_quat).yaw, 2 * M_PI, 0);
@@ -370,4 +371,63 @@ ConstraintCheckResult PathPlanner::checkConstraints(int num_samples) const {
     }
     
     return result;
+}
+
+void PathPlanner::Circle_plan(const Eigen::Vector3d& center, double radius, double revolutions, double start_theta){
+                std::lock_guard<std::recursive_mutex> lock(planner_mutex_);
+                
+                is_circle = true;
+                is_multi_waypoint_ = false;
+                use_yaw_polynomial = false;
+
+                circle_center = center;
+
+                float linear_distance = static_cast<float>(2.0 * M_PI * radius * revolutions);
+                float angular_distance = static_cast<float>(2.0 * M_PI * revolutions);
+
+                float linear_duration = calculateDuration(linear_distance, current_linear_velocity_, min_linear_velocity_, max_linear_velocity_);
+                float angular_duration = calculateDuration(angular_distance, current_angular_velocity_, min_angular_velocity_, max_angular_velocity_);
+
+                T = std::max({linear_duration, angular_duration, 0.1f});
+                total_time = T; 
+
+                radius_poly = QuinticCoeffs::solve(0.0, radius, T, 0.0, 0.0, 0.0, 0.0);
+
+                double theta_end = start_theta + revolutions * 2.0 * M_PI;
+                theta_poly = QuinticCoeffs::solve(start_theta, theta_end, T, 0.0, 0.0, 0.0, 0.0);
+
+            }
+
+CircleTrajectory PathPlanner::get_Circle_Trajectory(double t) const {
+    std::lock_guard<std::recursive_mutex> lock(planner_mutex_);
+
+    CircleTrajectory traj;
+    if (!is_circle) {
+        return traj; // Return empty trajectory if not a circle
+    }
+
+    // Clamp time to [0, T]
+    double clamped_t = std::min(std::max(t, 0.0), T);
+
+    // Evaluate radius and theta polynomials
+    auto [radius, radius_dot, radius_ddot] = radius_poly.eval(clamped_t);
+    auto [theta, theta_dot, theta_ddot] = theta_poly.eval(clamped_t);
+
+    double cosine = std::cos(theta), sinus = std::sin(theta);
+
+    double x = radius * cosine;
+    double y = radius * sinus;
+    double vx = radius_dot * cosine - radius * theta_dot * sinus;
+    double vy = radius_dot * sinus + radius * theta_dot * cosine;
+    double ax = radius_ddot * cosine - 2 * radius_dot * theta_dot * sinus - radius * theta_ddot * sinus - radius * theta_dot * theta_dot * cosine; 
+    double ay = radius_ddot * sinus + 2 * radius_dot * theta_dot * cosine + radius * theta_ddot * cosine - radius * theta_dot * theta_dot * sinus;
+
+    CircleTrajectory out;
+    out.position = circle_center + Eigen::Vector3d(x, y, 0.0);
+    out.velocity = Eigen::Vector3d(vx, vy, 0.0);
+    out.acceleration = Eigen::Vector3d(ax, ay, 0.0);
+    out.theta = theta;
+    out.theta_dot = theta_dot;
+    out.orientation = Eigen::Quaterniond(Eigen::AngleAxisd(theta, Eigen::Vector3d::UnitZ())).normalized();
+    return out;
 }

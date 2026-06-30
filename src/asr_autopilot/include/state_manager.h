@@ -47,7 +47,8 @@ enum class FlightMode {
     POSITION = 2,
     SAFETYLAND_BLIND = 3,
     BEGIN_LAND_POSITION = 4,
-    LAND_POSITION = 5
+    LAND_POSITION = 5,
+    CIRCLE_SPIN = 6
 };
 // Traits for each FlightMode
 enum class FlightModeTrait {
