@@ -1,0 +1,435 @@
+#ifndef STATE_MANAGER_H
+#define STATE_MANAGER_H
+
+#include <atomic>
+#include <stdint.h>
+#include <cmath>
+#include <vector>
+#include <mutex>
+#include <stdexcept>
+#include <unordered_map>
+#include <algorithm>
+#include <eigen3/Eigen/Dense>
+#include <eigen3/Eigen/Core>
+#include <eigen3/Eigen/Geometry>
+#include <eigen3/Eigen/StdVector>
+#include <rclcpp/rclcpp.hpp>
+
+enum class Command {
+    DISARM = 0,
+    ARM = 1,
+    TAKEOFF = 2,
+    GOTO = 3,
+    LAND = 4,
+    ESTOP = 5,
+    MANUAL = 6,
+    MANUAL_AIDED = 7
+};
+
+enum class ArmingState {
+    DISARMED = 0,
+    ARMED = 1,
+    ARMING = 2,
+    DISARMING = 3
+};
+
+enum class GimbalState {
+    Auto = 0,
+    Manual = 1
+};
+
+enum class FlightMode {
+    EMERGENCY_STOP = -3,
+    LANDED = -2,
+    STANDBY = -1,
+    MANUAL = 0,
+    MANUAL_AIDED = 1,
+    POSITION = 2,
+    SAFETYLAND_BLIND = 3,
+    BEGIN_LAND_POSITION = 4,
+    LAND_POSITION = 5
+};
+// Traits for each FlightMode
+enum class FlightModeTrait {
+    ESTOP = -1,
+    STANDBY = 0,
+    MANUAL = 1,
+    AUTONOMOUS = 2
+};
+
+// Example mapping (can be used in a function or static const array)
+static const std::unordered_map<FlightMode, std::vector<FlightModeTrait>> flight_mode_traits_map = {
+    {FlightMode::EMERGENCY_STOP, {FlightModeTrait::ESTOP}},
+    {FlightMode::LANDED, {FlightModeTrait::STANDBY}},
+    {FlightMode::STANDBY, {FlightModeTrait::STANDBY}},
+    {FlightMode::MANUAL, {FlightModeTrait::MANUAL}},
+    {FlightMode::MANUAL_AIDED, {FlightModeTrait::MANUAL}},
+    {FlightMode::POSITION, {FlightModeTrait::AUTONOMOUS}},
+    {FlightMode::SAFETYLAND_BLIND, {FlightModeTrait::AUTONOMOUS}},
+    {FlightMode::BEGIN_LAND_POSITION, {FlightModeTrait::AUTONOMOUS}},
+    {FlightMode::LAND_POSITION, {FlightModeTrait::AUTONOMOUS}}
+};
+
+// Helper function to get traits for a FlightMode
+inline std::vector<FlightModeTrait> getFlightModeTraits(FlightMode mode) {
+    auto it = flight_mode_traits_map.find(mode);
+    if (it != flight_mode_traits_map.end()) {
+        return it->second;
+    }
+    return {};
+}
+
+enum class TrajectoryMode {
+    UNINITIALIZED = -1,
+    INACTIVE = 0,
+    ACTIVE = 1,
+    COMPLETED = 2
+};
+
+struct GlobalProbeLocations {
+    rclcpp::Time stamp = rclcpp::Time(0, 0);
+    std::vector<float> x;
+    std::vector<float> y;
+    std::vector<float> z;
+    std::vector<float> confidence;
+    std::vector<int32_t> contribution;
+    int32_t probe_count = 0;
+
+    GlobalProbeLocations() = default;
+
+    GlobalProbeLocations(const rclcpp::Time& ts, const std::vector<float>& x, const std::vector<float>& y,
+                         const std::vector<float>& z, const std::vector<float>& confidence,
+                         const std::vector<int32_t>& contribution, int32_t probe_count)
+        : stamp(ts), x(x), y(y), z(z), confidence(confidence), contribution(contribution), probe_count(probe_count) {}
+
+    // Getters
+    rclcpp::Time getStamp() const { return stamp; }
+    const std::vector<float>& getX() const { return x; }
+    const std::vector<float>& getY() const { return y; }
+    const std::vector<float>& getZ() const { return z; }
+    const std::vector<float>& getConfidence() const { return confidence; }
+    const std::vector<int32_t>& getContribution() const { return contribution; }
+    int32_t getProbeCount() const { return probe_count; }
+};
+
+// Used to define 3D(~4D), where the last dimension is time 
+struct Stamped3DVector {
+    rclcpp::Time timestamp = rclcpp::Time(0, 0);
+    Eigen::Vector3d data = Eigen::Vector3d::Zero();
+
+    // Default constructor
+    Stamped3DVector() = default;
+
+    // Constructor with timestamp and components (added for controlMode and manualAidedMode)
+    Stamped3DVector(const rclcpp::Time& ts, double x, double y, double z)
+        : timestamp(ts), data(x, y, z) {}
+
+    // Get individual components
+    double x() const { return data.x(); }
+    double y() const { return data.y(); }
+    double z() const { return data.z(); }
+
+    // Set individual components
+    void setX(double value) { data.x() = value; }
+    void setY(double value) { data.y() = value; }
+    void setZ(double value) { data.z() = value; }
+
+    // Get the full vector
+    const Eigen::Vector3d& vector() const { return data; }
+    Eigen::Vector3d& vector() { return data; }
+
+    // Get and set timestamp
+    rclcpp::Time getTime() const { return timestamp; }
+    void setTime(const rclcpp::Time& new_time) { timestamp = new_time; }
+};
+
+struct Stamped4DVector {
+    rclcpp::Time timestamp = rclcpp::Time(0, 0);
+    Eigen::Vector4d data = Eigen::Vector4d::Zero();
+
+    // Default constructor
+    Stamped4DVector() = default;
+
+    // Constructor with timestamp and components (added for execute function)
+    Stamped4DVector(const rclcpp::Time& ts, double x, double y, double z, double w)
+        : timestamp(ts), data(x, y, z, w) {}
+
+    // Get individual components
+    double x() const { return data.x(); }
+    double y() const { return data.y(); }
+    double z() const { return data.z(); }
+    double w() const { return data.w(); }
+
+    // Set individual components
+    void setX(double value) { data.x() = value; }
+    void setY(double value) { data.y() = value; }
+    void setZ(double value) { data.z() = value; }
+    void setW(double value) { data.w() = value; }
+
+    // Get the full vector
+    const Eigen::Vector4d& vector() const { return data; }
+    Eigen::Vector4d& vector() { return data; }
+
+    // Get and set timestamp
+    rclcpp::Time getTime() const { return timestamp; }
+    void setTime(const rclcpp::Time& new_time) { timestamp = new_time; }
+};
+
+struct StampedQuaternion {
+    rclcpp::Time timestamp = rclcpp::Time(0, 0);
+    Eigen::Quaterniond data = Eigen::Quaterniond::Identity();
+
+    // Default constructor
+    StampedQuaternion() = default;
+
+    // Constructor with timestamp and quaternion (added for attitudeCallback)
+    StampedQuaternion(const rclcpp::Time& ts, const Eigen::Quaterniond& quat)
+        : timestamp(ts), data(quat) {}
+
+    // Get individual components
+    double x() const { return data.x(); }
+    double y() const { return data.y(); }
+    double z() const { return data.z(); }
+    double w() const { return data.w(); }
+
+    // Set individual components
+    void setX(double value) { data.x() = value; }
+    void setY(double value) { data.y() = value; }
+    void setZ(double value) { data.z() = value; }
+    void setW(double value) { data.w() = value; }
+
+    // Get the full quaternion
+    const Eigen::Quaterniond& quaternion() const { return data; }
+    Eigen::Quaterniond& quaternion() { return data; } // Allows modification
+
+    // Get and set timestamp
+    rclcpp::Time getTime() const { return timestamp; }
+    void setTime(const rclcpp::Time& new_time) { timestamp = new_time; }
+};
+
+// DroneCmdAck structure
+struct DroneCmdAck {
+    rclcpp::Time timestamp = rclcpp::Time(0, 0);
+    
+    //Command data
+    uint16_t command = 0;
+    uint8_t result = 0;
+};
+
+struct GCSHeartbeat {
+    // default constructor
+    GCSHeartbeat() = default;
+
+    // constructor with timestamp and nominal state
+    GCSHeartbeat(const rclcpp::Time& ts, int8_t nominal)
+        : timestamp(ts), gcs_nominal(nominal) {}
+
+    rclcpp::Time timestamp = rclcpp::Time(0, 0);
+    int8_t gcs_nominal = 0; // 0: not nominal, 1: nominal
+};
+
+// Drone state
+struct DroneState {
+    rclcpp::Time timestamp = rclcpp::Time(0, 0);
+     
+    //Drone state data
+    Command command = Command::DISARM;
+    ArmingState arming_state = ArmingState::DISARMED;
+    FlightMode flight_mode = FlightMode::STANDBY;
+    FlightModeTrait flight_mode_trait = FlightModeTrait::STANDBY;
+    TrajectoryMode trajectory_mode = TrajectoryMode::INACTIVE;
+    rclcpp::Time trajectory_start_time_;
+    rclcpp::Duration trajectory_duration = rclcpp::Duration(0, 0);
+    rclcpp::Duration flight_time = rclcpp::Duration(0, 0); // Total flight time since takeoff, resets on landing/disarming
+};
+
+
+
+// Battery state
+struct BatteryState {
+    rclcpp::Time timestamp = rclcpp::Time(0, 0);
+
+    //Battery state data
+    bool connected = false;     // Whether a battery is currently reported as connected
+    int cell_count = 0;
+    float voltage = 0.0f;
+    float charge_remaining = 0.0f;
+    float discharged_mah = 0.0f;
+    float average_current = 0.0f;
+};
+
+// Controller errors
+struct PIDError {
+    double error          = 0.0;
+    double error_integral = 0.0;
+};
+
+struct PositionError {
+    PIDError X;
+    PIDError Y;
+    PIDError Z;
+    PIDError Yaw;
+};
+
+struct GPSState{
+    float latitude;
+    float longitude;
+    int32_t satellites_used;
+};
+
+struct VelocityError {
+    PIDError X;
+    PIDError Y;
+    PIDError Z;
+};
+
+struct AccelerationError {
+    PIDError X;
+    PIDError Y;
+    PIDError Z;
+};
+
+// Trajectory initialization state bundle
+struct TrajectoryInitState {
+    Eigen::Vector3d position;
+    Eigen::Vector3d position_target_prev;
+    Eigen::Quaterniond orientation;
+    Eigen::Vector3d velocity;
+    Eigen::Vector3d acceleration;
+    double yaw;
+};
+
+// StateManager class definition
+class StateManager {
+public:
+    // Thread-safe setters and getters for NED_Data
+    void setGlobalPosition(const Stamped3DVector& new_data);
+    Stamped3DVector getGlobalPosition();
+
+    void setOrigin(const Stamped3DVector& new_data);
+    Stamped3DVector getOrigin();
+
+    void setGlobalVelocity(const Stamped3DVector& new_data);
+    Stamped3DVector getGlobalVelocity();
+
+    void setGlobalAcceleration(const Stamped3DVector& new_data);
+    Stamped3DVector getGlobalAcceleration();
+
+    void setAttitude(const StampedQuaternion& new_data);
+    StampedQuaternion getAttitude();
+
+    void setTargetPositionProfile(const Stamped4DVector& new_data);
+    Stamped4DVector getTargetPositionProfile();
+
+    void setTargetVelocityProfile(const Stamped3DVector& new_data);
+    Stamped3DVector getTargetVelocityProfile();
+
+    void setTargetAttitude(const StampedQuaternion& new_data);
+    StampedQuaternion getTargetAttitude();
+
+    void setHeartbeat(const GCSHeartbeat& new_data);
+    GCSHeartbeat getHeartbeat();
+
+    void setDroneCmdAck(const DroneCmdAck& new_data);
+    DroneCmdAck getDroneCmdAck();
+
+    void setDroneState(const DroneState& new_data);
+    DroneState getDroneState();
+
+    void setBatteryState(const BatteryState& new_data);
+    BatteryState getBatteryState();
+
+    void setManualControlInput(const Stamped4DVector& new_data);
+    Stamped4DVector getManualControlInput();
+
+    void setPositionError(const PositionError& new_data);
+    PositionError getPositionError();
+
+    void setAccelerationError(const AccelerationError& new_data);
+    AccelerationError getAccelerationError();
+
+    void setLatestControlSignalPositionOnly(const Eigen::Vector4d& new_data);
+    Eigen::Vector4d getLatestControlSignalPositionOnly();
+
+    void setLatestControlSignalPosition(const Eigen::Vector3d& new_data);
+    Eigen::Vector3d getLatestControlSignalPosition();
+
+    void setLatestControlSignalVelocity(const Eigen::Vector4d& new_data);
+    Eigen::Vector4d getLatestControlSignalVelocity();
+
+    void setGroundDistanceState(const Stamped3DVector& new_data);
+    Stamped3DVector getGroundDistanceState();
+
+    void setActuatorSpeeds(const Stamped4DVector& new_data);
+    Stamped4DVector getActuatorSpeeds();
+
+    void setGlobalProbeLocations(const GlobalProbeLocations& new_data);
+    GlobalProbeLocations getGlobalProbeLocations();
+
+    void setGPSState(const GPSState& new_data);
+    GPSState getGPSState();
+
+    // Get bundled trajectory initialization state
+    TrajectoryInitState getTrajectoryInitState();
+
+    void setGimbalPriority(const bool priority);
+    bool getGimbalPriority();
+
+private:
+    
+    // Mutexes for thread safety
+    std::mutex heartbeat_mutex_;
+
+    std::mutex position_global_mutex_;
+    std::mutex origin_mutex_;
+    std::mutex velocity_global_mutex_;
+    std::mutex acceleration_global_mutex_;
+    
+    std::mutex ground_distance_state_mutex_;
+    std::mutex attitude_data_mutex_;
+    std::mutex target_position_profile_mutex_;
+    std::mutex target_velocity_profile_mutex_;
+    std::mutex target_attitude_mutex_;
+    std::mutex drone_cmd_ack_mutex_;
+    std::mutex drone_state_mutex_;
+    std::mutex manual_control_input_mutex_;
+    std::mutex acceleration_error_mutex_;
+    std::mutex position_error_mutex_;
+    std::mutex latest_control_signal_position_only_mutex_;
+    std::mutex latest_control_signal_position_mutex_;
+    std::mutex latest_control_signal_velocity_mutex_;
+    std::mutex battery_state_mutex_;
+    std::mutex actuator_speeds_mutex_;
+    std::mutex probe_global_locations_mutex_;
+    std::mutex gps_state_mutex_;
+
+    std::mutex gimbal_priority_mutex_;
+    bool gimbal_priority_;
+    // Data structures to store state information
+    GCSHeartbeat gcs_heartbeat_;
+
+    Stamped3DVector position_global_;
+    Stamped3DVector origin_;
+    Stamped3DVector velocity_global_;
+    Stamped3DVector acceleration_global_;
+    
+    Stamped3DVector ground_distance_state_;
+    StampedQuaternion attitude_;
+    Stamped4DVector target_position_profile_;
+    Stamped3DVector target_velocity_profile_;
+    StampedQuaternion target_attitude_;
+    DroneCmdAck drone_cmd_ack_;
+    DroneState drone_state_;
+    BatteryState battery_state_;
+    Stamped4DVector manual_control_input_;
+    AccelerationError acceleration_error_;
+    PositionError position_error_;
+    Eigen::Vector4d latest_control_signal_position_only_ = Eigen::Vector4d::Zero(); // Initialize to zero
+    Eigen::Vector3d latest_control_signal_position_ = Eigen::Vector3d::Zero(); // Initialize to zero
+    Eigen::Vector4d latest_control_signal_velocity_ = Eigen::Vector4d::Zero(); // Initialize to zero
+    Stamped4DVector actuator_speeds_ = Stamped4DVector(rclcpp::Time(0, 0), 0.0, 0.0, 0.0, 0.0);
+    GlobalProbeLocations probe_global_locations_;
+    GPSState gps_state_;
+};
+
+#endif // STATE_MANAGER_H

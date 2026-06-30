@@ -1,4 +1,6 @@
 *.json
+**/__pycache__/
+**/*.pyc
 .vscode/
 build/
 install/
@@ -19,6 +21,15 @@ imgui.ini
 src/realsense-ros
 src/matlab_msg_gen
 venv
+src/asr_sensors/script/neopixel-env/
+src/asr_sensors/script/.lgd-nfy0/
+
+
+.venv/
 
 **/rosbag*/
 probe_data/
+**/*.engine
+**/*.engine.meta
+**/*.onnx
+runs/
