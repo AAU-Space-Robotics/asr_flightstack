@@ -109,13 +109,14 @@ int main(int argc, char **argv) {
         ImGui::Text("Thyra Ground Control Station");
         ImGui::PopFont(); 
         //ImGui::PopFont(); 
-        ImGui::SetNextWindowPos(ImVec2((screen_width/2- 200) * scale, (screen_height -500) * scale));  
-        ImGui::SetNextWindowSize(ImVec2(200 * scale, 200 * scale));  
+        ImGui::SetNextWindowPos(ImVec2((1750) * scale, (500) * scale));  
+        ImGui::SetNextWindowSize(ImVec2(100 * scale, 500 * scale));  
        
         ImDrawList* dl = ImGui::GetWindowDrawList();  // draw *inside* this window  
         
-        ImGui::SliderFloat("Altitude", &value, 0.0f, 1000.0f);
-        AltitudeTape(value, 300.0f * scale, 20.0f);
+        ImGui::SliderFloat("Altitude", &value, -20.0f, 20.0f);
+        AltitudeTape(value, 100.0f * scale, 0.5f);
+        
         
         ImGui::End();
 

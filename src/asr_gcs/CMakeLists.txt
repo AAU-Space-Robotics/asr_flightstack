@@ -139,7 +139,7 @@ add_executable(interface
 ament_target_dependencies(interface
   rclcpp
   std_msgs
-  interfaces
+  asr_comms
 )
 
 install(TARGETS interface

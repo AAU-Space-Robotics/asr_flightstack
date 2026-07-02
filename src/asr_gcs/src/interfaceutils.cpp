@@ -66,10 +66,10 @@ void WindowInitializer::loadFonts()
 {
     ImGuiIO& io = ImGui::GetIO();
 
-    font18 = io.Fonts->AddFontFromFileTTF("src/gcs/fonts/Roboto-Regular.ttf", 18.0f);
-    font24 = io.Fonts->AddFontFromFileTTF("src/gcs/fonts/Roboto-Bold.ttf", 24.0f);
-    font28 = io.Fonts->AddFontFromFileTTF("src/gcs/fonts/Roboto-Regular.ttf", 28.0f);
-    font40 = io.Fonts->AddFontFromFileTTF("src/gcs/fonts/Roboto-Bold.ttf", 40.0f);
+    font18 = io.Fonts->AddFontFromFileTTF("src/asr_gcs/fonts/Roboto-Regular.ttf", 18.0f);
+    font24 = io.Fonts->AddFontFromFileTTF("src/asr_gcs/fonts/Roboto-Bold.ttf", 24.0f);
+    font28 = io.Fonts->AddFontFromFileTTF("src/asr_gcs/fonts/Roboto-Regular.ttf", 28.0f);
+    font40 = io.Fonts->AddFontFromFileTTF("src/asr_gcs/fonts/Roboto-Bold.ttf", 40.0f);
 
     io.Fonts->Build();
 
@@ -249,7 +249,7 @@ void scroll_wheel(ImDrawList* draw_list, float startx, float starty, float width
 
 
 }
-void AltitudeTape(float altitude, float tapeHeight = 300.0f, float numStep = 20.0f)
+void AltitudeTape(float altitude, float tapeHeight = 300.0f, float numStep = 1.0f)
 {
     ImGui::BeginChild("AltitudeTape", ImVec2(80, tapeHeight), true);
 
@@ -260,23 +260,22 @@ void AltitudeTape(float altitude, float tapeHeight = 300.0f, float numStep = 20.
     float centerY = pos.y + size.y / 2.0f;
 
     // How many numbers above/below center to draw
+    const float pixelsPerTick = 40.0f;
     int range = 10;
 
     // Determine the altitude number nearest to center
     float nearest = roundf(altitude / numStep) * numStep;
-
-    // Vertical offset for smooth scrolling
-    float offset = (altitude - nearest) * 4.0f;  
-    // adjust 4.0f scaling to match your desired scroll speed/size
+    float offset = (altitude - nearest) * (pixelsPerTick / numStep); 
+    
 
     for (int i = -range; i <= range; i++)
     {
-        float value = nearest + i * numStep;
-        float y = centerY + (i * 40.0f) + offset;
+        float value = nearest - i * numStep;
+        float y = centerY + (i * pixelsPerTick) + offset;
 
         // Draw text centered
         char buf[16];
-        snprintf(buf, sizeof(buf), "%.0f", value);
+        snprintf(buf, sizeof(buf), "%.1f", value);
 
         draw->AddText(
             ImVec2(pos.x + 20, y - ImGui::CalcTextSize(buf).y / 2),
