@@ -44,10 +44,14 @@ ament_python_install_package(${PROJECT_NAME})
 install(PROGRAMS
   scripts/detect_probe.py
   test/probe_filter_sim.py
+  test/aruco_sim.py
+  test/aruco_detector_ref.py
   DESTINATION lib/${PROJECT_NAME}
 )
 
-install(FILES test/probe_filter_test.launch.py
+install(FILES
+  test/probe_filter_test.launch.py
+  test/aruco_detector_test.launch.py
   DESTINATION share/${PROJECT_NAME}/launch
 )
 

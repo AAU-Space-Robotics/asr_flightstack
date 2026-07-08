@@ -20,7 +20,7 @@ import message_filters
 from cv_bridge import CvBridge, CvBridgeError
 
 from sensor_msgs.msg import Image, CompressedImage
-from geometry_msgs.msg import PoseStamped
+from geometry_msgs.msg import PoseStamped, PoseWithCovarianceStamped
 from px4_msgs.msg import VehicleLocalPosition, VehicleAttitude
 
 
@@ -69,7 +69,7 @@ class CameraRelay(Node):
         self._color_unsynced_pub = self.create_publisher(CompressedImage, 'out/cam/unsynced/color', qos)
         self._color_synced_pub   = self.create_publisher(Image,           'out/cam/synced/color',   qos)
         self._depth_pub          = self.create_publisher(Image,           'out/cam/synced/depth',   qos)
-        self._pose_pub           = self.create_publisher(PoseStamped,     'out/cam/synced/pose',    qos)
+        self._pose_pub           = self.create_publisher(PoseWithCovarianceStamped, 'out/cam/synced/pose', qos)
 
         self._publish_on_sync = (fps <= 0.0)
         interval = 1.0 / fps if fps > 0.0 else 0.0
@@ -148,15 +148,33 @@ class CameraRelay(Node):
 
         try:
             ox, oy, oz = self._origin_offset
-            pose_out = PoseStamped()
+            pose_out = PoseWithCovarianceStamped()
             pose_out.header = depth_msg.header
-            pose_out.pose.position.x    = float(position_msg.x - ox)
-            pose_out.pose.position.y    = float(position_msg.y - oy)
-            pose_out.pose.position.z    = float(position_msg.z - oz)
-            pose_out.pose.orientation.x = float(attitude_msg.q[1])
-            pose_out.pose.orientation.y = float(attitude_msg.q[2])
-            pose_out.pose.orientation.z = float(attitude_msg.q[3])
-            pose_out.pose.orientation.w = float(attitude_msg.q[0])
+            pose_out.pose.pose.position.x    = float(position_msg.x - ox)
+            pose_out.pose.pose.position.y    = float(position_msg.y - oy)
+            pose_out.pose.pose.position.z    = float(position_msg.z - oz)
+            pose_out.pose.pose.orientation.x = float(attitude_msg.q[1])
+            pose_out.pose.pose.orientation.y = float(attitude_msg.q[2])
+            pose_out.pose.pose.orientation.z = float(attitude_msg.q[3])
+            pose_out.pose.pose.orientation.w = float(attitude_msg.q[0])
+
+            # 6x6 row-major covariance [x, y, z, roll, pitch, yaw] in local NED.
+            # Position variance from EKF eph/epv (std-devs → squared). Orientation
+            # from tilt_var (combined roll+pitch, split isotropically) and
+            # heading_var. The orientation block is carried for a future attitude-
+            # uncertainty term; the detection filter currently uses only position.
+            eph     = float(position_msg.eph)
+            epv     = float(position_msg.epv)
+            tilt    = float(position_msg.tilt_var)     # rad^2, combined roll+pitch
+            yaw_var = float(position_msg.heading_var)  # rad^2
+            cov = [0.0] * 36
+            cov[0]  = eph * eph    # x
+            cov[7]  = eph * eph    # y
+            cov[14] = epv * epv    # z
+            cov[21] = 0.5 * tilt   # roll
+            cov[28] = 0.5 * tilt   # pitch
+            cov[35] = yaw_var      # yaw
+            pose_out.pose.covariance = cov
 
             self._depth_pub.publish(depth_msg)
             self._pose_pub.publish(pose_out)
