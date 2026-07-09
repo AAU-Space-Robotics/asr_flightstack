@@ -3,8 +3,11 @@
 #include "interfaceutils.h"
 #include <algorithm>
 
+
 WindowInitializer winInit;
 Widgets widgets;
+Location location;
+TestFunc test_functions;
 
 
 int main(int argc, char **argv) {
@@ -54,8 +57,16 @@ int main(int argc, char **argv) {
         //winInit.DrawMultiColor();
         // Set size of font and windows - - - - - - - - - - - - - - - - - - - - - - 
 
+        // ------ Image for buttons
+        std::string path = "/home/dksoren/aau_workspace/asr_flightstack/src/asr_gcs/images/";
+        std::string path_takeoff = path + "takeoff.png";
+        std::string path_armed = path + "armed.png";
+        GLuint image_takeoff = widgets.LoadButtonImage(path_takeoff.c_str());
+        GLuint image_armed = widgets.LoadButtonImage(path_armed.c_str());
+
+
+
         //Update
-        
         const int screen_width = 1920; // Reference screen width
         const int screen_height = 1080; // Reference screen height
         int x_sc, y_sc;
@@ -95,28 +106,51 @@ int main(int argc, char **argv) {
         //    armButton = !armButton; // Toggle button state
         //    printf("Arm button clicked. New state: %s\n", armButton ? "Armed" : "Disarmed");
         //}
-        //
-        //if (widgets.DrawCircleGradientButton(draw_list, winInit.getFont(40), 1.0f, ImVec2(1500 * scale, 100 * scale), 75.0f * scale, "ESTOP", 40.0f * scale)) {
-        //    std::cout << "ESTOP Button Clicked!" << std::endl;
-        //}
+        // ------------ Buttons-------------
+        if (widgets.DrawCircleGradientButton(draw_list, winInit.getFont(40), 1.0f, ImVec2(1500 * scale, 70 * scale), 60.0f * scale, "ESTOP", 40.0f * scale)) {
+            std::cout << "ESTOP Button Clicked!" << std::endl;
+        }
+        if (widgets.CustomButton(draw_list, ImVec2(1700 * scale, 100 * scale),"ARM",scale, image_takeoff)) {
+            std::cout << "Takeoff pressed!" << std::endl;
+        }
+        if (widgets.CustomButton(draw_list, ImVec2(1800 * scale, 100 * scale),"ARM",scale, image_armed)) {
+            std::cout << "Armed pressed!" << std::endl;
+        }
 
         //ImGui::PushFont(ImGui::GetFont());
         //ImGui::SetWindowFontScale(3.0f); // 150% text size
+
         
 
-        ImGui::SetWindowPos(ImVec2(20 * scale,20 * scale));
-        ImGui::PushFont(winInit.getFont(18));
-        ImGui::Text("Thyra Ground Control Station");
-        ImGui::PopFont(); 
-        //ImGui::PopFont(); 
-        ImGui::SetNextWindowPos(ImVec2((1750) * scale, (500) * scale));  
-        ImGui::SetNextWindowSize(ImVec2(100 * scale, 500 * scale));  
-       
-        ImDrawList* dl = ImGui::GetWindowDrawList();  // draw *inside* this window  
-        
+        //ImGui::SetCursorPos(ImVec2(100 * scale, 100 * scale));
+
+        // ---------For testing — replace with ROS later
+        static float testLat = 57.034f, testLon = 9.882f;
+        ImGui::SetCursorPos(ImVec2(10 * scale, 50 * scale));
+        ImGui::InputFloat("Lat", &testLat, 0.001f, 0.01f, "%.5f");
+        ImGui::InputFloat("Lon", &testLon, 0.001f, 0.01f, "%.5f");
         ImGui::SliderFloat("Altitude", &value, -20.0f, 20.0f);
-        AltitudeTape(value, 100.0f * scale, 0.5f);
+
+
+        //-------------------MAP-----------------
+        ImGui::SetCursorPos(ImVec2(0 * scale, 150 * scale));
+        location.MapWidget(testLat, testLon, 1500 * scale, 900 * scale, scale, 19);
+
+
         
+        //-------------ALTITUDE  TAPES------------
+       
+
+        
+        ImGui::SetCursorPos(ImVec2(1750 * scale, 500 * scale));
+        AltitudeTape(1, value, 300.0f * scale, 0.5f);  // BeginChild goes here
+
+        ImGui::SetCursorPos(ImVec2(1600 * scale, 900 * scale));
+        AltitudeTape(2, value, 300.0f * scale, 0.5f);
+            
+
+        
+
         
         ImGui::End();
 

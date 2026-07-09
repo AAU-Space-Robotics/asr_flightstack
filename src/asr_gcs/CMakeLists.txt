@@ -15,6 +15,7 @@ find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(asr_comms REQUIRED)
+find_package(OpenCV REQUIRED)
 
 # Fetch Dear ImGui, GLFW, ImPlot, and tinyxml2 using FetchContent
 include(FetchContent)
@@ -149,6 +150,7 @@ target_link_libraries(interface
   OpenGL::GL      # Link OpenGL
   glfw            # Link GLFW
   tinyxml2        # Link tinyxml2 from FetchContent
+  ${OpenCV_LIBS}
 )
 
 
