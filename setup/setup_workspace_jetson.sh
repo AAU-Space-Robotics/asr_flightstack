@@ -333,7 +333,7 @@ clone_repo_if_not_exists() {
 clone_repo_if_not_exists "git@github.com:IntelRealSense/realsense-ros.git" "realsense-ros" "ros2-master"
 
 # Clone the px4_msgs repository
-clone_repo_if_not_exists "git@github.com:AAU-Space-Robotics/px4_msgs_thyra.git" "px4_msgs_thyra"
+clone_repo_if_not_exists "git@github.com:AAU-Space-Robotics/px4_msgs_thyra.git" "px4_msgs"
 
 # Navigate to the parent directory to check/install Micro-XRCE-DDS-Agent
 cd "$PARENT_DIR" || exit
@@ -413,7 +413,7 @@ Group=${SERVICE_USER}
 WorkingDirectory=${ROS_WORKSPACE_PATH}
 Environment=PYTHONUNBUFFERED=1
 Environment=LD_LIBRARY_PATH=/usr/local/cuda-12.6/targets/aarch64-linux/lib:/usr/local/cuda/targets/aarch64-linux/lib:/usr/local/cuda-12.6/extras/CUPTI/lib64:/usr/local/cuda/extras/CUPTI/lib64:/usr/local/cusparselt/lib
-ExecStart=/bin/bash -lc 'source ${ROS_SETUP_FILE} && source ${WORKSPACE_SETUP_FILE} && exec ros2 run thyra system_manager.py --ros-args -r __ns:=/asr/thyra --params-file ${PARAMS_INSTALLED}'
+ExecStart=/bin/bash -lc 'source ${ROS_SETUP_FILE} && source ${WORKSPACE_SETUP_FILE} && exec ros2 run asr_drivers system_manager.py --ros-args -r __ns:=/asr/thyra --params-file ${PARAMS_INSTALLED}'
 Restart=on-failure
 RestartSec=5
 

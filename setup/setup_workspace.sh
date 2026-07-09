@@ -56,7 +56,7 @@ clone_repo_if_not_exists() {
 }
 
 # 5. Clone the px4_msgs repository
-clone_repo_if_not_exists "git@github.com:AAU-Space-Robotics/px4_msgs_thyra.git" "px4_msgs_thyra"
+clone_repo_if_not_exists "git@github.com:AAU-Space-Robotics/px4_msgs_thyra.git" "px4_msgs"
 
 # 6. Navigate to the parent directory to check/install Micro-XRCE-DDS-Agent and PX4-Autopilot
 cd "$PARENT_DIR" || exit

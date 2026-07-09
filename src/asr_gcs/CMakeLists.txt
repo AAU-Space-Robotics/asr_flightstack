@@ -119,6 +119,8 @@ install(TARGETS asr_gcs_node
 )
 install(DIRECTORY fonts DESTINATION share/${PROJECT_NAME}/)
 install(DIRECTORY images DESTINATION share/${PROJECT_NAME}/)
+install(DIRECTORY launch DESTINATION share/${PROJECT_NAME}/)
+install(DIRECTORY config DESTINATION share/${PROJECT_NAME}/)
 
 # Ament package
 ament_package()

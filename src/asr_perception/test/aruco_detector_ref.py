@@ -12,7 +12,7 @@ topics, parameters and output convention, but it detects markers with
      publish the same message on the same topic, so swapping executables in the
      launch file is the only change.
 
-Subscribes: /thyra/out/color_image     sensor_msgs/Image (rgb8/bgr8, 640x480)
+Subscribes: out/cam/synced/color        sensor_msgs/Image (rgb8/bgr8, 640x480)
 Publishes:  aruco_detector/detections  asr_comms/ArucoDetections
 
 Output convention (matches aruco_detector_node.cpp and the detection_filter
@@ -90,7 +90,7 @@ class ArucoDetectorRef(Node):
                          reliability=QoSReliabilityPolicy.RELIABLE,
                          history=QoSHistoryPolicy.KEEP_LAST)
         self._sub = self.create_subscription(
-            Image, '/thyra/out/color_image', self.on_image, qos)
+            Image, 'out/cam/synced/color', self.on_image, qos)
         self._pub = self.create_publisher(
             ArucoDetections, 'aruco_detector/detections', 10)
 

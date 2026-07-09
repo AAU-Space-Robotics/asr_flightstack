@@ -118,7 +118,9 @@ private:
 
     std::unique_ptr<ulog_cpp::SimpleWriter> writer_;
     std::string log_dir_;
-    std::string log_mode_;   // "general" | "control_inspection"
+    std::string log_mode_;    // "general" | "control_inspection"
+    std::string log_trigger_; // "always" | "armed" — armed: one log per flight (arm → disarm)
+    std::string sys_name_;    // written to the ulog header; identifies the vehicle
 
     uint16_t id_position_{};
     uint16_t id_attitude_{};

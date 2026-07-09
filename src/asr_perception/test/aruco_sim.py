@@ -15,7 +15,7 @@ Pipeline per frame:
 The render is self-checked at startup against cv2.aruco so the ground truth is
 correct by construction.
 
-Publishes:  /thyra/out/color_image      sensor_msgs/Image (rgb8, 640x480)
+Publishes:  out/cam/synced/color        sensor_msgs/Image (rgb8, 640x480)
 Subscribes: aruco_detector/detections   asr_comms/ArucoDetections
 
 Checks per marker, matched to its frame by header stamp:
@@ -170,7 +170,7 @@ class ArucoSim(Node):
         pub_qos = QoSProfile(depth=5,
                              reliability=QoSReliabilityPolicy.RELIABLE,
                              history=QoSHistoryPolicy.KEEP_LAST)
-        self._img_pub = self.create_publisher(Image, '/thyra/out/color_image', pub_qos)
+        self._img_pub = self.create_publisher(Image, 'out/cam/synced/color', pub_qos)
         self._det_sub = self.create_subscription(
             ArucoDetections, 'aruco_detector/detections', self.on_detections, 10)
 

@@ -1,4 +1,11 @@
-/asr/thyra/**:
+# ============================================================================
+# GUNNHILD — copied from Thyra as a starting template.
+# Airframe-specific values are NOT yet measured for Gunnhild. Before flight,
+# revisit: controller gains, hover_thrust_setpoint, motion_constraints,
+# camera intrinsics + camera_to_drone_transform, motor_speed_min/max.
+# See the package README for the full bring-up checklist.
+# ============================================================================
+/asr/gunnhild/**:
   ros__parameters:
     # Controller Parameters
     controller:

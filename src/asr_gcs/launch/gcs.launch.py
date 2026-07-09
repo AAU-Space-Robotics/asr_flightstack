@@ -5,8 +5,8 @@ from launch_ros.substitutions import FindPackageShare
 
 
 def generate_launch_description():
-    thyra_pkg_share = FindPackageShare('thyra')
-    comms_path = PathJoinSubstitution([thyra_pkg_share, 'config', 'comms', 'gcs_comms.yaml'])
+    gcs_pkg_share = FindPackageShare('asr_gcs')
+    comms_path = PathJoinSubstitution([gcs_pkg_share, 'config', 'gcs_comms.yaml'])
 
     return LaunchDescription([
         # MAVLink bridge — GCS side

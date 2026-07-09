@@ -15,12 +15,8 @@
 #include <asr_comms/msg/gcs_heartbeat.hpp>
 #include <asr_comms/msg/probe_locations.hpp>
 #include <asr_comms/msg/attitude_setpoint_rpy.hpp>
-#include <opencv2/opencv.hpp>
-#include <opencv2/objdetect/objdetect.hpp>
+#include <sensor_msgs/msg/compressed_image.hpp>
 #include "geometry_msgs/msg/pose_stamped.hpp"
-
-
-#include "utils.hpp"
 
 
 class ThyraMissionExecutor : public rclcpp::Node

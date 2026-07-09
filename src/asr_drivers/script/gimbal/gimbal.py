@@ -27,9 +27,10 @@ class GimbalPitchSweep(Node):
             depth       = 10,
         )
 
+        # Relative topic — resolves under the node's namespace (e.g. asr/thyra).
         self._pub = self.create_publisher(
             ServoCommand,
-            "/asr/thyra/in/servo_command",
+            "in/servo_command",
             qos,
         )
 
@@ -37,7 +38,7 @@ class GimbalPitchSweep(Node):
         self._dt = 1.0 / self.PUBLISH_RATE_HZ
         self.create_timer(self._dt, self._timer_cb)
         self.get_logger().info(
-            f"Sweeping via /asr/thyra/in/servo_command "
+            f"Sweeping via {self._pub.topic_name} "
             f"aux_index={self.SERVO_AUX_INDEX} "
             f"{self.MIN_VALUE} ↔ {self.MAX_VALUE} "
             f"over {self.SWEEP_PERIOD_S}s period"

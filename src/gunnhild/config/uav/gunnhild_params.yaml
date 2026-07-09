@@ -1,4 +1,11 @@
-/asr/thyra/**:
+# ============================================================================
+# GUNNHILD — copied from Thyra as a starting template.
+# Airframe-specific values are NOT yet measured for Gunnhild. Before flight,
+# revisit: controller gains, hover_thrust_setpoint, motion_constraints,
+# camera intrinsics + camera_to_drone_transform, motor_speed_min/max.
+# See the package README for the full bring-up checklist.
+# ============================================================================
+/asr/gunnhild/**:
   ros__parameters:
     # Controller Parameters
     controller:
@@ -78,7 +85,7 @@
     log_mode: general        # general | control_inspection
     log_trigger: armed       # always | armed — armed: log only while armed, one file per flight
     log_dir: ~/flight_logs
-    sys_name: asr_thyra      # vehicle name written to the ulog header
+    sys_name: asr_gunnhild      # vehicle name written to the ulog header
 
     # Setup Parameters
     setup:
@@ -90,9 +97,9 @@
     # System Parameters (consumed by the shared system_manager node in asr_drivers)
     system:
       autostart_flight_stack: false   # Set false to skip auto-start; use START_FLIGHT_STACK action to start manually
-      flight_stack_package: thyra     # ROS package holding the bringup launch file
-      flight_stack_launch: thyra      # Launch file basename (thyra.launch.py, found under launch/uav/)
-      service_name: thyra             # systemd service restarted by RESTART_NODES
+      flight_stack_package: gunnhild     # ROS package holding the bringup launch file
+      flight_stack_launch: gunnhild      # Launch file basename (gunnhild.launch.py, found under launch/uav/)
+      service_name: gunnhild             # systemd service restarted by RESTART_NODES
 
     # Camera Parameters
     camera:

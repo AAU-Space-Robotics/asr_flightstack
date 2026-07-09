@@ -8,7 +8,6 @@ endif()
 
 # Find dependencies
 find_package(ament_cmake REQUIRED)
-find_package(ament_cmake_python REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(asr_comms REQUIRED)
@@ -19,9 +18,6 @@ find_package(OpenCV REQUIRED)
 find_package(cv_bridge REQUIRED)
 
 ament_export_dependencies(rosidl_default_runtime)
-
-# Install Python modules
-ament_python_install_package(${PROJECT_NAME})
 
 # Install launch files
 install(DIRECTORY launch/
@@ -42,49 +38,13 @@ install(DIRECTORY missions/
   FILES_MATCHING PATTERN "*.py"
 )
 
-install(PROGRAMS
-  script/system_manager.py
-  DESTINATION lib/${PROJECT_NAME}
-)
 
-add_library(thyra_lib
-  src/utils.cpp
-)
-target_include_directories(thyra_lib PUBLIC
-  ${CMAKE_CURRENT_SOURCE_DIR}/include
-  ${OpenCV_INCLUDE_DIRS}
-)
-
-target_link_libraries(thyra_lib 
-  Eigen3::Eigen
-)
-
-ament_target_dependencies(thyra_lib
-  asr_comms
-  geometry_msgs
-)
-
-
-add_executable(thyra_mission_executor 
+add_executable(thyra_mission_executor
   src/main.cpp
 )
-target_link_libraries(thyra_mission_executor 
-  thyra_lib
+target_link_libraries(thyra_mission_executor
   Eigen3::Eigen
-
 )
-
-target_include_directories(thyra_mission_executor PUBLIC
-  ${CMAKE_CURRENT_SOURCE_DIR}/include
-  ${OpenCV_INCLUDE_DIRS}  
-)
-
-# 
-install(PROGRAMS
-  script/gimbal.py
-  DESTINATION lib/${PROJECT_NAME}/script
-)
-
 
 ament_target_dependencies(thyra_mission_executor
   rclcpp
@@ -96,7 +56,6 @@ ament_target_dependencies(thyra_mission_executor
 )
 
 install(TARGETS
-  thyra_lib
   thyra_mission_executor
   DESTINATION lib/${PROJECT_NAME}
 )
