@@ -89,9 +89,9 @@
 
     # System Parameters (consumed by the shared system_manager node in asr_drivers)
     system:
-      autostart_flight_stack: false   # Set false to skip auto-start; use START_FLIGHT_STACK action to start manually
+      autostart_flight_stack: true   # Set false to skip auto-start; use START_FLIGHT_STACK action to start manually
       flight_stack_package: thyra     # ROS package holding the bringup launch file
-      flight_stack_launch: thyra      # Launch file basename (thyra.launch.py, found under launch/uav/)
+      flight_stack_launch: thyra
       service_name: thyra             # systemd service restarted by RESTART_NODES
 
     # Camera Parameters
