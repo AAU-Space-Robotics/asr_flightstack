@@ -161,8 +161,8 @@ clone_repo_if_not_exists() {
 # Clone the Intel RealSense ROS wrapper repository
 clone_repo_if_not_exists "git@github.com:IntelRealSense/realsense-ros.git" "realsense-ros" "ros2-master"
 
-# Clone the px4_msgs repository
-clone_repo_if_not_exists "git@github.com:AAU-Space-Robotics/px4_msgs_thyra.git" "px4_msgs"
+# Clone the asr_px4_msgs repository
+clone_repo_if_not_exists "git@github.com:AAU-Space-Robotics/asr_px4_msgs.git" "px4_msgs"
 
 # Navigate to the parent directory to check/install Micro-XRCE-DDS-Agent
 cd "$PARENT_DIR" || exit
