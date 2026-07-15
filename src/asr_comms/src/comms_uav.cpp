@@ -119,6 +119,10 @@ CommsUav::CommsUav()
         "out/telemetry/battery", qos_rt,
         std::bind(&CommsUav::on_battery, this, std::placeholders::_1));
 
+    battery2_sub_ = create_subscription<asr_comms::msg::TelemetryBattery>(
+        "out/telemetry/battery2", qos_rt,
+        std::bind(&CommsUav::on_battery, this, std::placeholders::_1));
+
     gps_sub_ = create_subscription<asr_comms::msg::TelemetryGPS>(
         "out/telemetry/gps", qos_rt,
         std::bind(&CommsUav::on_gps, this, std::placeholders::_1));
@@ -563,7 +567,7 @@ void CommsUav::on_battery(const asr_comms::msg::TelemetryBattery::SharedPtr msg)
 
     mavlink_message_t mav{};
     mavlink_msg_battery_status_pack(system_id_, component_id_, &mav,
-        0, MAV_BATTERY_FUNCTION_ALL, MAV_BATTERY_TYPE_LIPO,
+        msg->id, MAV_BATTERY_FUNCTION_ALL, MAV_BATTERY_TYPE_LIPO,
         INT16_MAX,
         cell_voltages,
         static_cast<int16_t>(msg->current * 100.0f),

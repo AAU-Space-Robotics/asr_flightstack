@@ -129,6 +129,7 @@ private:
     rclcpp::Subscription<asr_comms::msg::TelemetryPosition>::SharedPtr position_sub_;
     rclcpp::Subscription<asr_comms::msg::TelemetryAttitude>::SharedPtr attitude_sub_;
     rclcpp::Subscription<asr_comms::msg::TelemetryBattery>::SharedPtr  battery_sub_;
+    rclcpp::Subscription<asr_comms::msg::TelemetryBattery>::SharedPtr  battery2_sub_;
     rclcpp::Subscription<asr_comms::msg::TelemetryGPS>::SharedPtr      gps_sub_;
     rclcpp::Subscription<asr_comms::msg::TelemetryStatus>::SharedPtr   status_sub_;
 

@@ -336,8 +336,9 @@ public:
     void setDroneState(const DroneState& new_data);
     DroneState getDroneState();
 
-    void setBatteryState(const BatteryState& new_data);
-    BatteryState getBatteryState();
+    static constexpr size_t kNumBatteries = 2;
+    void setBatteryState(const BatteryState& new_data, size_t battery_index = 0);
+    BatteryState getBatteryState(size_t battery_index = 0);
 
     void setManualControlInput(const Stamped4DVector& new_data);
     Stamped4DVector getManualControlInput();
@@ -420,7 +421,7 @@ private:
     StampedQuaternion target_attitude_;
     DroneCmdAck drone_cmd_ack_;
     DroneState drone_state_;
-    BatteryState battery_state_;
+    BatteryState battery_states_[kNumBatteries]; // Index 0 = battery 1, index 1 = battery 2
     Stamped4DVector manual_control_input_;
     AccelerationError acceleration_error_;
     PositionError position_error_;

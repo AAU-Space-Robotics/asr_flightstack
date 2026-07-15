@@ -130,14 +130,14 @@ DroneState StateManager::getDroneState() {
 
 // ---
 
-void StateManager::setBatteryState(const BatteryState& new_data) {
+void StateManager::setBatteryState(const BatteryState& new_data, size_t battery_index) {
     std::lock_guard<std::mutex> lock(battery_state_mutex_);
-    battery_state_ = new_data;   
+    battery_states_[battery_index < kNumBatteries ? battery_index : 0] = new_data;
 }
 
-BatteryState StateManager::getBatteryState() {
+BatteryState StateManager::getBatteryState(size_t battery_index) {
     std::lock_guard<std::mutex> lock(battery_state_mutex_);
-    return battery_state_;   
+    return battery_states_[battery_index < kNumBatteries ? battery_index : 0];
 }
 
 // ---

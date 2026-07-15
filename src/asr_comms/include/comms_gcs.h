@@ -78,6 +78,7 @@ private:
     rclcpp::Publisher<asr_comms::msg::TelemetryPosition>::SharedPtr position_pub_;
     rclcpp::Publisher<asr_comms::msg::TelemetryAttitude>::SharedPtr attitude_pub_;
     rclcpp::Publisher<asr_comms::msg::TelemetryBattery>::SharedPtr  battery_pub_;
+    rclcpp::Publisher<asr_comms::msg::TelemetryBattery>::SharedPtr  battery2_pub_;
     rclcpp::Publisher<asr_comms::msg::TelemetryGPS>::SharedPtr      gps_pub_;
     rclcpp::Publisher<asr_comms::msg::TelemetryStatus>::SharedPtr   status_pub_;
 

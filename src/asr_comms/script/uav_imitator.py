@@ -103,6 +103,7 @@ class UavImitator(Node):
         if tick % 10 == 0:
             bat = TelemetryBattery()
             bat.timestamp       = t
+            bat.id              = 1
             bat.voltage         = max(14.0, 16.8 - t * 0.001)
             bat.current         = 8.5
             bat.percentage      = max(0.0, 1.0 - t * 0.0001)

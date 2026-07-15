@@ -58,6 +58,7 @@
       check_position_timeout: false     # Check for position data timeout
       check_geofence: false              # Check for geofence violations
       check_battery: true               # Check battery status
+      check_battery2: true              # Check compute battery status (airframe has a second battery)
       battery_threshold: 0.05           # Battery threshold for safety (0-1 scale)
       battery_timeout_threshold: 3.0    # Max age (s) of battery telemetry while armed before treating it as a fault
       gcs_timeout_threshold: 15.0        # Timeout for ground control station input (seconds)

@@ -1,4 +1,5 @@
 from launch import LaunchDescription
+from launch.actions import Shutdown
 from launch.substitutions import PathJoinSubstitution
 from launch_ros.actions import Node
 from launch_ros.substitutions import FindPackageShare
@@ -36,5 +37,6 @@ def generate_launch_description():
             name='gcs_gui',
             namespace='asr/gcs',
             output='screen',
+            on_exit=Shutdown(),
         ),
     ])

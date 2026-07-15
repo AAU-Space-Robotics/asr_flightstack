@@ -248,6 +248,7 @@ public:
         this->declare_parameter("safety.safety_thrust_final", -0.45);
         this->declare_parameter("safety.safety_thrustdown_rate", 0.0005);
         this->declare_parameter("safety.check_battery", true);
+        this->declare_parameter("safety.check_battery2", false); // Only enable on airframes with a second (compute) battery
         this->declare_parameter("safety.battery_timeout_threshold", 3.0); // Max age of battery telemetry while armed (s)
         this->declare_parameter("safety.check_geofence", true);
         this->declare_parameter("safety.geofence_radius", 2.0);
@@ -264,6 +265,7 @@ public:
         this->get_parameter("safety.safety_thrust_final", safety_thrust_final_);
         this->get_parameter("safety.safety_thrustdown_rate", safety_thrustdown_rate_);
         this->get_parameter("safety.check_battery", safety_check_battery_);
+        this->get_parameter("safety.check_battery2", safety_check_battery2_);
         this->get_parameter("safety.battery_threshold", safety_battery_threshold_);
         this->get_parameter("safety.battery_timeout_threshold", battery_timeout_threshold_);
         this->get_parameter("safety.check_geofence", safety_check_geofence_);
@@ -280,6 +282,7 @@ public:
             "  safety_thrust_final    = %.2f\n"
             "  safety_thrustdown_rate = %.4f\n"
             "  check_battery          = %s\n"
+            "  check_battery2         = %s\n"
             "  battery_threshold      = %.2f\n"
             "  check_geofence         = %s\n"
             "  geofence_radius        = %.2f m\n"
@@ -292,6 +295,7 @@ public:
             safety_thrust_final_,
             safety_thrustdown_rate_,
             safety_check_battery_ ? "true" : "false",
+            safety_check_battery2_ ? "true" : "false",
             safety_battery_threshold_,
             safety_check_geofence_ ? "true" : "false",
             safety_geofence_radius_,
@@ -344,6 +348,7 @@ public:
         telemetry_position_pub_ = create_publisher<asr_comms::msg::TelemetryPosition>("out/telemetry/position", 10);
         telemetry_attitude_pub_ = create_publisher<asr_comms::msg::TelemetryAttitude>("out/telemetry/attitude", 10);
         telemetry_battery_pub_  = create_publisher<asr_comms::msg::TelemetryBattery>( "out/telemetry/battery",  10);
+        telemetry_battery2_pub_ = create_publisher<asr_comms::msg::TelemetryBattery>( "out/telemetry/battery2", 10);
         telemetry_gps_pub_      = create_publisher<asr_comms::msg::TelemetryGPS>(     "out/telemetry/gps",      10);
         telemetry_status_pub_   = create_publisher<asr_comms::msg::TelemetryStatus>(  "out/telemetry/status",   10);
         origin_offset_pub_ = create_publisher<geometry_msgs::msg::PoseStamped>("out/origin_offset", 10);
@@ -388,7 +393,11 @@ public:
         battery_status_sub_ = create_subscription<BatteryStatus>(
             "/fmu/out/battery_status", qos,
             [this](const BatteryStatus::SharedPtr msg)
-            { batteryStatusCallback(msg); });
+            { batteryStatusCallback(msg, 0); });
+        battery_status2_sub_ = create_subscription<BatteryStatus>(
+            "/fmu/out/battery_status1", qos,
+            [this](const BatteryStatus::SharedPtr msg)
+            { batteryStatusCallback(msg, 1); });
         ground_distance_sub_ = create_subscription<DistanceSensor>(
             "out/distance_sensor", qos,
             [this](const DistanceSensor::SharedPtr msg)
@@ -589,22 +598,53 @@ private:
         if (safety_check_battery_ && !landing_position_mode)
         {
             // Get the latest battery state
-            BatteryState battery_state = state_manager_.getBatteryState();
-            double battery_age = (get_time() - battery_state.timestamp).seconds();
+            BatteryState battery_state_main = state_manager_.getBatteryState();
+            double battery_age_main = (get_time() - battery_state_main.timestamp).seconds();
 
-            if (!battery_state.connected || battery_age > battery_timeout_threshold_)
+            if (!battery_state_main.connected || battery_age_main > battery_timeout_threshold_)
             {
                 // No trustworthy battery telemetry while armed: treat as a fault and land.
                 RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 2000,
-                    "Battery telemetry unavailable (connected=%d, age=%.1fs > %.1fs), triggering emergency land",
-                    battery_state.connected, battery_age, battery_timeout_threshold_);
+                    "Main battery telemetry unavailable (connected=%d, age=%.1fs > %.1fs), triggering emergency land",
+                    battery_state_main.connected, battery_age_main, battery_timeout_threshold_);
                 trigger_emergency_land = true;
             }
-            else if (battery_state.charge_remaining < safety_battery_threshold_)
+            else if (battery_state_main.charge_remaining < safety_battery_threshold_)
             {
-                RCLCPP_WARN(get_logger(), "Battery charge low (%.2f < %.2f), triggering emergency land",
-                            battery_state.charge_remaining, safety_battery_threshold_);
+                RCLCPP_WARN(get_logger(), "Main battery charge low (%.2f < %.2f), triggering emergency land",
+                            battery_state_main.charge_remaining, safety_battery_threshold_);
                 trigger_emergency_land = true;
+            }
+            else if (safety_check_battery2_)
+            {
+                // Compute battery checks only engage once its telemetry has arrived at
+                // least once: the default timestamp of 0 means it has never reported.
+                BatteryState battery_state_compute = state_manager_.getBatteryState(1);
+
+                if (battery_state_compute.timestamp.nanoseconds() > 0)
+                {
+                    double battery_age_compute = (get_time() - battery_state_compute.timestamp).seconds();
+
+                    if (!battery_state_compute.connected || battery_age_compute > battery_timeout_threshold_)
+                    {
+                        // Battery 2 reported before but went silent: same fault handling as the main battery.
+                        RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 2000,
+                            "Compute battery telemetry unavailable (connected=%d, age=%.1fs > %.1fs), triggering emergency land",
+                            battery_state_compute.connected, battery_age_compute, battery_timeout_threshold_);
+                        trigger_emergency_land = true;
+                    }
+                    else if (battery_state_compute.charge_remaining < safety_battery_threshold_)
+                    {
+                        RCLCPP_WARN(get_logger(), "Compute battery charge low (%.2f < %.2f), triggering emergency land",
+                                    battery_state_compute.charge_remaining, safety_battery_threshold_);
+                        trigger_emergency_land = true;
+                    }
+                }
+                else
+                {
+                    RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 10000,
+                        "No compute battery telemetry received yet, monitoring main battery only");
+                }
             }
         }
 
@@ -709,10 +749,10 @@ private:
         state_manager_.setGlobalPosition(local_position);
     }
 
-    void batteryStatusCallback(const BatteryStatus::SharedPtr msg)
+    void batteryStatusCallback(const BatteryStatus::SharedPtr msg, const size_t battery_index)
     {
         // Preserve the last valid charge estimate when a message arrives with an invalid one.
-        BatteryState battery_state = state_manager_.getBatteryState();
+        BatteryState battery_state = state_manager_.getBatteryState(battery_index);
         battery_state.timestamp = get_time();
         battery_state.connected = msg->connected;
         battery_state.cell_count = msg->cell_count;
@@ -726,7 +766,7 @@ private:
             battery_state.charge_remaining = msg->remaining;
         }
 
-        state_manager_.setBatteryState(battery_state);
+        state_manager_.setBatteryState(battery_state, battery_index);
     }
 
     void attitudeCallback(const VehicleAttitude::SharedPtr msg)
@@ -901,12 +941,27 @@ private:
             const auto& battery = state_manager_.getBatteryState();
             asr_comms::msg::TelemetryBattery msg{};
             msg.timestamp       = battery.timestamp.seconds();
+            msg.id              = 1;
             msg.voltage         = battery.voltage;
             msg.current         = battery.average_current;
             msg.percentage      = battery.charge_remaining;
             msg.discharged_mah  = battery.discharged_mah;
             msg.average_current = battery.average_current;
             telemetry_battery_pub_->publish(msg);
+
+            // Battery 2 telemetry only flows once the second battery has reported in.
+            const auto& battery2 = state_manager_.getBatteryState(1);
+            if (battery2.timestamp.nanoseconds() > 0) {
+                asr_comms::msg::TelemetryBattery msg2{};
+                msg2.timestamp       = battery2.timestamp.seconds();
+                msg2.id              = 2;
+                msg2.voltage         = battery2.voltage;
+                msg2.current         = battery2.average_current;
+                msg2.percentage      = battery2.charge_remaining;
+                msg2.discharged_mah  = battery2.discharged_mah;
+                msg2.average_current = battery2.average_current;
+                telemetry_battery2_pub_->publish(msg2);
+            }
 
             const DroneState&      drone_state = state_manager_.getDroneState();
             const Stamped4DVector& actuators   = state_manager_.getActuatorSpeeds();
@@ -1925,6 +1980,7 @@ private:
     rclcpp::Publisher<asr_comms::msg::TelemetryPosition>::SharedPtr telemetry_position_pub_;
     rclcpp::Publisher<asr_comms::msg::TelemetryAttitude>::SharedPtr telemetry_attitude_pub_;
     rclcpp::Publisher<asr_comms::msg::TelemetryBattery>::SharedPtr  telemetry_battery_pub_;
+    rclcpp::Publisher<asr_comms::msg::TelemetryBattery>::SharedPtr  telemetry_battery2_pub_;
     rclcpp::Publisher<asr_comms::msg::TelemetryGPS>::SharedPtr      telemetry_gps_pub_;
     rclcpp::Publisher<asr_comms::msg::TelemetryStatus>::SharedPtr   telemetry_status_pub_;
     rclcpp::Publisher<geometry_msgs::msg::PoseStamped>::SharedPtr origin_offset_pub_;
@@ -1941,6 +1997,7 @@ private:
     rclcpp::Subscription<VehicleStatus>::SharedPtr status_sub_;
     rclcpp::Subscription<asr_comms::msg::ManualControlInput>::SharedPtr manual_input_sub_;
     rclcpp::Subscription<BatteryStatus>::SharedPtr battery_status_sub_;
+    rclcpp::Subscription<BatteryStatus>::SharedPtr battery_status2_sub_;
     rclcpp::Subscription<DistanceSensor>::SharedPtr ground_distance_sub_;
     rclcpp::Subscription<ActuatorOutputs>::SharedPtr actuator_output_sub_;
     //rclcpp::Subscription<asr_comms::msg::ProbeLocations>::SharedPtr probe_global_locations_sub_;
@@ -1990,6 +2047,7 @@ private:
     float position_timeout_threshold_;
     rclcpp::Time safety_land_start_time_;
     bool safety_check_battery_;
+    bool safety_check_battery2_;
     float safety_battery_threshold_;
     float battery_timeout_threshold_;
     bool safety_check_geofence_;

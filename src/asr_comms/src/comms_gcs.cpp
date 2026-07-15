@@ -98,6 +98,7 @@ CommsGcs::CommsGcs() : Node("comms_gcs")
     position_pub_ = create_publisher<asr_comms::msg::TelemetryPosition>("telemetry/position", 10);
     attitude_pub_ = create_publisher<asr_comms::msg::TelemetryAttitude>("telemetry/attitude", 10);
     battery_pub_  = create_publisher<asr_comms::msg::TelemetryBattery>( "telemetry/battery",  10);
+    battery2_pub_ = create_publisher<asr_comms::msg::TelemetryBattery>( "telemetry/battery2", 10);
     gps_pub_      = create_publisher<asr_comms::msg::TelemetryGPS>(     "telemetry/gps",      10);
     status_pub_   = create_publisher<asr_comms::msg::TelemetryStatus>(  "telemetry/status",   10);
     command_ack_pub_ = create_publisher<asr_comms::msg::CommandAck>("command_ack", 10);
@@ -293,12 +294,17 @@ void CommsGcs::handle_message(const mavlink_message_t& msg)
 
         asr_comms::msg::TelemetryBattery out{};
         out.timestamp       = get_clock()->now().seconds();
+        out.id              = b.id;
         out.voltage         = b.voltages[0] / 1000.0f;
         out.current         = b.current_battery / 100.0f;
         out.percentage      = static_cast<float>(b.battery_remaining) / 100.0f;
         out.discharged_mah  = static_cast<float>(b.current_consumed);
         out.average_current = out.current;
-        battery_pub_->publish(out);
+        if (b.id == 2) {
+            battery2_pub_->publish(out);
+        } else {
+            battery_pub_->publish(out);
+        }
         break;
     }
 
