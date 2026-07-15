@@ -29,6 +29,8 @@
 #include "transport.h"
 #include "udp_socket.h"
 
+class SerialPort;
+
 // Runs on the drone. Transport is either UDP or a serial SiK radio.
 // Receives from GCS: heartbeat, RTK corrections, UAVCommand.
 // Sends to GCS:      heartbeat + telemetry + CommandAck.
@@ -44,6 +46,7 @@ private:
     // Receive path
     void recv_loop();
     void wifi_recv_loop();
+    bool reconnect_serial();
     void handle_message(const mavlink_message_t& msg);
     void handle_rtcm(const mavlink_gps_rtcm_data_t& rtcm);
     void handle_peer_beacon(const mavlink_v2_extension_t& ext);
@@ -76,6 +79,8 @@ private:
     rclcpp::Subscription<sensor_msgs::msg::CompressedImage>::SharedPtr camera_sub_;
 
     std::unique_ptr<ITransport> transport_;
+    SerialPort*                 serial_{nullptr};  // aliases transport_ when serial; used by recv_loop to reopen after unplug
+    std::string                 serial_param_;     // configured device path or "auto"
     std::unique_ptr<UdpSocket>  wifi_transport_;  // client socket, nullptr until beacon received
 
     uint8_t system_id_   {1};

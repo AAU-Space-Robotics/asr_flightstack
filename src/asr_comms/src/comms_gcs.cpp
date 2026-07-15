@@ -7,7 +7,9 @@
 #include <chrono>
 #include <cstring>
 #include <glob.h>
+#include <iostream>
 #include <stdexcept>
+#include <thread>
 #include <rclcpp/rclcpp.hpp>
 
 using namespace std::chrono_literals;
@@ -56,7 +58,7 @@ static std::string auto_detect_serial()
         }
         globfree(&gf);
     }
-    throw std::runtime_error("No serial radio found — is the USB radio module plugged in?");
+    return {};
 }
 
 CommsGcs::CommsGcs() : Node("comms_gcs")
@@ -78,12 +80,30 @@ CommsGcs::CommsGcs() : Node("comms_gcs")
     camera_port_  = static_cast<uint16_t>(get_parameter("camera_port").as_int());
     const bool wifi_enabled = get_parameter("wifi_enabled").as_bool();
 
-    const auto serial_port = get_parameter("serial_port").as_string();
-    if (!serial_port.empty()) {
-        const auto dev  = (serial_port == "auto") ? auto_detect_serial() : serial_port;
-        const int  baud = static_cast<int>(get_parameter("baud_rate").as_int());
-        transport_ = std::make_unique<SerialPort>(dev, baud);
-        RCLCPP_INFO(get_logger(), "GCS comms — serial %s @ %d baud", dev.c_str(), baud);
+    serial_param_ = get_parameter("serial_port").as_string();
+    if (!serial_param_.empty()) {
+        const int baud = static_cast<int>(get_parameter("baud_rate").as_int());
+        // The radio may not be plugged in yet — keep retrying instead of
+        // failing, but stay interruptible by Ctrl+C.
+        std::unique_ptr<SerialPort> serial;
+        while (!serial && rclcpp::ok()) {
+            try {
+                const auto dev = (serial_param_ == "auto") ? auto_detect_serial()
+                                                           : serial_param_;
+                if (dev.empty())
+                    throw std::runtime_error("no USB serial device present");
+                serial = std::make_unique<SerialPort>(dev, baud);
+                RCLCPP_INFO(get_logger(), "GCS comms — serial %s @ %d baud", dev.c_str(), baud);
+            } catch (const std::exception& e) {
+                RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 5000,
+                    "Waiting for serial port '%s' (%s)", serial_param_.c_str(), e.what());
+                std::this_thread::sleep_for(1s);
+            }
+        }
+        if (!serial)
+            throw std::runtime_error("Interrupted while waiting for serial port");
+        serial_    = serial.get();
+        transport_ = std::move(serial);
     } else {
         const auto bind_port   = static_cast<uint16_t>(get_parameter("bind_port").as_int());
         const auto target_ip   = get_parameter("target_ip").as_string();
@@ -207,7 +227,12 @@ void CommsGcs::recv_loop()
 
     while (running_) {
         const ssize_t n = transport_->recv(buf, sizeof(buf));
-        if (n <= 0) continue;
+        if (n <= 0) {
+            // 0 is a normal VMIN/VTIME timeout — but a USB unplug hangs up
+            // the tty and reads look identical, so probe the fd to tell.
+            if (serial_ && !serial_->alive() && !reconnect_serial()) break;
+            continue;
+        }
 
         radio_rx_bytes_ += static_cast<size_t>(n);
         last_rx_ns_.store(static_cast<uint64_t>(
@@ -222,6 +247,26 @@ void CommsGcs::recv_loop()
             }
         }
     }
+}
+
+// Blocks the receive thread until the radio re-enumerates, then re-points the
+// existing SerialPort at it. The rest of the node keeps running meanwhile:
+// sends fail silently on the dead fd, WiFi still delivers, and the 1 Hz
+// LinkStats publisher keeps reporting the (dis)connected state.
+// Returns false when shut down while waiting.
+bool CommsGcs::reconnect_serial()
+{
+    RCLCPP_WARN(get_logger(), "Serial link lost — waiting for '%s' to come back",
+                serial_param_.c_str());
+    while (running_ && rclcpp::ok()) {
+        const auto dev = (serial_param_ == "auto") ? auto_detect_serial() : serial_param_;
+        if (!dev.empty() && serial_->reopen(dev)) {
+            RCLCPP_INFO(get_logger(), "Serial link restored on %s", dev.c_str());
+            return true;
+        }
+        std::this_thread::sleep_for(1s);
+    }
+    return false;
 }
 
 void CommsGcs::wifi_recv_loop()
@@ -753,7 +798,11 @@ void CommsGcs::on_camera_stream_request(
 int main(int argc, char* argv[])
 {
     rclcpp::init(argc, argv);
-    rclcpp::spin(std::make_shared<CommsGcs>());
+    try {
+        rclcpp::spin(std::make_shared<CommsGcs>());
+    } catch (const std::exception& e) {
+        std::cerr << "comms_gcs: " << e.what() << std::endl;
+    }
     rclcpp::shutdown();
     return 0;
 }
