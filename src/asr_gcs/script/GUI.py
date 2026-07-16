@@ -416,7 +416,34 @@ class DroneGuiNode(Node):
 
         if len(msg.orientation) >= 3:
             roll = msg.orientation[0]
+            pitch = msg.orientation[1]
+            yaw_velocity = msg.orientation[2]
 
+    def battery_callback(self, msg):
+        global battery_voltage, battery_state_timestamp, battery_current, battery_percentage, battery_discharge_rate, battery_average_current
+
+        battery_state_timestamp = msg.timestamp
+        battery_voltage = msg.voltage
+        battery_current = msg.current
+        battery_percentage = msg.percentage
+        battery_discharge_rate = msg.discharged_mah
+        battery_average_current = msg.average_current
+
+    def battery_callback_2(self, msg):
+        global battery_percentage_2, battery_voltage_2
+
+        battery_percentage_2 = msg.percentage
+        battery_voltage_2 = msg.voltage
+
+    def gps_callback(self, msg):
+        global longitude, latitude, satellites_used
+
+        latitude = msg.latitude
+        longitude = msg.longitude
+        satellites_used = msg.satellites_used
+
+    def status_callback(self, msg):
+        global arming_state, flight_mode, flight_time, trajectory_mode
         global GUI_console_logs
         global actuator_speeds
 
