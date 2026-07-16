@@ -55,10 +55,10 @@ clone_repo_if_not_exists() {
     fi
 }
 
-# 5. Clone the px4_msgs repository
-clone_repo_if_not_exists "git@github.com:AAU-Space-Robotics/px4_msgs_thyra.git" "px4_msgs"
+# 5. Clone the asr_px4_msgs repository
+clone_repo_if_not_exists "git@github.com:AAU-Space-Robotics/asr_px4_msgs.git" "px4_msgs"
 
-# 6. Navigate to the parent directory to check/install Micro-XRCE-DDS-Agent and PX4-Autopilot
+# 6. Navigate to the parent directory to check/install Micro-XRCE-DDS-Agent and asr_PX4-Autopilot
 cd "$PARENT_DIR" || exit
 
 # 7. Check and install Micro-XRCE-DDS-Agent
@@ -75,15 +75,15 @@ else
   sudo make install
   sudo ldconfig /usr/local/lib/
   cd "$PARENT_DIR" || exit
-fi
+fi        
 
-# 8. Check and install PX4-Autopilot
-if [ -d "PX4-Autopilot_thyra" ]; then
-  echo "PX4-Autopilot_thyra is already installed, skipping installation."
+# 8. Check and install asr_PX4-Autopilot
+if [ -d "asr_PX4" ]; then
+  echo "asr_PX4 is already installed, skipping installation."
 else
-  echo "Installing PX4-Autopilot..."
-  git clone git@github.com:AAU-Space-Robotics/PX4-Autopilot_thyra.git --recursive
-  cd PX4-Autopilot_thyra
+  echo "Installing asr_PX4..."
+  git clone git@github.com:AAU-Space-Robotics/asr_PX4.git --recursive
+  cd asr_PX4
   bash ./Tools/setup/ubuntu.sh
   make px4_sitl
   cd "$PARENT_DIR" || exit

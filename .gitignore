@@ -33,3 +33,5 @@ probe_data/
 **/*.engine.meta
 **/*.onnx
 runs/
+
+.claude/

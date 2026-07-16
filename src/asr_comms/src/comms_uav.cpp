@@ -8,6 +8,7 @@
 #include <cstring>
 #include <glob.h>
 #include <stdexcept>
+#include <thread>
 #include <rclcpp/rclcpp.hpp>
 
 using namespace std::chrono_literals;
@@ -28,7 +29,7 @@ static std::string auto_detect_serial()
         }
         globfree(&g);
     }
-    throw std::runtime_error("No serial radio found — is the USB radio module plugged in?");
+    return {};
 }
 
 CommsUav::CommsUav()
@@ -56,12 +57,30 @@ CommsUav::CommsUav()
     wifi_port_    = static_cast<uint16_t>(get_parameter("wifi_port").as_int());
     camera_port_  = static_cast<uint16_t>(get_parameter("camera_port").as_int());
 
-    const auto serial_port = get_parameter("serial_port").as_string();
-    if (!serial_port.empty()) {
-        const auto dev  = (serial_port == "auto") ? auto_detect_serial() : serial_port;
-        const int  baud = static_cast<int>(get_parameter("baud_rate").as_int());
-        transport_ = std::make_unique<SerialPort>(dev, baud);
-        RCLCPP_INFO(get_logger(), "UAV comms — serial %s @ %d baud", dev.c_str(), baud);
+    serial_param_ = get_parameter("serial_port").as_string();
+    if (!serial_param_.empty()) {
+        const int baud = static_cast<int>(get_parameter("baud_rate").as_int());
+        // The radio may not have enumerated yet at boot — keep retrying
+        // instead of failing, but stay interruptible by Ctrl+C.
+        std::unique_ptr<SerialPort> serial;
+        while (!serial && rclcpp::ok()) {
+            try {
+                const auto dev = (serial_param_ == "auto") ? auto_detect_serial()
+                                                           : serial_param_;
+                if (dev.empty())
+                    throw std::runtime_error("no USB serial device present");
+                serial = std::make_unique<SerialPort>(dev, baud);
+                RCLCPP_INFO(get_logger(), "UAV comms — serial %s @ %d baud", dev.c_str(), baud);
+            } catch (const std::exception& e) {
+                RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 5000,
+                    "Waiting for serial port '%s' (%s)", serial_param_.c_str(), e.what());
+                std::this_thread::sleep_for(1s);
+            }
+        }
+        if (!serial)
+            throw std::runtime_error("Interrupted while waiting for serial port");
+        serial_    = serial.get();
+        transport_ = std::move(serial);
     } else {
         const auto bind_port   = static_cast<uint16_t>(get_parameter("bind_port").as_int());
         const auto target_ip   = get_parameter("target_ip").as_string();
@@ -119,6 +138,10 @@ CommsUav::CommsUav()
         "out/telemetry/battery", qos_rt,
         std::bind(&CommsUav::on_battery, this, std::placeholders::_1));
 
+    battery2_sub_ = create_subscription<asr_comms::msg::TelemetryBattery>(
+        "out/telemetry/battery2", qos_rt,
+        std::bind(&CommsUav::on_battery, this, std::placeholders::_1));
+
     gps_sub_ = create_subscription<asr_comms::msg::TelemetryGPS>(
         "out/telemetry/gps", qos_rt,
         std::bind(&CommsUav::on_gps, this, std::placeholders::_1));
@@ -171,7 +194,12 @@ void CommsUav::recv_loop()
 
     while (running_) {
         const ssize_t n = transport_->recv(buf, sizeof(buf));
-        if (n <= 0) continue;
+        if (n <= 0) {
+            // 0 is a normal VMIN/VTIME timeout — but a USB unplug hangs up
+            // the tty and reads look identical, so probe the fd to tell.
+            if (serial_ && !serial_->alive() && !reconnect_serial()) break;
+            continue;
+        }
 
         rx_bytes_ += static_cast<size_t>(n);
         last_gcs_msg_us_.store(std::chrono::duration_cast<std::chrono::microseconds>(
@@ -185,6 +213,26 @@ void CommsUav::recv_loop()
             }
         }
     }
+}
+
+// Blocks the receive thread until the radio re-enumerates, then re-points the
+// existing SerialPort at it. The rest of the node keeps running meanwhile:
+// sends fail silently on the dead fd, WiFi still delivers, and the 1 Hz
+// CommsHealth publisher keeps reporting the (dis)connected state.
+// Returns false when shut down while waiting.
+bool CommsUav::reconnect_serial()
+{
+    RCLCPP_WARN(get_logger(), "Serial link lost — waiting for '%s' to come back",
+                serial_param_.c_str());
+    while (running_ && rclcpp::ok()) {
+        const auto dev = (serial_param_ == "auto") ? auto_detect_serial() : serial_param_;
+        if (!dev.empty() && serial_->reopen(dev)) {
+            RCLCPP_INFO(get_logger(), "Serial link restored on %s", dev.c_str());
+            return true;
+        }
+        std::this_thread::sleep_for(1s);
+    }
+    return false;
 }
 
 void CommsUav::wifi_recv_loop()
@@ -563,7 +611,7 @@ void CommsUav::on_battery(const asr_comms::msg::TelemetryBattery::SharedPtr msg)
 
     mavlink_message_t mav{};
     mavlink_msg_battery_status_pack(system_id_, component_id_, &mav,
-        0, MAV_BATTERY_FUNCTION_ALL, MAV_BATTERY_TYPE_LIPO,
+        msg->id, MAV_BATTERY_FUNCTION_ALL, MAV_BATTERY_TYPE_LIPO,
         INT16_MAX,
         cell_voltages,
         static_cast<int16_t>(msg->current * 100.0f),
@@ -704,7 +752,11 @@ void CommsUav::on_camera_frame(const sensor_msgs::msg::CompressedImage::SharedPt
 int main(int argc, char* argv[])
 {
     rclcpp::init(argc, argv);
-    rclcpp::spin(std::make_shared<CommsUav>());
+    try {
+        rclcpp::spin(std::make_shared<CommsUav>());
+    } catch (const std::exception& e) {
+        std::cerr << "comms_uav: " << e.what() << std::endl;
+    }
     rclcpp::shutdown();
     return 0;
 }

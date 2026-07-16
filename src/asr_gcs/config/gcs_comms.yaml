@@ -18,6 +18,11 @@
     wifi_enabled: true
     wifi_port: 14552
 
+/asr/gcs/asr_logger_gcs:
+  ros__parameters:
+    log_dir: "~/gcs_logs"        # one gcs_YYYYMMDD_HHMMSS.ulg per GCS session
+    sys_name: "asr_gcs"
+
 /asr/gcs/rtcm_reader:
   ros__parameters:
     port: "auto"                 # "auto" finds the u-blox by its by-id name; or set an explicit device
