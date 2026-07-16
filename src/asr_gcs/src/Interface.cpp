@@ -50,9 +50,14 @@ int main(int argc, char **argv) {
     GLuint image_takeoff = widgets.LoadButtonImage(path_takeoff.c_str());
     GLuint image_armed = widgets.LoadButtonImage(path_armed.c_str());
 
+    GLuint placeholderTile = location.display_map("/home/dksoren/aau_workspace/asr_flightstack/src/asr_gcs/images/tile_placeholder.png", 1.0f);
+
 
     // Register the callback with GLFW
     glfwSetFramebufferSizeCallback(window, framebuffer_size_callback);
+
+    fprintf(stderr, "GL_RENDERER: %s\n", glGetString(GL_RENDERER));
+    fprintf(stderr, "GL_VERSION: %s\n", glGetString(GL_VERSION));
 
     while (!glfwWindowShouldClose(window)) {
         glfwPollEvents();
@@ -108,8 +113,7 @@ int main(int argc, char **argv) {
         //    armText = "Arm";
         //}
         //if (widgets.costum_square_button(armText, ImVec2(800 * scale, 50*scale), ImVec2(150 * scale, 50 * scale), winInit.getFont(28), 28.0f * scale, armColor)) {
-//
-        //    armButton = !armButton; // Toggle button state
+//        //    armButton = !armButton; // Toggle button state
         //    printf("Arm button clicked. New state: %s\n", armButton ? "Armed" : "Disarmed");
         //}
         // ------------ Buttons-------------
@@ -133,16 +137,16 @@ int main(int argc, char **argv) {
         //ImGui::SetCursorPos(ImVec2(100 * scale, 100 * scale));
 
         // ---------For testing — replace with ROS later
-        static float testLat = 57.034f, testLon = 9.882f;
+        static float testLat = 57.063f, testLon = 10.032f;
         ImGui::SetCursorPos(ImVec2(10 * scale, 50 * scale));
-        ImGui::InputFloat("Lat", &testLat, 0.001f, 0.01f, "%.5f");
-        ImGui::InputFloat("Lon", &testLon, 0.001f, 0.01f, "%.5f");
+        ImGui::InputFloat("Lat", &testLat, 0.0001f, 0.01f, "%.5f");
+        ImGui::InputFloat("Lon", &testLon, 0.0001f, 0.01f, "%.5f");
         ImGui::SliderFloat("Altitude", &value, -20.0f, 20.0f);
 
 
         //-------------------MAP-----------------
         ImGui::SetCursorPos(ImVec2(0 * scale, 150 * scale));
-        location.MapWidget(testLat, testLon, 1500 * scale, 900 * scale, scale, 19);
+        location.MapWidget(testLat, testLon, 1500 * scale, 900 * scale, scale, 20, placeholderTile);
 
 
         

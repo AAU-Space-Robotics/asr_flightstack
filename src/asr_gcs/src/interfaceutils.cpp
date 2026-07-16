@@ -1,5 +1,4 @@
-#define STB_IMAGE_IMPLEMENTATION
-#include "stb_image.h"
+
 #include "interfaceutils.h"
 
 namespace windowVar {
@@ -405,13 +404,32 @@ void AltitudeTape(int direction, float altitude, float tapeHeight = 300.0f, floa
     
     
 }
-GLuint Widgets::LoadButtonImage(const char* path)
+static GLuint UploadImageToGL(const cv::Mat& img, const char* path)
 {
-    int width, height, channels;
-    unsigned char* data = stbi_load(path, &width, &height, &channels, 4);
-    if (!data) {
-        std::cout << "Failed to load button image: " << path << std::endl;
+    if (img.empty()) {
+        std::cerr << "Failed to load image: " << path << std::endl;
         return 0;
+    }
+
+    cv::Mat rgba;
+    switch (img.channels()) {
+        case 1: cv::cvtColor(img, rgba, cv::COLOR_GRAY2RGBA); break;
+        case 3: cv::cvtColor(img, rgba, cv::COLOR_BGR2RGBA);  break;
+        case 4: cv::cvtColor(img, rgba, cv::COLOR_BGRA2RGBA); break;
+        default:
+            std::cerr << "Unexpected channel count (" << img.channels() << ") in " << path << std::endl;
+            return 0;
+    }
+
+    // Force onto a fixed, fully-allocated 256x256 canvas regardless of what
+    // the decoder actually produced — this makes an overread impossible,
+    // even if rgba's real dimensions don't match what it claims.
+    constexpr int TILE_SIZE = 256;
+    cv::Mat canvas(TILE_SIZE, TILE_SIZE, CV_8UC4, cv::Scalar(0, 0, 0, 255));
+    int copyW = std::min(TILE_SIZE, rgba.cols);
+    int copyH = std::min(TILE_SIZE, rgba.rows);
+    if (copyW > 0 && copyH > 0) {
+        rgba(cv::Rect(0, 0, copyW, copyH)).copyTo(canvas(cv::Rect(0, 0, copyW, copyH)));
     }
 
     GLuint tex;
@@ -419,28 +437,28 @@ GLuint Widgets::LoadButtonImage(const char* path)
     glBindTexture(GL_TEXTURE_2D, tex);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, data);
-    stbi_image_free(data);
+
+    glPixelStorei(GL_UNPACK_ROW_LENGTH, 0);
+    glPixelStorei(GL_UNPACK_SKIP_ROWS, 0);
+    glPixelStorei(GL_UNPACK_SKIP_PIXELS, 0);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
+
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, TILE_SIZE, TILE_SIZE, 0, GL_RGBA, GL_UNSIGNED_BYTE, canvas.data);
 
     return tex;
 }
 
-GLuint Location::display_map(const char* path, float scale){
-    int width, height, channels;
-    unsigned char* data = stbi_load(path, &width, &height, &channels, 4);
-    if(!data) return 0;
-
-    GLuint image;
-    glGenTextures(1, &image);
-    glBindTexture(GL_TEXTURE_2D, image);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, data);
-    stbi_image_free(data);
-
-    return image;
+GLuint Widgets::LoadButtonImage(const char* path)
+{
+    cv::Mat img = cv::imread(path, cv::IMREAD_UNCHANGED);
+    return UploadImageToGL(img, path);
 }
 
+GLuint Location::display_map(const char* path, float scale)
+{
+    cv::Mat img = cv::imread(path, cv::IMREAD_UNCHANGED);
+    return UploadImageToGL(img, path);
+}
 Location::TileCoord Location::latLonToTile(double lat, double lon, int zoom)
 {
     int n = 1 << zoom;
@@ -464,17 +482,37 @@ ImVec2 Location::latLonToTileOffset(double lat, double lon, int zoom)
 GLuint Location::loadTileCached(int zoom, int x, int y)
 {
     std::string key = std::to_string(zoom) + "/" + std::to_string(x) + "/" + std::to_string(y);
-    auto it = tileCache.find(key);
-    if (it != tileCache.end()) return it->second;
 
-    std::string path = "/home/dksoren/aau_workspace/asr_flightstack/src/asr_gcs/tiles/" //! REMEMBER TO MAKE UNIVERSAL PATH
+    auto it = tileCache.find(key);
+    if (it != tileCache.end()) {
+        tileLRU.splice(tileLRU.begin(), tileLRU, lruPos[key]);
+        return it->second;
+    }
+
+    std::string path = "/home/dksoren/aau_workspace/asr_flightstack/src/asr_gcs/tiles/" //!!!!
                        + key + ".png";
-    GLuint tex = display_map(path.c_str(), 1.0f);  // your existing load function
+    fprintf(stderr, "Attempting: %s\n", path.c_str());
+    fflush(stderr);
+    GLuint tex = display_map(path.c_str(), 1.0f);
+    if (!tex) return 0; // missing tile — don't cache a failure as if it were real
+
     tileCache[key] = tex;
+    tileLRU.push_front(key);
+    lruPos[key] = tileLRU.begin();
+
+    if (tileCache.size() > MAX_CACHED_TILES) {
+        std::string oldestKey = tileLRU.back();
+        GLuint oldTex = tileCache[oldestKey];
+        glDeleteTextures(1, &oldTex);
+        tileCache.erase(oldestKey);
+        lruPos.erase(oldestKey);
+        tileLRU.pop_back();
+    }
+
+    fprintf(stderr, "Active tile textures: %zu\n", tileCache.size());
     return tex;
 }
-
-void Location::MapWidget(double lat, double lon, float width, float height, float scale, int zoom)
+void Location::MapWidget(double lat, double lon, float width, float height, float scale, int zoom, GLuint placeholderTile)
 {
     ImGui::BeginChild("MapWidget", ImVec2(width, height), false);
     ImDrawList* draw = ImGui::GetWindowDrawList();
@@ -500,6 +538,7 @@ void Location::MapWidget(double lat, double lon, float width, float height, floa
         float sy = pos.y + height / 2.0f + dy * tileSize - offset.y * scale;
 
         GLuint tex = loadTileCached(zoom, tx, ty);
+        if (!tex) tex = placeholderTile;
         if (tex)
             draw->AddImage((ImTextureID)(intptr_t)tex,
                 ImVec2(sx, sy),
@@ -514,6 +553,7 @@ void Location::MapWidget(double lat, double lon, float width, float height, floa
 
     ImGui::EndChild();
 }
+
 
 //ImU32 Color::dBlue_lGrey(bool theme = 0){
 //    return 0;
@@ -535,3 +575,4 @@ ImU32 Color::white_black(bool theme){
         return IM_COL32(0, 0, 0, 255);
     }
 }
+

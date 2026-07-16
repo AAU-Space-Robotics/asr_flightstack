@@ -152,7 +152,9 @@ target_link_libraries(interface
   tinyxml2        # Link tinyxml2 from FetchContent
   ${OpenCV_LIBS}
 )
-
+target_include_directories(interface 
+  PRIVATE ${OpenCV_INCLUDE_DIRS}
+)
 
 # Ament package
 ament_package()
