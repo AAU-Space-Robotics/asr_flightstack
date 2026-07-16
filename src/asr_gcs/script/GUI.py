@@ -416,34 +416,7 @@ class DroneGuiNode(Node):
 
         if len(msg.orientation) >= 3:
             roll = msg.orientation[0]
-            pitch = msg.orientation[1]
-            yaw_velocity = msg.orientation[2]
 
-    def battery_callback(self, msg):
-        global battery_voltage, battery_state_timestamp, battery_current, battery_percentage, battery_discharge_rate, battery_average_current
-
-        battery_state_timestamp = msg.timestamp
-        battery_voltage = msg.voltage
-        battery_current = msg.current
-        battery_percentage = msg.percentage
-        battery_discharge_rate = msg.discharged_mah
-        battery_average_current = msg.average_current
-
-    def battery_callback_2(self, msg):
-        global battery_percentage_2, battery_voltage_2
-
-        battery_percentage_2 = msg.percentage
-        battery_voltage_2 = msg.voltage
-
-    def gps_callback(self, msg):
-        global longitude, latitude, satellites_used
-
-        latitude = msg.latitude
-        longitude = msg.longitude
-        satellites_used = msg.satellites_used
-
-    def status_callback(self, msg):
-        global arming_state, flight_mode, flight_time, trajectory_mode
         global GUI_console_logs
         global actuator_speeds
 
@@ -972,7 +945,7 @@ def batteryGraph():
     end_x, end_y = 1585, 132      # Ending point of the line (x, y)
     color = imgui.get_color_u32_rgba(1.0, 1.0, 1.0, 1.0) 
     draw_list.add_line(start_x,start_y, end_x, end_y, color, 2.0)
-    imgui.set_cursor_pos((1655, 175)); imgui.text(f" TS:  {battery_state_timestamp}")
+    imgui.set_cursor_pos((1595, 175)); imgui.text(f" TS:  {battery_state_timestamp}")
 
 def map_value(value, in_min, in_max, out_min, out_max):
     return (value - in_min) * (out_max - out_min) / (in_max - in_min) + out_min
