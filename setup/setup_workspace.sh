@@ -78,12 +78,12 @@ else
 fi        
 
 # 8. Check and install asr_PX4-Autopilot
-if [ -d "asr_PX4-Autopilot" ]; then
-  echo "asr_PX4-Autopilot is already installed, skipping installation."
+if [ -d "asr_PX4" ]; then
+  echo "asr_PX4 is already installed, skipping installation."
 else
-  echo "Installing asr_PX4-Autopilot..."
-  git clone git@github.com:AAU-Space-Robotics/asr_PX4-Autopilot.git --recursive
-  cd asr_PX4-Autopilot
+  echo "Installing asr_PX4..."
+  git clone git@github.com:AAU-Space-Robotics/asr_PX4.git --recursive
+  cd asr_PX4
   bash ./Tools/setup/ubuntu.sh
   make px4_sitl
   cd "$PARENT_DIR" || exit
