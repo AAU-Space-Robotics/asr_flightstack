@@ -150,6 +150,10 @@ CommsUav::CommsUav()
         "out/telemetry/status", qos_rt,
         std::bind(&CommsUav::on_status, this, std::placeholders::_1));
 
+    distance_sub_ = create_subscription<px4_msgs::msg::DistanceSensor>(
+        "/fmu/out/distance_sensor", qos_rt,
+        std::bind(&CommsUav::on_distance, this, std::placeholders::_1));
+
     // Action client — forwards COMMAND_LONG from GCS to the autopilot action server
     action_client_ = rclcpp_action::create_client<DroneCommand>(this, "in/drone_command");
 
@@ -587,6 +591,27 @@ void CommsUav::on_position(const asr_comms::msg::TelemetryPosition::SharedPtr ms
         static_cast<uint32_t>(msg->timestamp * 1e3),
         msg->position[0], msg->position[1], msg->position[2],
         msg->velocity[0], msg->velocity[1], msg->velocity[2]);
+    send_mavlink(mav);
+}
+
+void CommsUav::on_distance(const px4_msgs::msg::DistanceSensor::SharedPtr msg)
+{
+    const auto to_cm = [](float m) {
+        return static_cast<uint16_t>(std::clamp(m * 100.0f, 0.0f, 65535.0f));
+    };
+    const float q[4] = {msg->q[0], msg->q[1], msg->q[2], msg->q[3]};
+    mavlink_message_t mav{};
+    mavlink_msg_distance_sensor_pack(system_id_, component_id_, &mav,
+        static_cast<uint32_t>(msg->timestamp / 1000),  // µs since boot → ms
+        to_cm(msg->min_distance),
+        to_cm(msg->max_distance),
+        to_cm(msg->current_distance),
+        msg->type,
+        static_cast<uint8_t>(msg->device_id),
+        msg->orientation,
+        UINT8_MAX,  // covariance unknown
+        msg->h_fov, msg->v_fov, q,
+        msg->signal_quality > 0 ? static_cast<uint8_t>(msg->signal_quality) : 0);
     send_mavlink(mav);
 }
 

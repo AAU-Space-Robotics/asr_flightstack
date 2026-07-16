@@ -99,9 +99,6 @@ def generate_launch_description():
                     executable='asr_autopilot',
                     name='autopilot',
                     namespace='asr/gunnhild',
-                    remappings=[
-                        ('/asr/gunnhild/out/distance_sensor', '/fmu/out/distance_sensor'),
-                    ],
                     parameters=[
                         params_path,
                         {'use_sim_time': use_sim_time},

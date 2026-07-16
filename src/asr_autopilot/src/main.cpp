@@ -399,7 +399,7 @@ public:
             [this](const BatteryStatus::SharedPtr msg)
             { batteryStatusCallback(msg, 1); });
         ground_distance_sub_ = create_subscription<DistanceSensor>(
-            "out/distance_sensor", qos,
+            "/fmu/out/distance_sensor", qos,
             [this](const DistanceSensor::SharedPtr msg)
             { GroundDistanceCallback(msg);});
         actuator_output_sub_ = create_subscription<ActuatorOutputs>(

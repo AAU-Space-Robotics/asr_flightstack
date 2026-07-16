@@ -121,6 +121,9 @@ CommsGcs::CommsGcs() : Node("comms_gcs")
     battery2_pub_ = create_publisher<asr_comms::msg::TelemetryBattery>( "telemetry/battery_compute", 10);
     gps_pub_      = create_publisher<asr_comms::msg::TelemetryGPS>(     "telemetry/gps",      10);
     status_pub_   = create_publisher<asr_comms::msg::TelemetryStatus>(  "telemetry/status",   10);
+    // Same topic + QoS profile the GUI already subscribes with (best-effort, transient-local)
+    distance_pub_ = create_publisher<px4_msgs::msg::DistanceSensor>("/fmu/out/distance_sensor",
+        rclcpp::QoS(1).best_effort().transient_local());
     command_ack_pub_ = create_publisher<asr_comms::msg::CommandAck>("command_ack", 10);
     camera_pub_      = create_publisher<sensor_msgs::msg::CompressedImage>("camera/image/compressed", 10);
 
@@ -350,6 +353,27 @@ void CommsGcs::handle_message(const mavlink_message_t& msg)
         } else {
             battery_pub_->publish(out);
         }
+        break;
+    }
+
+    case MAVLINK_MSG_ID_DISTANCE_SENSOR: {
+        mavlink_distance_sensor_t d{};
+        mavlink_msg_distance_sensor_decode(&msg, &d);
+
+        px4_msgs::msg::DistanceSensor out{};
+        out.timestamp        = static_cast<uint64_t>(d.time_boot_ms) * 1000;  // ms → µs
+        out.device_id        = d.id;
+        out.min_distance     = d.min_distance / 100.0f;   // cm → m
+        out.max_distance     = d.max_distance / 100.0f;
+        out.current_distance = d.current_distance / 100.0f;
+        out.variance         = 0.0f;  // not carried over the link
+        out.signal_quality   = (d.signal_quality == 0) ? -1 : static_cast<int8_t>(d.signal_quality);
+        out.type             = d.type;
+        out.h_fov            = d.horizontal_fov;
+        out.v_fov            = d.vertical_fov;
+        for (size_t i = 0; i < out.q.size(); ++i) out.q[i] = d.quaternion[i];
+        out.orientation      = d.orientation;
+        distance_pub_->publish(out);
         break;
     }
 

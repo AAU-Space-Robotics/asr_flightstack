@@ -20,6 +20,7 @@
 #include <asr_comms/msg/manual_control_input.hpp>
 #include <asr_comms/msg/servo_command.hpp>
 #include <asr_comms/msg/link_stats.hpp>
+#include <px4_msgs/msg/distance_sensor.hpp>
 
 #include "camera_protocol.h"
 #include "common/mavlink.h"
@@ -86,6 +87,7 @@ private:
     rclcpp::Publisher<asr_comms::msg::TelemetryBattery>::SharedPtr  battery2_pub_;
     rclcpp::Publisher<asr_comms::msg::TelemetryGPS>::SharedPtr      gps_pub_;
     rclcpp::Publisher<asr_comms::msg::TelemetryStatus>::SharedPtr   status_pub_;
+    rclcpp::Publisher<px4_msgs::msg::DistanceSensor>::SharedPtr     distance_pub_;
 
     // Send side
     rclcpp::TimerBase::SharedPtr heartbeat_timer_;
