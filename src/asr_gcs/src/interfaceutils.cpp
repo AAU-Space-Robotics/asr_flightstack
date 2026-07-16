@@ -291,7 +291,7 @@ void TestFunc::scroll_wheel(ImDrawList* draw_list, float startx, float starty, f
 
 
 }
-void AltitudeTape(int direction, float altitude, float tapeHeight = 300.0f, float numStep = 1.0f)
+void AltitudeTape(int direction, float altitude, float tapeHeight = 300.0f, float numStep = 1.0f, bool theme = 0)
 {
     switch (direction)
     {
@@ -326,7 +326,7 @@ void AltitudeTape(int direction, float altitude, float tapeHeight = 300.0f, floa
 
         draw->AddText(
             ImVec2(pos.x + 20, y - ImGui::CalcTextSize(buf).y / 2),
-            IM_COL32(255, 255, 255, 255),
+            Color::white_black(theme),
             buf
         );
 
@@ -334,7 +334,7 @@ void AltitudeTape(int direction, float altitude, float tapeHeight = 300.0f, floa
         draw->AddLine(
             ImVec2(pos.x + 5, y),
             ImVec2(pos.x + 18, y),
-            IM_COL32(255, 255, 255, 255),
+            Color::white_black(theme),
             2.0f
         );
     }
@@ -374,7 +374,7 @@ void AltitudeTape(int direction, float altitude, float tapeHeight = 300.0f, floa
         
             draw->AddText(
                 ImVec2(x - ImGui::CalcTextSize(buf).x / 2, pos.y + 20),
-                IM_COL32(255, 255, 255, 255),
+                Color::white_black(theme),
                 buf
             );
         
@@ -382,7 +382,7 @@ void AltitudeTape(int direction, float altitude, float tapeHeight = 300.0f, floa
             draw->AddLine(
                 ImVec2(x, pos.y + 5),
                 ImVec2(x, pos.y+18),
-                IM_COL32(255, 255, 255, 255),
+                Color::white_black(theme),
                 2.0f
             );
         }
@@ -513,4 +513,25 @@ void Location::MapWidget(double lat, double lon, float width, float height, floa
     draw->AddCircle(ImVec2(cx, cy), 6.0f * scale, IM_COL32(255, 255, 255, 255), 12, 1.5f);
 
     ImGui::EndChild();
+}
+
+//ImU32 Color::dBlue_lGrey(bool theme = 0){
+//    return 0;
+//}
+
+ImVec4 Color::bgColor(bool theme)
+{
+    if (theme) {
+        return ImVec4(13 / 255.0f, 13 / 255.0f, 32 / 255.0f, 1.0f);   // dark navy
+    } else {
+        return ImVec4(208 / 255.0f, 209 / 255.0f, 216 / 255.0f, 1.0f); // light gray
+    }
+}
+
+ImU32 Color::white_black(bool theme){
+    if (theme) {
+        return IM_COL32(255, 255, 255, 255);
+    } else {
+        return IM_COL32(0, 0, 0, 255);
+    }
 }

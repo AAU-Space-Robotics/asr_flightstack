@@ -7,13 +7,15 @@
 WindowInitializer winInit;
 Widgets widgets;
 Location location;
+Color colors;
 TestFunc test_functions;
 
 
 int main(int argc, char **argv) {
     float armButton = false;
     float value = 0.0f;
-    ImU32 armColor = IM_COL32(26, 204, 26, 255); // Green color
+    bool theme = 1;
+    ImU32 armColor = IM_COL32(26, 204, 26, 255); // Green color //!!! CLEAN UP
     const char* armText = "Arm";
     glfwSetErrorCallback([](int error, const char* description) {
         fprintf(stderr, "GLFW Error %d: %s\n", error, description);
@@ -41,6 +43,12 @@ int main(int argc, char **argv) {
     ImGui_ImplOpenGL3_Init(glsl_version);
     winInit.loadFonts(); // Load fonts once
     
+     // ------ Image for buttons
+    std::string path = "/home/dksoren/aau_workspace/asr_flightstack/src/asr_gcs/images/";
+    std::string path_takeoff = path + "takeoff.png";
+    std::string path_armed = path + "armed.png";
+    GLuint image_takeoff = widgets.LoadButtonImage(path_takeoff.c_str());
+    GLuint image_armed = widgets.LoadButtonImage(path_armed.c_str());
 
 
     // Register the callback with GLFW
@@ -55,14 +63,12 @@ int main(int argc, char **argv) {
         ImGui::NewFrame();
         // Draw multi-color background
         //winInit.DrawMultiColor();
-        // Set size of font and windows - - - - - - - - - - - - - - - - - - - - - - 
-
-        // ------ Image for buttons
-        std::string path = "/home/dksoren/aau_workspace/asr_flightstack/src/asr_gcs/images/";
-        std::string path_takeoff = path + "takeoff.png";
-        std::string path_armed = path + "armed.png";
-        GLuint image_takeoff = widgets.LoadButtonImage(path_takeoff.c_str());
-        GLuint image_armed = widgets.LoadButtonImage(path_armed.c_str());
+        // Set size, color, font and windows - - - - - - - - - - - - - - - - - - - - - - 
+        
+        ImVec4 bg = colors.bgColor(theme);
+        glClearColor(bg.x, bg.y, bg.z, bg.w);
+        glClear(GL_COLOR_BUFFER_BIT);
+       
 
 
 
@@ -112,9 +118,11 @@ int main(int argc, char **argv) {
         }
         if (widgets.CustomButton(draw_list, ImVec2(1700 * scale, 100 * scale),"ARM",scale, image_takeoff)) {
             std::cout << "Takeoff pressed!" << std::endl;
+            theme = 1;
         }
         if (widgets.CustomButton(draw_list, ImVec2(1800 * scale, 100 * scale),"ARM",scale, image_armed)) {
             std::cout << "Armed pressed!" << std::endl;
+            theme = 0;
         }
 
         //ImGui::PushFont(ImGui::GetFont());
@@ -143,10 +151,10 @@ int main(int argc, char **argv) {
 
         
         ImGui::SetCursorPos(ImVec2(1750 * scale, 500 * scale));
-        AltitudeTape(1, value, 300.0f * scale, 0.5f);  // BeginChild goes here
+        AltitudeTape(1, value, 300.0f * scale, 0.5f, theme);  // BeginChild goes here
 
         ImGui::SetCursorPos(ImVec2(1600 * scale, 900 * scale));
-        AltitudeTape(2, value, 300.0f * scale, 0.5f);
+        AltitudeTape(2, value, 300.0f * scale, 0.5f, theme);
             
 
         
