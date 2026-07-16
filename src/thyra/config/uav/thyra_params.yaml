@@ -83,7 +83,7 @@
 
     # Setup Parameters
     setup:
-      lidar_offset: 0.0 # Lidar offset for zero height calibration (meters)
+      lidar_offset: 0.16 # Lidar offset for zero height calibration (meters)
       takeoff_height: -1.5 # Default takeoff height (meters)
       motor_speed_min: 1000.0 # Motor speed min expected value
       motor_speed_max: 1900.0 # Motor speed max expected value
