@@ -320,7 +320,7 @@ class DroneGuiNode(Node):
         )
         self.battery_sub = self.create_subscription(
             TelemetryBattery,
-            "telemetry/battery",
+            "telemetry/battery_main",
             self.battery_callback,
             10
         )
@@ -353,7 +353,7 @@ class DroneGuiNode(Node):
         )
         self.battery_sub_2= self.create_subscription(
             TelemetryBattery,
-            "telemetry/battery1",
+            "telemetry/battery_compute",
             self.battery_callback_2,
             10
         )
@@ -953,7 +953,7 @@ def batteryGraph():
     draw_list.add_rect_filled(1803,106,1837,(battery_progressbar),battery_color, rounding=1.0,flags=15)
     draw_list.add_rect_filled(1803,216,1837,(battery_progressbar_2),battery_color_2, rounding=1.0,flags=15)
     imgui.set_cursor_pos((1595, 30)); imgui.text(f"Voltage:          {Decimal(battery_voltage).quantize(Decimal('0.0'))} V")
-    imgui.set_cursor_pos((1595, 150)); imgui.text(f"Voltage for Jetson: {Decimal(battery_voltage).quantize(Decimal('0.0'))} V")
+    imgui.set_cursor_pos((1595, 150)); imgui.text(f"Voltage for Jetson: {Decimal(battery_voltage_2).quantize(Decimal('0.0'))} V")
     imgui.set_cursor_pos((1595, 60)); imgui.text(f"Current:          {-(Decimal(battery_current).quantize(Decimal('0.0')))} A")
     imgui.set_cursor_pos((1595, 90)); imgui.text(f"Discharge rate:   {Decimal(battery_discharge_rate).quantize(Decimal('0.0'))} mAh")
     imgui.set_cursor_pos((1595, 120)); imgui.text(f"Average current:  {-(Decimal(battery_average_current).quantize(Decimal('0.0')))} A")
