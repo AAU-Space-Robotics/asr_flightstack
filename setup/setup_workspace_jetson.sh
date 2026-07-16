@@ -370,6 +370,9 @@ cat <<EOF | sudo tee "$UDEV_RULES_FILE" > /dev/null
 # PX4 bridge (Silicon Labs CP2102N USB-to-UART)
 SUBSYSTEM=="tty", ATTRS{idVendor}=="10c4", ATTRS{idProduct}=="ea60", SYMLINK+="px4"
 
+# PX4 bridge (FTDI TTL232R-3V3 USB-to-UART)
+SUBSYSTEM=="tty", ATTRS{idVendor}=="0403", ATTRS{idProduct}=="6001", SYMLINK+="px4"
+
 # SiK radio module (FTDI FT231X)
 SUBSYSTEM=="tty", ATTRS{idVendor}=="0403", ATTRS{idProduct}=="6015", SYMLINK+="sik"
 EOF
@@ -378,7 +381,7 @@ sudo udevadm trigger
 
 # Pin the flight stack to the Jetson launch file
 PARAMS_SRC="${ROS_WORKSPACE_PATH}/src/thyra/config/uav/thyra_params.yaml"
-sed -i "s/flight_stack_launch: .*/flight_stack_launch: thyra_jetson/" "$PARAMS_SRC"
+sed -i "s/flight_stack_launch: .*/flight_stack_launch: thyra/" "$PARAMS_SRC"
 
 # Install the thyra systemd service and restricted sudo rules
 SERVICE_USER="${SUDO_USER:-$USER}"
@@ -386,7 +389,8 @@ SYSTEMCTL_PATH="$(command -v systemctl)"
 REBOOT_PATH="$(command -v reboot)"
 ROS_SETUP_FILE="/opt/ros/${ROS_DISTRO}/setup.bash"
 WORKSPACE_SETUP_FILE="${ROS_WORKSPACE_PATH}/install/setup.bash"
-PARAMS_INSTALLED="${ROS_WORKSPACE_PATH}/install/thyra/share/thyra/config/thyra_params.yaml"
+PARAMS_INSTALLED="${ROS_WORKSPACE_PATH}/install/thyra/share/thyra/config/uav/thyra_params.yaml"
+ROS_DOMAIN_ID_VALUE="203"
 SERVICE_FILE="/etc/systemd/system/thyra.service"
 SUDOERS_FILE="/etc/sudoers.d/thyra-system-manager"
 
@@ -412,6 +416,7 @@ User=${SERVICE_USER}
 Group=${SERVICE_USER}
 WorkingDirectory=${ROS_WORKSPACE_PATH}
 Environment=PYTHONUNBUFFERED=1
+Environment=ROS_DOMAIN_ID=${ROS_DOMAIN_ID_VALUE}
 Environment=LD_LIBRARY_PATH=/usr/local/cuda-12.6/targets/aarch64-linux/lib:/usr/local/cuda/targets/aarch64-linux/lib:/usr/local/cuda-12.6/extras/CUPTI/lib64:/usr/local/cuda/extras/CUPTI/lib64:/usr/local/cusparselt/lib
 ExecStart=/bin/bash -lc 'source ${ROS_SETUP_FILE} && source ${WORKSPACE_SETUP_FILE} && exec ros2 run asr_drivers system_manager.py --ros-args -r __ns:=/asr/thyra --params-file ${PARAMS_INSTALLED}'
 Restart=on-failure
@@ -442,8 +447,8 @@ colcon build \
     --packages-skip asr_gcs
 
 # Set ROS_DOMAIN_ID in .bashrc to ensure UAV and GCS are on the same ROS 2 domain for communication
-if ! grep -qxF 'export ROS_DOMAIN_ID=203' ~/.bashrc; then
-    echo 'export ROS_DOMAIN_ID=203' >> ~/.bashrc
+if ! grep -qxF "export ROS_DOMAIN_ID=${ROS_DOMAIN_ID_VALUE}" ~/.bashrc; then
+    echo "export ROS_DOMAIN_ID=${ROS_DOMAIN_ID_VALUE}" >> ~/.bashrc
 fi
 
 

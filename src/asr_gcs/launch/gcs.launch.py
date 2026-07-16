@@ -30,6 +30,17 @@ def generate_launch_description():
             parameters=[comms_path],
         ),
 
+        # GCS-side logger — records link_stats (radio/WiFi bandwidth and
+        # SiK radio health for both ends) to a .ulg per GCS session
+        Node(
+            package='asr_logger',
+            executable='logger_gcs',
+            name='asr_logger_gcs',
+            namespace='asr/gcs',
+            output='screen',
+            parameters=[comms_path],
+        ),
+
         # Ground control station GUI
         Node(
             package='asr_gcs',
