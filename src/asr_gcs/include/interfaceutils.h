@@ -26,8 +26,11 @@ namespace windowVar {
 
 struct Color {
         static ImVec4 bgColor(bool theme = 0);
+        static ImVec4 panelColor(bool theme = 0);
+        static ImU32 panelBorder(bool theme = 0);
         static ImU32 dBlue_lGrey(bool theme = 0);
         static ImU32 white_black(bool theme = 0);
+
 
 };
 
@@ -35,8 +38,9 @@ struct Widgets {
     bool costum_square_button(const char* id, ImVec2 pos, ImVec2 size, ImFont* font, float font_size, ImU32 color);
     bool costum_round_button(ImVec2 center, float radius, int segments, ImU32 color);
     bool DrawCircleGradientButton(ImDrawList* draw_list, ImFont* font, float scale, ImVec2 center, float radius, const char* id, float font_size);
-    bool CustomButton(ImDrawList* draw_list, ImVec2 center,const char* label,float scale, GLuint tex);
+    bool CustomButton(ImDrawList* draw_list, ImVec2 center,const char* label,float scale, GLuint tex, bool theme);
     GLuint LoadButtonImage(const char* path);
+    void AltitudeTape(int direction, float altitude, float numStep, bool theme);
 };
 
 class WindowInitializer {
@@ -63,14 +67,14 @@ ImU32 DarkenColor(ImU32 col, float factor);
 
 void scroll_wheel(ImDrawList* draw_list, float startx, float starty, float width, float height, float scale);
 
-void AltitudeTape(int direction, float altitude, float tapeHeight, float numStep, bool theme);
+
 
 class Location {
     public:
         GLuint display_map(const char* path, float scale);
         ImVec2 latLonToTileOffset(double lat, double lon, int zoom);
         GLuint loadTileCached(int zoom, int x, int y);
-        void MapWidget(double lat, double lon, float width, float height, float scale, int zoom = 12, GLuint placeholdetTile = 0);
+        void MapWidget(double lat, double lon, float width, float height, float scale, int zoom = 12, GLuint placeholdetTile = 0, bool theme = 0);
 
     private:
         struct TileCoord { int x, y; };

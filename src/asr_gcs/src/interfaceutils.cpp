@@ -1,5 +1,8 @@
-
+#include <GLFW/glfw3.h>
 #include "interfaceutils.h"
+
+typedef void (APIENTRY *PFNGLGENERATEMIPMAPPROC)(unsigned int target);
+static PFNGLGENERATEMIPMAPPROC glGenerateMipmap_ptr = nullptr;
 
 namespace windowVar {
     int monitor_w = 0;
@@ -172,44 +175,52 @@ ImU32 DarkenColor(ImU32 col, float factor)
     return IM_COL32(r, g, b, a);
 }
 
-bool Widgets::CustomButton(ImDrawList* draw_list, ImVec2 center,const char* label,float scale, GLuint tex){
+bool Widgets::CustomButton(ImDrawList* draw_list, ImVec2 center,const char* label,float scale, GLuint tex, bool theme){
     // Compute bounding box
-    float size_x = 40 * scale;
-    float size_y = 40 * scale;
+    float size_x = 26 * scale;
+    float size_y = 26 * scale;
     ImVec2 bb_min = ImVec2(center.x - size_x, center.y - size_y);
     ImVec2 bb_max = ImVec2(center.x + size_x, center.y + size_y);
     float rounding = 12.0f;
-
+    ImVec2 image_bb_min = ImVec2(center.x - 13, center.y - 13);
+    ImVec2 image_bb_max = ImVec2(center.x + 13, center.y + 13);
     bool hovered = ImGui::IsMouseHoveringRect(bb_min, bb_max);
     bool active = hovered && ImGui::IsMouseDown(0);
+    bool released = hovered && ImGui::IsMouseReleased(0); 
 
-    ImVec4 normal_color   = ImVec4(0.20f, 0.20f, 0.45f, 1.0f);  // AAU blue 
-    ImVec4 hovered_color = ImVec4(0.35f, 0.35f, 0.65f, 1.0f);  // hover lighter
-    ImVec4 active_color  = ImVec4(0.20f, 0.20f, 0.45f, 1.0f); // same as base when clicked
+
+    ImVec4 normal_color  = Color::panelColor(theme); 
+    ImVec4 hovered_color = ImVec4(
+        normal_color.x + 0.15f,
+        normal_color.y + 0.15f,
+        normal_color.z + 0.15f,
+        normal_color.w
+    );
+    ImVec4 active_color = ImVec4(
+        normal_color.x * 0.7f,
+        normal_color.y * 0.7f,
+        normal_color.z * 0.7f,
+        normal_color.w
+    );
 
     ImVec4 base_color = active ? active_color :
                         hovered ? hovered_color : normal_color;
 
     float padding = 5.0f * scale;
-    draw_list->AddRectFilled(bb_min, bb_max, IM_COL32(255, 255, 255, 255), rounding);
+
+    draw_list->AddRectFilled(bb_min, bb_max, ImGui::ColorConvertFloat4ToU32(base_color), rounding);
 
     draw_list->AddImageRounded(
         (ImTextureID)(intptr_t)tex,
-        ImVec2(bb_min.x + padding, bb_min.y + padding),  // inset min
-        ImVec2(bb_max.x - padding, bb_max.y - padding),  // inset max
+        ImVec2(image_bb_min.x + padding, image_bb_min.y + padding),  // inset min
+        ImVec2(image_bb_max.x - padding, image_bb_max.y - padding),  // inset max
         ImVec2(0, 0), ImVec2(1, 1),
-        IM_COL32(255, 255, 255, 255),
+        IM_COL32(255, 255, 255, 200),
         rounding
     );
-    draw_list->AddRect(
-        ImVec2(center.x - size_x, center.y - size_y),
-        ImVec2(center.x + size_x, center.y + size_y),
-        ImGui::ColorConvertFloat4ToU32(base_color), 
-        rounding, 
-        0, 
-        5.0f);
+    
 
-    return active;
+    return released;
 }
 
 bool Widgets::DrawCircleGradientButton(ImDrawList* draw_list, ImFont* font, float scale, ImVec2 center, float radius,const char* label, float font_size)
@@ -290,14 +301,14 @@ void TestFunc::scroll_wheel(ImDrawList* draw_list, float startx, float starty, f
 
 
 }
-void AltitudeTape(int direction, float altitude, float tapeHeight = 300.0f, float numStep = 1.0f, bool theme = 0)
+void Widgets::AltitudeTape(int direction, float altitude, float numStep = 1.0f, bool theme = 0)
 {
     switch (direction)
     {
     case 1:
     {
         /* code */
-    ImGui::BeginChild("AltitudeTape_V", ImVec2(80, tapeHeight), true);
+    ImGui::BeginChild("AltitudeTape_V", ImVec2(50, 120), true);
     
     ImDrawList* draw = ImGui::GetWindowDrawList();
     ImVec2 pos = ImGui::GetWindowPos();
@@ -306,7 +317,7 @@ void AltitudeTape(int direction, float altitude, float tapeHeight = 300.0f, floa
     float centerY = pos.y + size.y / 2.0f;
    
     // How many numbers above/below center to draw
-    const float pixelsPerTick = 40.0f;
+    const float pixelsPerTick = 14.0f;
     int range = 10;
 
     // Determine the altitude number nearest to center
@@ -318,39 +329,53 @@ void AltitudeTape(int direction, float altitude, float tapeHeight = 300.0f, floa
     {
         float value = nearest - i * numStep;
         float y = centerY + (i * pixelsPerTick) + offset;
-
+        if (y < pos.y || y > pos.y + size.y) continue; 
         // Draw text centered
         char buf[16];
-        snprintf(buf, sizeof(buf), "%.1f", value);
+        snprintf(buf, sizeof(buf), "%.2f", value);
+        ImVec2 textSize = ImGui::GetFont()->CalcTextSizeA(10.0f, FLT_MAX, 0.0f, buf);
+
+        draw->AddLine(
+            ImVec2(pos.x, y),
+            ImVec2(pos.x + size.x * 0.2f, y),   // ← extends further right
+            Color::white_black(theme),
+            1.0f
+        );
 
         draw->AddText(
-            ImVec2(pos.x + 20, y - ImGui::CalcTextSize(buf).y / 2),
+            ImGui::GetFont(),
+            10.0f,
+            ImVec2(pos.x + size.x * 0.34f + 2, y - textSize.y / 2),  // right after the tick
             Color::white_black(theme),
             buf
         );
-
-        // small horizontal tick mark
-        draw->AddLine(
-            ImVec2(pos.x + 5, y),
-            ImVec2(pos.x + 18, y),
-            Color::white_black(theme),
-            2.0f
-        );
     }
 
-    // Draw the center reference line
-    draw->AddLine(
-        ImVec2(pos.x, centerY),
-        ImVec2(pos.x + size.x, centerY),
-        IM_COL32(255, 255, 0, 255),
-        3.0f
+    char centerBuf[16];
+    snprintf(centerBuf, sizeof(centerBuf), "%.1f", altitude);
+    ImVec2 centerTextSize = ImGui::GetFont()->CalcTextSizeA(14.0f, FLT_MAX, 0.0f, centerBuf);
+
+    float boxPadX = 8.0f;
+    float boxPadY = 4.0f;
+    ImVec2 boxMin = ImVec2(pos.x + size.x * 0.25f, centerY - centerTextSize.y / 2 - boxPadY);
+    ImVec2 boxMax = ImVec2(pos.x + size.x, centerY + centerTextSize.y / 2 + boxPadY);
+
+    draw->AddRectFilled(boxMin, boxMax, IM_COL32(230, 126, 34, 255), 4.0f);  // orange, matches target
+
+    draw->AddText(
+        ImGui::GetFont(),
+        14.0f,
+        ImVec2(boxMin.x + boxPadX, centerY - centerTextSize.y / 2),
+        IM_COL32(0, 0, 0, 255),  // black text on orange, matches target contrast
+        centerBuf
     );
-        ImGui::EndChild();
-        break;
+
+    ImGui::EndChild();
+    break;
     }
     case 2:
     {
-        ImGui::BeginChild("AltitudeTape_H", ImVec2(tapeHeight, 80), true);
+        ImGui::BeginChild("AltitudeTape_H", ImVec2(100, 80), true);
     
         ImDrawList* draw = ImGui::GetWindowDrawList();
         ImVec2 pos = ImGui::GetWindowPos();
@@ -448,10 +473,55 @@ static GLuint UploadImageToGL(const cv::Mat& img, const char* path)
     return tex;
 }
 
+static GLuint UploadButtonImageToGL(const cv::Mat& img, const char* path, int* outW = nullptr, int* outH = nullptr)
+{
+    if (img.empty()) {
+        std::cerr << "Failed to load image: " << path << std::endl;
+        return 0;
+    }
+
+    cv::Mat rgba;
+    switch (img.channels()) {
+        case 1: cv::cvtColor(img, rgba, cv::COLOR_GRAY2RGBA); break;
+        case 3: cv::cvtColor(img, rgba, cv::COLOR_BGR2RGBA);  break;
+        case 4: cv::cvtColor(img, rgba, cv::COLOR_BGRA2RGBA); break;
+        default:
+            std::cerr << "Unexpected channel count (" << img.channels() << ") in " << path << std::endl;
+            return 0;
+    }
+
+    GLuint tex;
+    glGenTextures(1, &tex);
+    glBindTexture(GL_TEXTURE_2D, tex);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+
+    glPixelStorei(GL_UNPACK_ROW_LENGTH, 0);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
+
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, rgba.cols, rgba.rows, 0, GL_RGBA, GL_UNSIGNED_BYTE, rgba.data);
+    
+    if (!glGenerateMipmap_ptr) {
+        glGenerateMipmap_ptr = (PFNGLGENERATEMIPMAPPROC)glfwGetProcAddress("glGenerateMipmap");
+    }
+    if (glGenerateMipmap_ptr) {
+        glGenerateMipmap_ptr(GL_TEXTURE_2D);
+    } else {
+        std::cerr << "glGenerateMipmap not available on this GL context" << std::endl;
+    }
+
+    if (outW) *outW = rgba.cols;
+    if (outH) *outH = rgba.rows;
+
+    return tex;
+}
+
 GLuint Widgets::LoadButtonImage(const char* path)
 {
     cv::Mat img = cv::imread(path, cv::IMREAD_UNCHANGED);
-    return UploadImageToGL(img, path);
+    return UploadButtonImageToGL(img, path);
 }
 
 GLuint Location::display_map(const char* path, float scale)
@@ -491,8 +561,7 @@ GLuint Location::loadTileCached(int zoom, int x, int y)
 
     std::string path = "/home/dksoren/aau_workspace/asr_flightstack/src/asr_gcs/tiles/" //!!!!
                        + key + ".png";
-    fprintf(stderr, "Attempting: %s\n", path.c_str());
-    fflush(stderr);
+  
     GLuint tex = display_map(path.c_str(), 1.0f);
     if (!tex) return 0; // missing tile — don't cache a failure as if it were real
 
@@ -509,10 +578,10 @@ GLuint Location::loadTileCached(int zoom, int x, int y)
         tileLRU.pop_back();
     }
 
-    fprintf(stderr, "Active tile textures: %zu\n", tileCache.size());
+    
     return tex;
 }
-void Location::MapWidget(double lat, double lon, float width, float height, float scale, int zoom, GLuint placeholderTile)
+void Location::MapWidget(double lat, double lon, float width, float height, float scale, int zoom, GLuint placeholderTile, bool theme)
 {
     ImGui::BeginChild("MapWidget", ImVec2(width, height), false);
     ImDrawList* draw = ImGui::GetWindowDrawList();
@@ -523,7 +592,6 @@ void Location::MapWidget(double lat, double lon, float width, float height, floa
     TileCoord center = latLonToTile(lat, lon, zoom);
     ImVec2 offset = latLonToTileOffset(lat, lon, zoom);
 
-    // How many tiles to draw in each direction
     int tilesX = (int)ceil(width  / tileSize / 2) + 1;
     int tilesY = (int)ceil(height / tileSize / 2) + 1;
 
@@ -532,18 +600,62 @@ void Location::MapWidget(double lat, double lon, float width, float height, floa
     {
         int tx = center.x + dx;
         int ty = center.y + dy;
-
-        // Screen position: center of widget, offset by tile grid, minus sub-tile offset
         float sx = pos.x + width  / 2.0f + dx * tileSize - offset.x * scale;
         float sy = pos.y + height / 2.0f + dy * tileSize - offset.y * scale;
-
         GLuint tex = loadTileCached(zoom, tx, ty);
-        if (!tex) tex = placeholderTile;
-        if (tex)
+        if (tex) {
             draw->AddImage((ImTextureID)(intptr_t)tex,
                 ImVec2(sx, sy),
                 ImVec2(sx + tileSize, sy + tileSize));
+        }
     }
+
+
+    float roundRadius = 12.0f * scale;  // must match ChildRounding on the panel
+    ImU32 maskColor = ImGui::ColorConvertFloat4ToU32(Color::panelColor(theme));
+    ImVec2 p_min = pos;
+    ImVec2 p_max = ImVec2(pos.x + width, pos.y + height);
+
+    auto maskCorner = [&](ImVec2 outerCorner, float startAngle) {
+        draw->PathClear();
+        draw->PathLineTo(outerCorner);
+        draw->PathArcTo(
+            ImVec2(
+                outerCorner.x + roundRadius * cosf(startAngle + IM_PI),
+                outerCorner.y + roundRadius * sinf(startAngle + IM_PI)
+            ),
+            roundRadius, startAngle, startAngle + IM_PI * 0.5f, 8
+        );
+        draw->PathFillConvex(maskColor);
+    };
+
+    // Top-left
+    draw->PathClear();
+    draw->PathLineTo(p_min);
+    draw->PathLineTo(ImVec2(p_min.x + roundRadius, p_min.y));
+    draw->PathArcTo(ImVec2(p_min.x + roundRadius, p_min.y + roundRadius), roundRadius, -IM_PI * 0.5f, -IM_PI, 8);
+    draw->PathFillConvex(maskColor);
+
+    // Top-right
+    draw->PathClear();
+    draw->PathLineTo(ImVec2(p_max.x, p_min.y));
+    draw->PathLineTo(ImVec2(p_max.x, p_min.y + roundRadius));
+    draw->PathArcTo(ImVec2(p_max.x - roundRadius, p_min.y + roundRadius), roundRadius, 0.0f, -IM_PI * 0.5f, 8);
+    draw->PathFillConvex(maskColor);
+
+    // Bottom-left
+    draw->PathClear();
+    draw->PathLineTo(ImVec2(p_min.x, p_max.y));
+    draw->PathLineTo(ImVec2(p_min.x + roundRadius, p_max.y));
+    draw->PathArcTo(ImVec2(p_min.x + roundRadius, p_max.y - roundRadius), roundRadius, IM_PI * 0.5f, IM_PI, 8);
+    draw->PathFillConvex(maskColor);
+
+    // Bottom-right
+    draw->PathClear();
+    draw->PathLineTo(p_max);
+    draw->PathLineTo(ImVec2(p_max.x, p_max.y - roundRadius));
+    draw->PathArcTo(ImVec2(p_max.x - roundRadius, p_max.y - roundRadius), roundRadius, 0.0f, IM_PI * 0.5f, 8);
+    draw->PathFillConvex(maskColor);
 
     // Drone dot at exact center
     float cx = pos.x + width  / 2.0f;
@@ -555,16 +667,20 @@ void Location::MapWidget(double lat, double lon, float width, float height, floa
 }
 
 
-//ImU32 Color::dBlue_lGrey(bool theme = 0){
-//    return 0;
-//}
-
 ImVec4 Color::bgColor(bool theme)
 {
     if (theme) {
-        return ImVec4(13 / 255.0f, 13 / 255.0f, 32 / 255.0f, 1.0f);   // dark navy
+        return ImVec4(13 / 255.0f, 13 / 255.0f, 32 / 255.0f, 1.0f);   // darker navy
     } else {
         return ImVec4(208 / 255.0f, 209 / 255.0f, 216 / 255.0f, 1.0f); // light gray
+    }
+}
+ImVec4 Color::panelColor(bool theme)
+{
+    if (theme) {
+        return ImVec4(0.0824f, 0.0824f, 0.1843f, 1.0f);  // Midnight
+    } else {
+        return ImVec4(0.9333f, 0.9373f, 0.9529f, 1.0f);  //  Pale grey
     }
 }
 
@@ -576,3 +692,10 @@ ImU32 Color::white_black(bool theme){
     }
 }
 
+ImU32 Color::panelBorder(bool theme){
+    if (theme) {
+        return IM_COL32(43, 43, 82, 200);      // Dusk
+    } else {
+        return IM_COL32(143, 146, 166, 200);   // Steel
+    }
+}
