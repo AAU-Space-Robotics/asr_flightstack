@@ -1,5 +1,6 @@
 #include <GLFW/glfw3.h>
 #include "interfaceutils.h"
+#include <ament_index_cpp/get_package_share_directory.hpp>
 
 typedef void (APIENTRY *PFNGLGENERATEMIPMAPPROC)(unsigned int target);
 static PFNGLGENERATEMIPMAPPROC glGenerateMipmap_ptr = nullptr;
@@ -70,6 +71,7 @@ void WindowInitializer::loadFonts()
 {
     ImGuiIO& io = ImGui::GetIO();
 
+    font14 = io.Fonts->AddFontFromFileTTF("src/asr_gcs/fonts/Roboto-Regular.ttf", 14.0f);
     font18 = io.Fonts->AddFontFromFileTTF("src/asr_gcs/fonts/Roboto-Regular.ttf", 18.0f);
     font24 = io.Fonts->AddFontFromFileTTF("src/asr_gcs/fonts/Roboto-Bold.ttf", 24.0f);
     font28 = io.Fonts->AddFontFromFileTTF("src/asr_gcs/fonts/Roboto-Regular.ttf", 28.0f);
@@ -83,6 +85,8 @@ void WindowInitializer::loadFonts()
 ImFont* WindowInitializer::getFont(int size)        
 {
     switch (size) {
+        case 14:
+            return font14;
         case 18:
             return font18;
         case 24:
@@ -175,15 +179,16 @@ ImU32 DarkenColor(ImU32 col, float factor)
     return IM_COL32(r, g, b, a);
 }
 
-bool Widgets::CustomButton(ImDrawList* draw_list, ImVec2 center,const char* label,float scale, GLuint tex, bool theme){
+bool Widgets::CustomButton(ImDrawList* draw_list, ImVec2 center,const char* label,float scale, GLuint tex, bool theme, int but_size, int img_size){
     // Compute bounding box
-    float size_x = 26 * scale;
-    float size_y = 26 * scale;
+   
+    float size_x = (26 + but_size) * scale;
+    float size_y = (26 + but_size) * scale;
     ImVec2 bb_min = ImVec2(center.x - size_x, center.y - size_y);
     ImVec2 bb_max = ImVec2(center.x + size_x, center.y + size_y);
     float rounding = 12.0f;
-    ImVec2 image_bb_min = ImVec2(center.x - 13, center.y - 13);
-    ImVec2 image_bb_max = ImVec2(center.x + 13, center.y + 13);
+    ImVec2 image_bb_min = ImVec2(center.x - (13 + img_size), center.y - (13 + img_size));
+    ImVec2 image_bb_max = ImVec2(center.x + (13 + img_size), center.y + (13 + img_size));
     bool hovered = ImGui::IsMouseHoveringRect(bb_min, bb_max);
     bool active = hovered && ImGui::IsMouseDown(0);
     bool released = hovered && ImGui::IsMouseReleased(0); 
@@ -307,7 +312,7 @@ void Widgets::AltitudeTape(int direction, float altitude, float numStep = 1.0f, 
     {
     case 1:
     {
-        /* code */
+  
     ImGui::BeginChild("AltitudeTape_V", ImVec2(50, 120), true);
     
     ImDrawList* draw = ImGui::GetWindowDrawList();
@@ -318,7 +323,7 @@ void Widgets::AltitudeTape(int direction, float altitude, float numStep = 1.0f, 
    
     // How many numbers above/below center to draw
     const float pixelsPerTick = 14.0f;
-    int range = 10;
+    int range = 8;
 
     // Determine the altitude number nearest to center
     float nearest = roundf(altitude / numStep) * numStep;
@@ -360,13 +365,13 @@ void Widgets::AltitudeTape(int direction, float altitude, float numStep = 1.0f, 
     ImVec2 boxMin = ImVec2(pos.x + size.x * 0.25f, centerY - centerTextSize.y / 2 - boxPadY);
     ImVec2 boxMax = ImVec2(pos.x + size.x, centerY + centerTextSize.y / 2 + boxPadY);
 
-    draw->AddRectFilled(boxMin, boxMax, IM_COL32(230, 126, 34, 255), 4.0f);  // orange, matches target
+    draw->AddRectFilled(boxMin, boxMax, IM_COL32(230, 126, 34, 255), 4.0f);  
 
     draw->AddText(
         ImGui::GetFont(),
         14.0f,
         ImVec2(boxMin.x + boxPadX, centerY - centerTextSize.y / 2),
-        IM_COL32(0, 0, 0, 255),  // black text on orange, matches target contrast
+        IM_COL32(0, 0, 0, 255),  
         centerBuf
     );
 
@@ -429,10 +434,205 @@ void Widgets::AltitudeTape(int direction, float altitude, float numStep = 1.0f, 
     
     
 }
+
+std::vector<ImVec2> Widgets::ArcPoints(float radius, float angleStart, float angleEnd, int segments) {
+    std::vector<ImVec2> pts;
+    pts.reserve(segments + 1);
+    for (int i = 0; i <= segments; ++i) {
+        float t = (float)i / (float)segments;
+        float a = angleStart + (angleEnd - angleStart) * t;
+        pts.push_back(ImVec2(cosf(a) * radius, sinf(a) * radius));
+    }
+    return pts;
+}
+
+void Widgets::GyroScopeIndicator(ImDrawList* draw_list,ImVec2 center, EulerAngles orientation, bool theme){
+
+    const float radius = 50;
+    const int segments = 32;
+
+    ImU32 sky_color    = IM_COL32(40, 80, 150, 255);
+    ImU32 ground_color = IM_COL32(110, 70, 40, 255);
+    ImU32 horizon_line  = IM_COL32(255, 210, 40, 255);
+    ImU32 wing_color    = IM_COL32(255, 210, 40, 255);
+    ImU32 pointer_color = IM_COL32(255, 130, 30, 255);
+    ImU32 white = IM_COL32(255, 255, 255, 255);
+
+    float theta = -orientation.roll * (IM_PI / 180.0f);
+    float pixels_per_degree = radius / 25.0f;
+    float k = -orientation.pitch * pixels_per_degree;
+    float yawTheta = orientation.yaw * (IM_PI / 180.0f);
+
+    auto toScreen = [&](ImVec2 p){
+        return ImVec2(
+            center.x + p.x * cosf(theta) - p.y * sinf(theta),
+            center.y + p.x * sinf(theta) + p.y * cosf(theta)
+        );
+    };
+
+    auto toScreenYaw = [&](ImVec2 p) {
+        return ImVec2(
+            center.x + p.x * cosf(yawTheta) - p.y * sinf(yawTheta),
+            center.y + p.x * sinf(yawTheta) + p.y * cosf(yawTheta)
+        );
+    };
+
+    std::vector<ImVec2> skyPoly, groundPoly;
+    ImVec2 chordL, chordR;
+    bool hasChord = false;
+
+    if ( k >= radius) {
+        groundPoly = ArcPoints(radius, 0.0f, 2.0f * IM_PI, segments);
+    } else if (k <= -radius)  {
+        groundPoly = ArcPoints(radius, 0.0f, 2.0f * IM_PI, segments);
+    } else {
+        float x0 = sqrtf(radius * radius - k * k);
+        chordL = ImVec2(-x0, k);
+        chordR = ImVec2(x0, k);
+        hasChord = true;
+
+        float angleR = atan2f(k, x0);
+        float angleL = IM_PI - angleR;
+
+        groundPoly =  ArcPoints(radius, angleR, angleL, segments);  
+        skyPoly =  ArcPoints(radius, angleL, angleR + 2.0f * IM_PI, segments);  
+    }
+
+    if (!skyPoly.empty()) {
+        for (auto& p : skyPoly) p = toScreen(p);
+        draw_list -> AddConvexPolyFilled(skyPoly.data(), (int)skyPoly.size(), sky_color);
+    }
+    if (!groundPoly.empty()) {
+        for (auto& p : groundPoly) p = toScreen(p);
+        draw_list->AddConvexPolyFilled(groundPoly.data(), (int)groundPoly.size(), ground_color);
+    }
+
+    if (hasChord) {
+        draw_list->AddLine(toScreen(chordL), toScreen(chordR), horizon_line, 2.0f);
+    }
+
+    
+
+
+    //!!! Make a for loop later
+    draw_list->AddLine(ImVec2(center.x - radius + 35, center.y -30.0f), ImVec2(center.x + radius - 35, center.y -30.0f), white, 1.5f);
+    draw_list->AddLine(ImVec2(center.x - radius + 45, center.y -15.0f), ImVec2(center.x + radius - 45, center.y -15.f), white, 1.5f);
+    draw_list->AddLine(ImVec2(center.x - radius + 35, center.y +30.0f), ImVec2(center.x + radius - 35, center.y +30.0f), white, 1.5f);
+    draw_list->AddLine(ImVec2(center.x - radius + 45, center.y +15.0f), ImVec2(center.x + radius - 45, center.y +15.f), white, 1.5f);
+
+    const float tickSpacingDeg = 15.0f;  
+    const float shortTick = 5.0f;
+    const float longTick  = 10.0f;
+    for (int i = 1; i <= 4; ++i) {
+        float tickLen = (i % 2 == 0) ? longTick : shortTick;  
+
+        for (int side = -1; side <= 1; side += 2) {   
+            float a = side * i * tickSpacingDeg * (IM_PI / 180.0f);
+
+          
+            ImVec2 dir = ImVec2(sinf(a), -cosf(a));   
+
+            ImVec2 outer = ImVec2(center.x + dir.x * radius, center.y + dir.y * radius);
+            ImVec2 inner = ImVec2(center.x + dir.x * (radius - tickLen), center.y + dir.y * (radius - tickLen));
+
+            draw_list->AddLine(outer, inner, white, 1.5f);
+        }
+    }
+    draw_list->AddLine(ImVec2(center.x, center.y - radius), ImVec2(center.x, center.y - radius + 10.0f), white, 1.5f);
+
+    ImVec2 tip_yaw   = toScreenYaw(ImVec2(0.0f, -radius + 2.0f));
+    ImVec2 baseL_yaw = toScreenYaw(ImVec2(-6.0f, -radius + 10.0f));
+    ImVec2 baseR_yaw = toScreenYaw(ImVec2(6.0f, -radius + 10.0f));
+    draw_list->AddTriangleFilled(tip_yaw, baseL_yaw, baseR_yaw, pointer_color);
+
+     // Fixed aircraft reference symbol
+    float wing = 30.0f, gap = 6.0f;
+    draw_list->AddLine(ImVec2(center.x - wing, center.y), ImVec2(center.x - gap, center.y), wing_color, 3.5f);
+    draw_list->AddLine(ImVec2(center.x + gap, center.y), ImVec2(center.x + wing, center.y), wing_color, 3.5f);
+    draw_list->AddCircleFilled(center, 2.0f, wing_color);
+
+    draw_list->AddCircle(center, radius, IM_COL32(0, 0, 0, 255), 64, 3.0f);
+}
+
+void Widgets::Compas(ImDrawList* draw_list,ImVec2 center, EulerAngles orientation, bool theme){
+
+    const float radius = 50;
+    float yawTheta = orientation.yaw * (IM_PI / 180.0f);
+    ImU32 pointer_color = IM_COL32(255, 130, 30, 255);
+
+    draw_list->AddCircleFilled(center, radius, ImGui::ColorConvertFloat4ToU32(Color::panelColor(theme)), 64);
+    auto toScreenYaw = [&](ImVec2 p) {
+        return ImVec2(
+            center.x + p.x * cosf(yawTheta) - p.y * sinf(yawTheta),
+            center.y + p.x * sinf(yawTheta) + p.y * cosf(yawTheta)
+        );
+    };
+
+    const float tickSpacingDeg = 30.0f;   // 360 / 12 = 30° apart -> 12 ticks total
+    const float tickLen = 10.0f;
+
+    int tickCount = 12;
+
+    for (int i = 0; i < tickCount; ++i) {
+        float a = i * tickSpacingDeg * (IM_PI / 180.0f);
+
+        ImVec2 dir = ImVec2(sinf(a), -cosf(a));
+
+        ImVec2 outer = ImVec2(center.x + dir.x * radius,           center.y + dir.y * radius);
+        ImVec2 inner = ImVec2(center.x + dir.x * (radius - tickLen), center.y + dir.y * (radius - tickLen));
+
+        draw_list->AddLine(outer, inner, Color::white_black(theme), 1.5f);
+    }
+
+
+    draw_list->AddLine(ImVec2(center.x - radius, center.y), ImVec2(center.x - radius + 13, center.y), Color::white_black(theme), 3.0f);
+    draw_list->AddLine(ImVec2(center.x + radius, center.y), ImVec2(center.x + radius - 13, center.y), Color::white_black(theme), 3.0f);
+    draw_list->AddLine(ImVec2(center.x, center.y + radius), ImVec2(center.x, center.y + radius - 13), Color::white_black(theme), 3.0f);
+    draw_list->AddLine(ImVec2(center.x, center.y - radius), ImVec2(center.x, center.y - radius + 13), Color::white_black(theme), 3.0f);
+    struct CardinalLabel { const char* text; float angleDeg; ImU32 color; };
+    CardinalLabel labels[] = {
+        { "N", 0.0f,   pointer_color },  
+        { "E", 90.0f,  Color::white_black(theme) },
+        { "S", 180.0f, Color::white_black(theme) },
+        { "W", 270.0f, Color::white_black(theme) },
+    };
+
+    float labelRadius = radius - 22.0f; 
+
+    for (auto& lbl : labels) {
+       
+        float a = (lbl.angleDeg * (IM_PI / 180.0f));
+
+        ImVec2 dir = ImVec2(sinf(a), -cosf(a));
+        ImVec2 pos = ImVec2(center.x + dir.x * labelRadius, center.y + dir.y * labelRadius);
+
+        ImVec2 textSize = ImGui::CalcTextSize(lbl.text);
+        ImVec2 drawPos = ImVec2(pos.x - textSize.x * 0.5f, pos.y - textSize.y * 0.5f); 
+
+        draw_list->AddText(drawPos, lbl.color, lbl.text);
+    }
+    
+   
+
+    ImVec2 tip_yaw   = toScreenYaw(ImVec2(0.0f, -radius + 2.0f));
+    ImVec2 baseL_yaw = toScreenYaw(ImVec2(-6.0f, -radius + 10.0f));
+    ImVec2 baseR_yaw = toScreenYaw(ImVec2(6.0f, -radius + 10.0f));
+    draw_list->AddTriangleFilled(tip_yaw, baseL_yaw, baseR_yaw, pointer_color);
+
+    char headingStr[8];
+    snprintf(headingStr, sizeof(headingStr), "%.0f°", fmodf(orientation.yaw + 360.0f, 360.0f));
+
+    ImVec2 textSize = ImGui::CalcTextSize(headingStr);
+    ImVec2 textPos = ImVec2((center.x - textSize.x * 0.5f) + 2 , (center.y - textSize.y * 0.5f) + 10);
+
+    draw_list->AddText(textPos, Color::white_black(theme), headingStr);
+    draw_list->AddCircle(center, radius, IM_COL32(0, 0, 0, 255), 64, 3.0f);
+
+}
 static GLuint UploadImageToGL(const cv::Mat& img, const char* path)
 {
     if (img.empty()) {
-        std::cerr << "Failed to load image: " << path << std::endl;
+        //std::cerr << "Failed to load image: " << path << std::endl;
         return 0;
     }
 
@@ -558,8 +758,8 @@ GLuint Location::loadTileCached(int zoom, int x, int y)
         tileLRU.splice(tileLRU.begin(), tileLRU, lruPos[key]);
         return it->second;
     }
-
-    std::string path = "/home/dksoren/aau_workspace/asr_flightstack/src/asr_gcs/tiles/" //!!!!
+    std::string package_path = ament_index_cpp::get_package_share_directory("asr_gcs");
+    std::string path = package_path + "/tiles/" 
                        + key + ".png";
   
     GLuint tex = display_map(path.c_str(), 1.0f);
@@ -698,4 +898,14 @@ ImU32 Color::panelBorder(bool theme){
     } else {
         return IM_COL32(143, 146, 166, 200);   // Steel
     }
+}
+
+void DrawPanelBackground(ImDrawList* draw_list, ImVec2 pos, ImVec2 size,
+                          ImU32 bg_color, ImU32 border_color,
+                          float rounding, float border_thickness) {
+    ImVec2 p_min = pos;
+    ImVec2 p_max = ImVec2(pos.x + size.x, pos.y + size.y);
+
+    draw_list->AddRectFilled(p_min, p_max, bg_color, rounding);
+    draw_list->AddRect(p_min, p_max, border_color, rounding, 0, border_thickness);
 }

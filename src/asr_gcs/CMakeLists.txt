@@ -16,6 +16,7 @@ find_package(rclcpp REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(asr_comms REQUIRED)
 find_package(OpenCV REQUIRED)
+find_package(ament_index_cpp REQUIRED)
 
 # Fetch Dear ImGui, GLFW, ImPlot, and tinyxml2 using FetchContent
 include(FetchContent)
@@ -72,20 +73,6 @@ include_directories(
   ${CMAKE_SOURCE_DIR}/include
 )
 
-# Add executable for the GUI node
-add_executable(asr_gcs_node
-  src/gcs.cpp
-  src/gcslib.cpp
-  ${imgui_SOURCE_DIR}/imgui.cpp
-  ${imgui_SOURCE_DIR}/imgui_demo.cpp
-  ${imgui_SOURCE_DIR}/imgui_draw.cpp
-  ${imgui_SOURCE_DIR}/imgui_tables.cpp
-  ${imgui_SOURCE_DIR}/imgui_widgets.cpp
-  ${imgui_SOURCE_DIR}/backends/imgui_impl_glfw.cpp
-  ${imgui_SOURCE_DIR}/backends/imgui_impl_opengl3.cpp
-  ${implot_SOURCE_DIR}/implot.cpp           # Add ImPlot source
-  ${implot_SOURCE_DIR}/implot_items.cpp     # Add ImPlot items source
-)
 
 install(PROGRAMS
   script/manual_controller.py
@@ -100,32 +87,16 @@ install(PROGRAMS
   DESTINATION lib/${PROJECT_NAME}
 )
 
-# Link the necessary libraries
-target_link_libraries(asr_gcs_node
-  OpenGL::GL      # Link OpenGL
-  glfw            # Link GLFW
-  #tinyxml2        # Link tinyxml2 from FetchContent
-)
-
-# Ensure ROS 2 dependencies are added correctly
-ament_target_dependencies(asr_gcs_node
-  rclcpp
-  std_msgs
-  asr_comms
-)
-
-# Install the executable
-install(TARGETS asr_gcs_node
-  DESTINATION lib/${PROJECT_NAME}
-)
 install(DIRECTORY fonts DESTINATION share/${PROJECT_NAME}/)
 install(DIRECTORY images DESTINATION share/${PROJECT_NAME}/)
+install(DIRECTORY tiles DESTINATION share/${PROJECT_NAME}/)
 
 
 # Interface node executable
 add_executable(interface
   src/Interface.cpp
   src/interfaceutils.cpp
+  src/statemanager.cpp
   ${imgui_SOURCE_DIR}/imgui.cpp
   ${imgui_SOURCE_DIR}/imgui_demo.cpp
   ${imgui_SOURCE_DIR}/imgui_draw.cpp
@@ -141,6 +112,7 @@ ament_target_dependencies(interface
   rclcpp
   std_msgs
   asr_comms
+  ament_index_cpp
 )
 
 install(TARGETS interface

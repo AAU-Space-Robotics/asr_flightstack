@@ -1,7 +1,11 @@
-
 #include <iostream>
 #include "interfaceutils.h"
+#include "statemanager.h"
 #include <algorithm>
+#include <opencv2/core/utils/logger.hpp>
+#include <ament_index_cpp/get_package_share_directory.hpp>
+#include <thread>
+
 
 
 WindowInitializer winInit;
@@ -10,11 +14,23 @@ Location location;
 Color colors;
 TestFunc test_functions;
 
+using namespace std;
+
 
 int main(int argc, char **argv) {
+    //rclcpp::init(argc, argv);
+    //auto node = std::make_shared<LabBaseNode>(); //!!!! FOR THE ROS LATER
+
+    //thread ros_thread([node]() {
+    //    rclcpp::spin(node);
+    //});    
+    cv::utils::logging::setLogLevel(cv::utils::logging::LOG_LEVEL_SILENT);
     float armButton = false;
     float value = 0.0f;
     bool theme = 1;
+    int map_zoom = 20;
+
+    EulerAngles orientation;
     ImU32 armColor = IM_COL32(26, 204, 26, 255); // Green color //!!! CLEAN UP
     const char* armText = "Arm";
     glfwSetErrorCallback([](int error, const char* description) {
@@ -44,18 +60,38 @@ int main(int argc, char **argv) {
     winInit.loadFonts(); // Load fonts once
     
      // ------ Image for buttons
-    std::string path = "/home/dksoren/aau_workspace/asr_flightstack/src/asr_gcs/images/";
-    std::string path_sun = path + "sun.png";
-    std::string path_moon = path + "moon.png";
-    GLuint image_sun = widgets.LoadButtonImage(path_sun.c_str());
-    GLuint image_moon = widgets.LoadButtonImage(path_moon.c_str());
+    string package_path = ament_index_cpp::get_package_share_directory("asr_gcs");
+    string path = package_path + "/images/";
 
-    GLuint placeholderTile = location.display_map("/home/dksoren/aau_workspace/asr_flightstack/src/asr_gcs/images/tile_placeholder.png", 1.0f);
+    vector<pair<string, string>> image_files = {
+        {"sun" , "sun.png"},
+        {"moon", "moon.png"},
+        {"plus" , "plus.png"},
+        {"plus_white", "plus_white.png"},
+        {"minus" , "minus.png"},
+        {"minus_white", "minus_white.png"},
+        {"aau_logo" , "AAU_Space_Robotics_Logo.png"},
+        {"up",       "up.png"},
+        {"up_white", "up_white.png"},
+        {"down",    "down.png"},
+        {"down_white", "down_white.png"},
+        {"home",    "home.png"},
+        {"home_white", "home_white.png"},
+        {"origin",      "origin.png"},
+        {"origin_white", "origin_white.png"}
+    };
+    
+    GLuint placeholderTile = location.display_map((package_path + "/images/tile_placeholder.png").c_str(), 1.0f);
+
+    unordered_map<string, GLuint> images;
+    for (const auto& [key, filename] : image_files){
+        string full_path = path + filename;
+        images[key] = widgets.LoadButtonImage(full_path.c_str());
+    }
 
 
     // Register the callback with GLFW
     glfwSetFramebufferSizeCallback(window, framebuffer_size_callback);
-
 
 
     while (!glfwWindowShouldClose(window)) {
@@ -98,41 +134,8 @@ int main(int argc, char **argv) {
                      ImGuiWindowFlags_NoCollapse |
                      ImGuiWindowFlags_NoBackground |
                      ImGuiWindowFlags_NoBringToFrontOnFocus);   
-
-        // Example content
-       
-        //if (armButton) {
-        //    armColor = IM_COL32(204, 26, 26, 255); // Red color
-        //    armText = "Disarm";
-        //} else {
-        //    armColor = IM_COL32(26, 204, 26, 255); // Green color
-        //    armText = "Arm";
-        //}
-        //if (widgets.costum_square_button(armText, ImVec2(800 * scale, 50*scale), ImVec2(150 * scale, 50 * scale), winInit.getFont(28), 28.0f * scale, armColor)) {
-//        //    armButton = !armButton; // Toggle button state
-        //    printf("Arm button clicked. New state: %s\n", armButton ? "Armed" : "Disarmed");
-        //}
-        // ------------ Buttons-------------
-        //if (widgets.DrawCircleGradientButton(draw_list, winInit.getFont(40), 1.0f, ImVec2(1500 * scale, 70 * scale), 60.0f * scale, "ESTOP", 40.0f * scale)) {
-        //    std::cout << "ESTOP Button Clicked!" << std::endl;
-        //}
-        //if (widgets.CustomButton(draw_list, ImVec2(1700 * scale, 100 * scale),"ARM",scale, image_takeoff)) {
-        //    std::cout << "Takeoff pressed!" << std::endl;
-        //    theme = 1;
-        //}
-        //if (widgets.CustomButton(draw_list, ImVec2(1800 * scale, 100 * scale),"ARM",scale, image_armed)) {
-        //    std::cout << "Armed pressed!" << std::endl;
-        //    theme = 0;
-        //}
-
-        //ImGui::PushFont(ImGui::GetFont());
-        //ImGui::SetWindowFontScale(3.0f); // 150% text size
-
         
-
-
-
-           //-------------------MAP-----------------
+        //--------------------------MAP--------------------------------------------------------------
         static double testLat = 57.063f, testLon = 10.032f; //! Remeber to remove
         ImGui::SetCursorPos(ImVec2(70 * scale, 70 * scale));
         ImGui::PushStyleColor(ImGuiCol_ChildBg, colors.panelColor(theme));
@@ -143,23 +146,117 @@ int main(int argc, char **argv) {
         ImGui::BeginChild("MapPanel", ImVec2(1500 * scale, 800 *  scale), 
                        true,  // border
                        ImGuiWindowFlags_NoScrollbar);
-        location.MapWidget(testLat, testLon, 1500 * scale, 900 * scale, scale, 20, placeholderTile, theme);
+        location.MapWidget(testLat, testLon, 1500 * scale, 900 * scale, scale, map_zoom, placeholderTile, theme);
 
 
         if (widgets.DrawCircleGradientButton(draw_list, winInit.getFont(24), 1.0f, ImVec2(130 * scale, 125 * scale), 50.0f * scale, "ESTOP", 40.0f * scale)) {
             std::cout << "ESTOP Button Clicked!" << std::endl;
         }
-
+        
         ImGui::SetCursorPos(ImVec2(1440 * scale, 670 * scale));
         widgets.AltitudeTape(1, value, 0.5f, theme); 
-        
+
+        widgets.GyroScopeIndicator(draw_list,
+                                ImVec2(1320 * scale, 810 * scale),
+                                orientation, 
+                                theme);
+
+        widgets.Compas(draw_list,
+                                ImVec2(1440 * scale, 810 * scale),
+                                orientation, 
+                                theme);                   
 
         ImGui::EndChild();
         ImGui::PopStyleVar(3);
         ImGui::PopStyleColor(2);
 
+        //--------- Map utils panel-----------------
+        ImVec2 mapUtilsPos  = ImVec2(1500 * scale, 72 * scale);
+        ImVec2 mapUtilsSize = ImVec2(49 * scale, 150 * scale);
 
-        // ---------For testing — replace with ROS later
+        DrawPanelBackground(draw_list, mapUtilsPos, mapUtilsSize,
+                             ImGui::ColorConvertFloat4ToU32(colors.panelColor(theme)),
+                             colors.panelBorder(theme),
+                             12.0f * scale, 2.0f * scale);
+        
+        ImGui::SetCursorPos(mapUtilsPos);
+        ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0, 0, 0, 0));
+        ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0, 0, 0, 0));
+        ImGui::PushStyleVar(ImGuiStyleVar_ChildBorderSize, 2.0f * scale);
+        ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, 12.0f * scale);
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(8 * scale, 8 * scale)); 
+        ImGui::BeginChild("MapUtilsPanel", mapUtilsSize,
+                       false, 
+                       ImGuiWindowFlags_NoScrollbar);
+        
+        GLuint Plus_Icon = theme ? images.at("plus_white") : images.at("plus");
+        if (widgets.CustomButton(draw_list, ImVec2(1524 * scale, 97 * scale), "Plus", scale, Plus_Icon, theme, -5, -3)) {
+            if (map_zoom < 20) {
+                map_zoom += 1;
+            }
+        }
+        GLuint Minus_Icon = theme ? images.at("minus_white") : images.at("minus");
+        if (widgets.CustomButton(draw_list, ImVec2(1524 * scale, 141 * scale), "Minus", scale, Minus_Icon, theme, -5, -3)) {
+            if (map_zoom > 13) {
+                map_zoom -= 1;
+            }
+        }
+
+        ImGui::EndChild();
+        ImGui::PopStyleVar(3);
+        ImGui::PopStyleColor(2);
+
+         // ----------------Control Panel------------------:
+
+        ImVec2 panelPos  = ImVec2(90 * scale, 305 * scale);
+        ImVec2 panelSize = ImVec2(60 * scale, 300 * scale);
+        DrawPanelBackground(draw_list, panelPos, panelSize,
+                            ImGui::ColorConvertFloat4ToU32(colors.panelColor(theme)),
+                            colors.panelBorder(theme),
+                            12.0f * scale, 2.0f * scale);
+
+        ImGui::SetCursorPos(panelPos);
+        ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0, 0, 0, 0));  
+        ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0, 0, 0, 0));    
+        ImGui::PushStyleVar(ImGuiStyleVar_ChildBorderSize, 2.0f * scale);
+        ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, 12.0f * scale);
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(8 * scale, 8 * scale));
+        ImGui::BeginChild("ControlPanel", panelSize,
+                       false,  
+                       ImGuiWindowFlags_NoScrollbar);
+        
+        GLuint Up_Icon = theme ? images.at("up_white") : images.at("up");
+        if (widgets.CustomButton(draw_list, ImVec2(120 * scale, 335 * scale), "Up", scale, Up_Icon, theme, -1, 5)) {
+            std::cout << "Takeoff Button Clicked!" << std::endl;
+        }
+        ImGui::PushFont(winInit.getFont(14));
+        draw_list->AddText(ImVec2(100 * scale, 362 * scale), colors.white_black(theme), "TakeOff");
+
+        GLuint Down_Icon = theme ? images.at("down_white") : images.at("down");
+        if (widgets.CustomButton(draw_list, ImVec2(120 * scale, 405 * scale), "Down", scale, Down_Icon, theme, -1, 5)) {
+            std::cout << "Land Button Clicked!" << std::endl;
+        }
+        draw_list->AddText(ImVec2(107 * scale, 432 * scale), colors.white_black(theme), "Land");
+
+        GLuint Home_Icon = theme ? images.at("home_white") : images.at("home");
+        if (widgets.CustomButton(draw_list, ImVec2(120 * scale, 475 * scale), "Home", scale, Home_Icon, theme, -1, 5)) {
+            std::cout << "Home Button Clicked!" << std::endl;
+        }
+        draw_list->AddText(ImVec2(106 * scale, 502 * scale), colors.white_black(theme), "Home");
+
+        GLuint Origin_Icon = theme ? images.at("origin_white") : images.at("origin");
+        if (widgets.CustomButton(draw_list, ImVec2(120 * scale, 545 * scale), "Origin", scale, Origin_Icon, theme, -1, 5)) {
+            std::cout << "Orgigin Button Clicked!" << std::endl;
+        }
+        draw_list->AddText(ImVec2(106 * scale, 572 * scale), colors.white_black(theme), "Origin");
+
+        ImGui::PopFont();
+        ImGui::EndChild();
+        ImGui::PopStyleVar(3);
+        ImGui::PopStyleColor(2);
+        
+
+        // ---------For testing — replace with ROS later //!!!!!
         ImGui::SetCursorPos(ImVec2(900 * scale, 500 * scale));
         ImGui::BeginChild("TestPanel", ImVec2(600 * scale, 600 * scale), 
                        false,  // border
@@ -169,22 +266,27 @@ int main(int argc, char **argv) {
         ImGui::InputDouble("Lat", &testLat, 0.000001, 0.01, "%.7f");
         ImGui::InputDouble("Lon", &testLon, 0.000001, 0.01, "%.7f");
         ImGui::SliderFloat("Altitude", &value, -20.0f, 20.0f);
-    
+        ImGui::SliderFloat("Yaw", &orientation.yaw, -180.0f, 180.0f);
+        ImGui::SliderFloat("Roll", &orientation.roll, -180.0f, 180.0f);
+        ImGui::SliderFloat("Pitch", &orientation.pitch, -180.0f, 180.0f);
+
+
         ImGui::EndChild();
         
 
-        // --- ---------------Side panel---------------- //! Make hidable later maybe
+        // --- ---------------Side panel----------------
         ImGui::SetCursorPos(ImVec2(-20 * scale, -80 * scale));
 
         ImGui::PushStyleColor(ImGuiCol_ChildBg, colors.panelColor(theme));
-        ImGui::PushStyleColor(ImGuiCol_Border, colors.panelBorder(theme) );  // custom border color
+        ImGui::PushStyleColor(ImGuiCol_Border, colors.panelBorder(theme) );  
         ImGui::PushStyleVar(ImGuiStyleVar_ChildBorderSize, 2.0f * scale); 
         ImGui::BeginChild("SidePanel", ImVec2(80 * scale, y_sc + 1000 *  scale), 
                        true,  // border
                        ImGuiWindowFlags_NoScrollbar);
-        GLuint currentIcon = theme ? image_sun : image_moon;
 
-        if (widgets.CustomButton(draw_list, ImVec2(30 * scale, 980 * scale),"Day Night",scale, currentIcon, theme)) {
+        GLuint Day_Night_Icon = theme ? images.at("sun") : images.at("moon");
+
+        if (widgets.CustomButton(draw_list, ImVec2(30 * scale, 980 * scale),"Day Night",scale, Day_Night_Icon, theme, 0, 0)) {
             theme = !theme;
             
         }
@@ -198,12 +300,29 @@ int main(int argc, char **argv) {
         ImGui::SetCursorPos(ImVec2(-20 * scale, -20 * scale));
 
         ImGui::PushStyleColor(ImGuiCol_ChildBg, colors.panelColor(theme));
-        ImGui::PushStyleColor(ImGuiCol_Border, colors.panelBorder(theme) );  // custom border color
+        ImGui::PushStyleColor(ImGuiCol_Border, colors.panelBorder(theme) );  
         ImGui::PushStyleVar(ImGuiStyleVar_ChildBorderSize, 2.0f * scale); 
         ImGui::BeginChild("TopPanel", ImVec2(x_sc + 1000 * scale, 80 * scale), 
                        true,  // border
                        ImGuiWindowFlags_NoScrollbar);
         
+        draw_list->AddImageRounded(
+            (ImTextureID)(intptr_t)images.at("aau_logo"),
+            ImVec2(5 * scale, 5 * scale),  
+            ImVec2(55 * scale, 55 * scale),  // inset max
+            ImVec2(0, 0), ImVec2(1, 1),
+            IM_COL32(255, 255, 255, 200),
+            12.0f
+        );
+        for (int i = 0; i <= 200; i+=200){
+            draw_list->AddLine(
+                ImVec2((60 + i) * scale, 10 * scale),
+                ImVec2((60 + i) * scale, 45 * scale),   
+                colors.panelBorder(theme),
+                1.0f
+            );
+        }
+       
 
         
         ImGui::EndChild();
@@ -212,7 +331,6 @@ int main(int argc, char **argv) {
 
         
         
-   
         
         
        
@@ -248,7 +366,8 @@ int main(int argc, char **argv) {
     glfwDestroyWindow(window);
     glfwTerminate();
 
-  
+    //rclcpp::shutdown();  
+    //ros_thread.join(); 
 
     return 0;
 }

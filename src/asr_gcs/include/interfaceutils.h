@@ -13,7 +13,8 @@
 #include <unordered_map>
 #include <string>
 #include <list>  
-
+#include <vector>
+#include "statemanager.h"
 
 
 namespace windowVar {
@@ -34,13 +35,18 @@ struct Color {
 
 };
 
-struct Widgets {
-    bool costum_square_button(const char* id, ImVec2 pos, ImVec2 size, ImFont* font, float font_size, ImU32 color);
-    bool costum_round_button(ImVec2 center, float radius, int segments, ImU32 color);
-    bool DrawCircleGradientButton(ImDrawList* draw_list, ImFont* font, float scale, ImVec2 center, float radius, const char* id, float font_size);
-    bool CustomButton(ImDrawList* draw_list, ImVec2 center,const char* label,float scale, GLuint tex, bool theme);
-    GLuint LoadButtonImage(const char* path);
-    void AltitudeTape(int direction, float altitude, float numStep, bool theme);
+class Widgets {
+    public:
+        bool costum_square_button(const char* id, ImVec2 pos, ImVec2 size, ImFont* font, float font_size, ImU32 color);
+        bool costum_round_button(ImVec2 center, float radius, int segments, ImU32 color);
+        bool DrawCircleGradientButton(ImDrawList* draw_list, ImFont* font, float scale, ImVec2 center, float radius, const char* id, float font_size);
+        bool CustomButton(ImDrawList* draw_list, ImVec2 center,const char* label,float scale, GLuint tex, bool theme, int but_size, int img_size);
+        GLuint LoadButtonImage(const char* path);
+        void AltitudeTape(int direction, float altitude, float numStep, bool theme);
+        void GyroScopeIndicator(ImDrawList* draw_list,ImVec2 center, EulerAngles orientation, bool theme);
+        void Compas(ImDrawList* draw_list,ImVec2 center, EulerAngles orientation, bool theme);
+    private:
+        static std::vector<ImVec2> ArcPoints(float radius, float angleStart, float angleEnd, int segments);
 };
 
 class WindowInitializer {
@@ -56,6 +62,7 @@ public:
     ImFont* getFont(int size);
 
 private:
+    ImFont* font14 = nullptr;
     ImFont* font18 = nullptr;
     ImFont* font24 = nullptr;
     ImFont* font28 = nullptr;
@@ -82,7 +89,7 @@ class Location {
         std::unordered_map<std::string, GLuint> tileCache;
         std::list<std::string> tileLRU;
         std::unordered_map<std::string, std::list<std::string>::iterator> lruPos;
-        static constexpr size_t MAX_CACHED_TILES = 300; // tune to taste
+        static constexpr size_t MAX_CACHED_TILES = 300; 
     
 };
 
@@ -91,3 +98,12 @@ class TestFunc {
         void scroll_wheel(ImDrawList* draw_list, float startx, float starty, float width, float height, float scale);
 };
 
+void DrawPanelBackground(ImDrawList* draw_list, ImVec2 pos, ImVec2 size,
+                          ImU32 bg_color, ImU32 border_color,
+                          float rounding, float border_thickness);
+
+
+class InfoPanels {
+    public:
+        void Battery_Info(ImDrawList* draw_list,float scale);
+};
