@@ -17,6 +17,7 @@
 #include "statemanager.h"
 
 
+
 namespace windowVar {
     extern int monitor_w;
     extern int monitor_h;
@@ -31,6 +32,7 @@ struct Color {
         static ImU32 panelBorder(bool theme = 0);
         static ImU32 dBlue_lGrey(bool theme = 0);
         static ImU32 white_black(bool theme = 0);
+        static ImU32  dwhite_lblack(bool theme = 0);
 };
 
 struct panelInfo {
@@ -39,6 +41,7 @@ struct panelInfo {
     int id;
 };
 
+float map_value(float value, float in_min, float in_max, float out_min, float out_max);
 class Widgets {
     public:
         bool costum_square_button(const char* id, ImVec2 pos, ImVec2 size, ImFont* font, float font_size, ImU32 color);
@@ -53,26 +56,34 @@ class Widgets {
         static std::vector<ImVec2> ArcPoints(float radius, float angleStart, float angleEnd, int segments);
 };
 
+struct Graphs {
+    void battery_graph(ImDrawList* draw_list, float x1, float y1, float x2, float y2,
+                                                    float x1b, float y1b, float x2b, float y2b,
+                            float scale);
+};
+
+
 class WindowInitializer {
     public:
-        
+
         void GetPrimaryMonitorResolution(int& width, int& height);
         void Setup();
         void UpdateWindowSize(float scale);
-        
+
         void Render();
         void DrawMultiColor();
         void loadFonts();     // load all fonts once
         ImFont* getFont(int size);
-    
+
     private:
         ImFont* font14 = nullptr;
         ImFont* font18 = nullptr;
+        ImFont* font18B = nullptr;
         ImFont* font24 = nullptr;
         ImFont* font28 = nullptr;
         ImFont* font40 = nullptr;
 };
-
+extern WindowInitializer winInit;
 ImU32 DarkenColor(ImU32 col, float factor);
 
 class Location {
@@ -99,7 +110,7 @@ class TestFunc {
 class InfoPanels {
     public:
         void ResetPanelTracking(); 
-        void Battery_Info(float scale, bool theme = 0);
+        void Battery_Info(float scale, bool theme, float battery_percentage[2]);
         void Position_Info(float scale, bool theme = 0);
         void Probe_Info(float scale, bool theme = 0);
     private:
@@ -108,6 +119,7 @@ class InfoPanels {
         std::list<panelInfo> tracker;
         ImVec2 Begin_panels(const char* id, int y_size, float scale, bool theme);
         void End_panels();
+        bool CollapseButton(ImDrawList* draw_list, ImVec2 pos, float scale, bool& isOpen, bool theme);
 };
 
 void BeginFixedPanel(const char* id, ImVec2 pos, ImVec2 size, float scale, bool theme,

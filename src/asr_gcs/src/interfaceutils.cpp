@@ -73,6 +73,7 @@ void WindowInitializer::loadFonts()
 
     font14 = io.Fonts->AddFontFromFileTTF("src/asr_gcs/fonts/Roboto-Regular.ttf", 14.0f);
     font18 = io.Fonts->AddFontFromFileTTF("src/asr_gcs/fonts/Roboto-Regular.ttf", 18.0f);
+    font18B = io.Fonts->AddFontFromFileTTF("src/asr_gcs/fonts/Roboto-Bold.ttf", 18.0f);
     font24 = io.Fonts->AddFontFromFileTTF("src/asr_gcs/fonts/Roboto-Bold.ttf", 24.0f);
     font28 = io.Fonts->AddFontFromFileTTF("src/asr_gcs/fonts/Roboto-Regular.ttf", 28.0f);
     font40 = io.Fonts->AddFontFromFileTTF("src/asr_gcs/fonts/Roboto-Bold.ttf", 40.0f);
@@ -89,6 +90,8 @@ ImFont* WindowInitializer::getFont(int size)
             return font14;
         case 18:
             return font18;
+        case 181:
+            return font18B;
         case 24:
             return font24;
         case 28:
@@ -104,6 +107,9 @@ void framebuffer_size_callback(GLFWwindow* window, int width, int height) {
     glViewport(0, 0, width, height);
 } //This may not be in a class to work ??
 
+float map_value(float value, float in_min, float in_max, float out_min, float out_max) {
+    return out_min + (value - in_min) * (out_max - out_min) / (in_max - in_min);
+}
 
 bool Widgets::costum_square_button(const char* id, ImVec2 pos, ImVec2 size, ImFont* font, float font_size, ImU32 color)
 {
@@ -901,6 +907,14 @@ ImU32 Color::white_black(bool theme){
     }
 }
 
+ImU32 Color::dwhite_lblack(bool theme){
+    if (theme) {
+        return IM_COL32(180, 180, 180, 255);
+    } else {
+        return IM_COL32(50, 50, 50, 255);
+    }
+}
+
 ImU32 Color::panelBorder(bool theme){
     if (theme) {
         return IM_COL32(43, 43, 82, 200);      // Dusk
@@ -942,26 +956,159 @@ void InfoPanels::ResetPanelTracking() {
 }
 
 
-void InfoPanels::Battery_Info(float scale, bool theme){
+void InfoPanels::Battery_Info(float scale, bool theme, float battery_percentage[]){
+    int size;
+    static bool Motor_panel_open = true;
+    if(Motor_panel_open) {
+        size = 350;
+    } else {
+        size = 190;
+    }
 
-    ImVec2 pos = InfoPanels::Begin_panels("BatteryInfo",300,scale, theme);
+    ImVec2 pos = InfoPanels::Begin_panels("BatteryInfo", size, scale, theme);
     ImDrawList* draw = ImGui::GetWindowDrawList();
+    ImGui::PushFont(winInit.getFont(181));
     draw->AddText(ImVec2((pos.x + 10), (pos.y + 10)), Color::white_black(theme), "Power & Motors");
+    ImGui::PopFont();
 
-    
+    const char* Battery_row_labels[2] = {"MOTORS", "COMPUTE"};
+    ImU32 Battery_row_colors[2] = { IM_COL32(255, 140, 0, 255), IM_COL32(70, 150, 255, 255) };
 
+    float Battery_values_motors[4]  = {battery_percentage[0], 0.0f, 0.0f, 0.0f};
+    float Battery_values_compute[4] = {battery_percentage[1], 0.0f, 0.0f, 0.0f};
+    float* Battery_values[2] = { Battery_values_motors, Battery_values_compute };
+
+    const char* Battery_text[4] = {"Voltage", "Current", "Discharge", "Avg. Current"};
+    const char* Battery_text_value[4] = {"V", "A", "mAh", "A"};
+
+    float row_height = 70.0f * scale;
+    float row_start_y = 45.0f * scale;
+
+    for (int i = 0; i < 2; i++){
+        float row_y = pos.y + row_start_y + (row_height * i);
+
+        ImU32 battery_color;
+        if (battery_percentage[i] > 0.5f) {
+            battery_color = IM_COL32(0, 255, 0, 255);
+        } else if (battery_percentage[i] > 0.25f) {
+            battery_color = IM_COL32(255, 255, 0, 255);
+        } else {
+            battery_color = IM_COL32(255, 0, 0, 255);
+        }
+
+        // --- Battery icon ---
+        float icon_x = pos.x + 15 * scale;
+        float icon_top = row_y;
+        float icon_bottom = row_y + 55 * scale;
+
+        draw->AddRectFilled(
+            ImVec2(icon_x + 9 * scale, icon_top - 6 * scale),
+            ImVec2(icon_x + 21 * scale, icon_top),
+            Battery_row_colors[i], 3.0f * scale, ImDrawFlags_RoundCornersTop);
+
+        // Fill bar — slides between icon_bottom (empty) and icon_top (full)
+        float battery_progressbar = map_value(battery_percentage[i], 0.0f, 1.0f,
+                                               icon_bottom - 4.0f * scale,
+                                               icon_top + 6.0f * scale);
+        draw->AddRectFilled(
+            ImVec2(icon_x + 3 * scale, battery_progressbar),
+            ImVec2(icon_x + 27 * scale, icon_bottom - 2.0f * scale),
+            battery_color, 3.0f * scale, ImDrawFlags_RoundCornersBottom);
+
+        draw->AddRect(
+            ImVec2(icon_x, icon_top),
+            ImVec2(icon_x + 30 * scale, icon_bottom),
+            Battery_row_colors[i], 6.0f * scale, ImDrawFlags_RoundCornersAll, 2.5f * scale);
+
+        // --- Row label ---
+        ImGui::PushFont(winInit.getFont(181));
+        draw->AddText(ImVec2(pos.x + 55 * scale, row_y + 2 * scale),
+                      Battery_row_colors[i], Battery_row_labels[i]);
+        ImGui::PopFont();
+
+        // --- Percentage ---
+        char pct_text[16];
+        snprintf(pct_text, sizeof(pct_text), "%.0f%%", battery_percentage[i] * 100.0f);
+        draw->AddText(ImVec2(pos.x + 260 * scale, row_y + 4 * scale),
+                      Color::dwhite_lblack(theme), pct_text);
+
+        // --- V / A / mAh values, tighter gap now ---
+        float value_x = pos.x + 45 * scale;
+        float value_col_spacing = 55.0f * scale;
+        for (int j = 0; j < 4; j++){
+            char value_text[16];
+            snprintf(value_text, sizeof(value_text), "%.2f", Battery_values[i][j]);
+
+            draw->AddText(ImVec2(value_x + (value_col_spacing * j), row_y + 25 * scale),
+                          Color::dwhite_lblack(theme), value_text);
+            draw->AddText(ImVec2(value_x + (value_col_spacing * j) + 30 * scale, row_y + 25 * scale), // was +40 -> +30
+                          Color::dwhite_lblack(theme), Battery_text_value[j]);
+        }
+
+        if (i < 1) {
+            draw->AddLine(
+                ImVec2(pos.x + 14 * scale, row_y + row_height - 12 * scale),
+                ImVec2(pos.x + 296 * scale, row_y + row_height - 12 * scale),
+                Color::panelBorder(theme), 1.0f);
+        }
+    }  
+
+    float motors_section_y = pos.y + row_start_y + (row_height * 2);
+
+    draw->AddLine(
+        ImVec2(pos.x + 14 * scale, motors_section_y),
+        ImVec2(pos.x + 296 * scale, motors_section_y),
+        Color::panelBorder(theme), 3.0f);
+
+    InfoPanels::CollapseButton(draw, ImVec2(pos.x + 290 * scale, pos.y + 10 * scale), scale, Motor_panel_open, theme);
+
+    if (Motor_panel_open) {
+        ImGui::PushFont(winInit.getFont(181));
+        draw->AddText(ImVec2(pos.x + 15 * scale, motors_section_y + 15 * scale),
+                      IM_COL32(255, 140, 0, 255), "MOTOR USAGE");
+        ImGui::PopFont();
+
+        float Motor_values[4] = {battery_percentage[0], 0.0f, 0.0f, 0.0f};
+        const char* Motor_labels[4] = {"M1", "M2", "M3", "M4"};
+        float Motor_row_spacing = 30.0f * scale;
+        float bar_x_start = 45.0f * scale;
+        float bar_width   = 180.0f * scale;
+        float bar_height  = 8.0f * scale;
+        ImU32 motor_color = IM_COL32(255, 140, 0, 255);
+
+        for (int i = 0; i < 4; i++){
+            float row_y = motors_section_y + 45.0f * scale + (Motor_row_spacing * i);
+
+            draw->AddText(ImVec2(pos.x + 15 * scale, row_y),
+                          Color::dwhite_lblack(theme), Motor_labels[i]);
+
+            draw->AddRectFilled(
+                ImVec2(pos.x + bar_x_start, row_y + 3 * scale),
+                ImVec2(pos.x + bar_x_start + bar_width, row_y + 3 * scale + bar_height),
+                Color::panelBorder(theme), 4.0f * scale, ImDrawFlags_RoundCornersAll);
+
+            float fill_width = map_value(Motor_values[i], 0.0f, 1.0f, 0.0f, bar_width);
+            draw->AddRectFilled(
+                ImVec2(pos.x + bar_x_start, row_y + 3 * scale),
+                ImVec2(pos.x + bar_x_start + fill_width, row_y + 3 * scale + bar_height),
+                motor_color, 4.0f * scale, ImDrawFlags_RoundCornersAll);
+
+            char motor_text[16];
+            snprintf(motor_text, sizeof(motor_text), "%.0f%%", Motor_values[i] * 100.0f);
+            draw->AddText(ImVec2(pos.x + bar_x_start + bar_width + 50 * scale, row_y),
+                          Color::dwhite_lblack(theme), motor_text);
+        }
+    }
 
     InfoPanels::End_panels();
-
 }
-
-
 void InfoPanels::Position_Info(float scale, bool theme){
 
     ImVec2 pos = InfoPanels::Begin_panels("PositionInfo",210,scale, theme);
     ImDrawList* draw = ImGui::GetWindowDrawList();
-    draw->AddText(ImVec2((pos.x + 10), (pos.y + 10)), Color::white_black(theme),"State-NED");
-
+    ImGui::PushFont(winInit.getFont(181));
+    draw->AddText(ImVec2((pos.x + 10), (pos.y + 10)), Color::dwhite_lblack(theme),"State-NED");
+    ImGui::PopFont();
     
 
 
@@ -994,7 +1141,7 @@ ImVec2 InfoPanels::Begin_panels(const char* id, int y_size, float scale, bool th
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(8 * scale, 8 * scale)); 
     ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, 12.0f * scale);
     ImGui::PushStyleVar(ImGuiStyleVar_ChildBorderSize, 2.0f * scale);
-    ImGui::BeginChild(id, size, false,
+    ImGui::BeginChild(id, size, true,
                         ImGuiWindowFlags_NoScrollbar|
                         ImGuiWindowFlags_NoScrollWithMouse);
     return pos;
@@ -1050,4 +1197,55 @@ void EndOverlayPanel() {
     ImGui::EndChild();
     ImGui::PopStyleVar(3);
     ImGui::PopStyleColor(2);
+}
+
+void Graphs::battery_graph(ImDrawList* draw_list, float x1, float y1, float x2, float y2,
+                                                    float x1b, float y1b, float x2b, float y2b,
+                            float scale) {
+    ImU32 color = IM_COL32(204, 204, 204, 255); // 0.8, 0.8, 0.8, 1.0
+
+    draw_list->AddRect(ImVec2(x1 * scale, y1 * scale), ImVec2(x2 * scale, y2 * scale),
+                        color, 1.0f * scale, /* flags=15 in Python — TODO confirm corners */ ImDrawFlags_RoundCornersAll,
+                        3.0f * scale);
+
+    draw_list->AddRect(ImVec2(x1b * scale, y1b * scale), ImVec2(x2b * scale, y2b * scale),
+                        color, 1.0f * scale, /* flags=3 in Python — TODO confirm corners */ ImDrawFlags_RoundCornersAll,
+                        3.0f * scale);
+}
+
+bool InfoPanels::CollapseButton(ImDrawList* draw_list, ImVec2 pos, float scale, bool& isOpen, bool theme){
+
+    float size = 16.0f * scale;
+    ImVec2 center = ImVec2(pos.x + size * 0.5f, pos.y + size * 0.5f);
+
+    // Invisible button for click detection
+    ImGui::SetCursorScreenPos(pos);
+    ImGui::InvisibleButton("##collapse", ImVec2(size, size));
+    bool clicked = ImGui::IsItemClicked();
+    bool hovered = ImGui::IsItemHovered();
+
+    if (clicked) {
+        isOpen = !isOpen;
+    }
+
+    ImU32 col = hovered ? Color::dwhite_lblack(theme) : Color::white_black(theme);
+    float r = size * 0.5f;   
+
+    if (isOpen) {
+        // Chevron pointing down (expanded)
+        draw_list->AddTriangleFilled(
+            ImVec2(center.x - r, center.y - r * 0.5f),
+            ImVec2(center.x + r, center.y - r * 0.5f),
+            ImVec2(center.x, center.y + r * 0.5f),
+            col);
+    } else {
+        // Chevron pointing up (collapsed)
+        draw_list->AddTriangleFilled(
+            ImVec2(center.x - r, center.y + r * 0.5f),
+            ImVec2(center.x + r, center.y + r * 0.5f),
+            ImVec2(center.x, center.y - r * 0.5f),
+            col);
+    }
+
+    return clicked;
 }

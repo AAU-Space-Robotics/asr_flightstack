@@ -30,6 +30,7 @@ int main(int argc, char **argv) {
     float value = 0.0f;
     bool theme = 1;
     int map_zoom = 20;
+    float battery_voltage[2] = {0.0f, 0.0f};
 
     EulerAngles orientation;
     ImU32 armColor = IM_COL32(26, 204, 26, 255); // Green color //!!! CLEAN UP
@@ -232,6 +233,8 @@ int main(int argc, char **argv) {
         ImGui::SliderFloat("Yaw", &orientation.yaw, -180.0f, 180.0f);
         ImGui::SliderFloat("Roll", &orientation.roll, -180.0f, 180.0f);
         ImGui::SliderFloat("Pitch", &orientation.pitch, -180.0f, 180.0f);
+        ImGui::SliderFloat("BatteryVoltage", &battery_voltage[0], 0, 1.0f);
+
 
 
         ImGui::EndChild();
@@ -278,9 +281,10 @@ int main(int argc, char **argv) {
         EndFixedPanel();
 
         //--------------------------------------Information panels---------------------------------------
+        info_panels.Battery_Info(scale, theme, battery_voltage );
         info_panels.Position_Info(scale, theme);
         info_panels.Probe_Info(scale, theme);
-        info_panels.Battery_Info(scale, theme);
+        
         
         
         info_panels.ResetPanelTracking();
