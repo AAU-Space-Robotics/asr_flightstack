@@ -31,8 +31,12 @@ struct Color {
         static ImU32 panelBorder(bool theme = 0);
         static ImU32 dBlue_lGrey(bool theme = 0);
         static ImU32 white_black(bool theme = 0);
+};
 
-
+struct panelInfo {
+    ImVec2 pos;
+    ImVec2 size;
+    int id;
 };
 
 class Widgets {
@@ -50,31 +54,26 @@ class Widgets {
 };
 
 class WindowInitializer {
-public:
+    public:
+        
+        void GetPrimaryMonitorResolution(int& width, int& height);
+        void Setup();
+        void UpdateWindowSize(float scale);
+        
+        void Render();
+        void DrawMultiColor();
+        void loadFonts();     // load all fonts once
+        ImFont* getFont(int size);
     
-    void GetPrimaryMonitorResolution(int& width, int& height);
-    void Setup();
-    void UpdateWindowSize(float scale);
-    
-    void Render();
-    void DrawMultiColor();
-    void loadFonts();     // load all fonts once
-    ImFont* getFont(int size);
-
-private:
-    ImFont* font14 = nullptr;
-    ImFont* font18 = nullptr;
-    ImFont* font24 = nullptr;
-    ImFont* font28 = nullptr;
-    ImFont* font40 = nullptr;
+    private:
+        ImFont* font14 = nullptr;
+        ImFont* font18 = nullptr;
+        ImFont* font24 = nullptr;
+        ImFont* font28 = nullptr;
+        ImFont* font40 = nullptr;
 };
-void framebuffer_size_callback(GLFWwindow* window, int width, int height);
+
 ImU32 DarkenColor(ImU32 col, float factor);
-
-
-void scroll_wheel(ImDrawList* draw_list, float startx, float starty, float width, float height, float scale);
-
-
 
 class Location {
     public:
@@ -97,13 +96,31 @@ class TestFunc {
     public:
         void scroll_wheel(ImDrawList* draw_list, float startx, float starty, float width, float height, float scale);
 };
+class InfoPanels {
+    public:
+        void ResetPanelTracking(); 
+        void Battery_Info(float scale, bool theme = 0);
+        void Position_Info(float scale, bool theme = 0);
+        void Probe_Info(float scale, bool theme = 0);
+    private:
+        ImVec2 Panel_tracker(ImVec2 size, float scale);
+        int cur_panel_space = 0;
+        std::list<panelInfo> tracker;
+        ImVec2 Begin_panels(const char* id, int y_size, float scale, bool theme);
+        void End_panels();
+};
+
+void BeginFixedPanel(const char* id, ImVec2 pos, ImVec2 size, float scale, bool theme,
+                      ImGuiWindowFlags extraFlags = 0, ImVec2 padding = ImVec2(8, 8));
+void EndFixedPanel();
+
+void BeginOverlayPanel(ImDrawList* draw_list, const char* id, ImVec2 pos, ImVec2 size,
+                        float scale, bool theme,
+                        ImGuiWindowFlags extraFlags = 0, ImVec2 padding = ImVec2(8, 8));
+void EndOverlayPanel();
 
 void DrawPanelBackground(ImDrawList* draw_list, ImVec2 pos, ImVec2 size,
                           ImU32 bg_color, ImU32 border_color,
                           float rounding, float border_thickness);
 
-
-class InfoPanels {
-    public:
-        void Battery_Info(ImDrawList* draw_list,float scale);
-};
+void framebuffer_size_callback(GLFWwindow* window, int width, int height);

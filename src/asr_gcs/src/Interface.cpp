@@ -13,6 +13,7 @@ Widgets widgets;
 Location location;
 Color colors;
 TestFunc test_functions;
+InfoPanels info_panels;
 
 using namespace std;
 
@@ -122,12 +123,14 @@ int main(int argc, char **argv) {
         windowVar::display_w = x_sc;
         windowVar::display_h = y_sc;
 
-        // interface area - - - - - - - - - - - - - - - - - - - - - - - 
+        // ---------- Start of Interface ------------------
         
         ImDrawList* draw_list = ImGui::GetForegroundDrawList();
         ImGui::SetNextWindowPos(ImVec2(0, 0));
         ImGui::SetNextWindowSize(ImVec2((float)windowVar::display_w, (float)windowVar::display_h));
         ImGui::Begin("GCS Interface", nullptr,
+                     ImGuiWindowFlags_NoScrollbar|
+                     ImGuiWindowFlags_NoScrollWithMouse | 
                      ImGuiWindowFlags_NoTitleBar |
                      ImGuiWindowFlags_NoResize |
                      ImGuiWindowFlags_NoMove |
@@ -137,15 +140,8 @@ int main(int argc, char **argv) {
         
         //--------------------------MAP--------------------------------------------------------------
         static double testLat = 57.063f, testLon = 10.032f; //! Remeber to remove
-        ImGui::SetCursorPos(ImVec2(70 * scale, 70 * scale));
-        ImGui::PushStyleColor(ImGuiCol_ChildBg, colors.panelColor(theme));
-        ImGui::PushStyleColor(ImGuiCol_Border, colors.panelBorder(theme) ); 
-        ImGui::PushStyleVar(ImGuiStyleVar_ChildBorderSize, 2.0f * scale); 
-        ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, 12.0f * scale); 
-        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0)); 
-        ImGui::BeginChild("MapPanel", ImVec2(1500 * scale, 800 *  scale), 
-                       true,  // border
-                       ImGuiWindowFlags_NoScrollbar);
+        BeginFixedPanel("MapPanel", ImVec2(70 * scale, 70 * scale), ImVec2(1500 * scale, 800 * scale),
+                scale, theme, 0, ImVec2(0, 0));
         location.MapWidget(testLat, testLon, 1500 * scale, 900 * scale, scale, map_zoom, placeholderTile, theme);
 
 
@@ -166,28 +162,11 @@ int main(int argc, char **argv) {
                                 orientation, 
                                 theme);                   
 
-        ImGui::EndChild();
-        ImGui::PopStyleVar(3);
-        ImGui::PopStyleColor(2);
+        EndFixedPanel();
 
-        //--------- Map utils panel-----------------
-        ImVec2 mapUtilsPos  = ImVec2(1500 * scale, 72 * scale);
-        ImVec2 mapUtilsSize = ImVec2(49 * scale, 150 * scale);
+        //----------------------------------- Map utils panel-----------------------------------
+        BeginOverlayPanel(draw_list, "MapUtilsPanel", ImVec2(1500 * scale, 72 * scale), ImVec2(49 * scale, 150 * scale), scale, theme);
 
-        DrawPanelBackground(draw_list, mapUtilsPos, mapUtilsSize,
-                             ImGui::ColorConvertFloat4ToU32(colors.panelColor(theme)),
-                             colors.panelBorder(theme),
-                             12.0f * scale, 2.0f * scale);
-        
-        ImGui::SetCursorPos(mapUtilsPos);
-        ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0, 0, 0, 0));
-        ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0, 0, 0, 0));
-        ImGui::PushStyleVar(ImGuiStyleVar_ChildBorderSize, 2.0f * scale);
-        ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, 12.0f * scale);
-        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(8 * scale, 8 * scale)); 
-        ImGui::BeginChild("MapUtilsPanel", mapUtilsSize,
-                       false, 
-                       ImGuiWindowFlags_NoScrollbar);
         
         GLuint Plus_Icon = theme ? images.at("plus_white") : images.at("plus");
         if (widgets.CustomButton(draw_list, ImVec2(1524 * scale, 97 * scale), "Plus", scale, Plus_Icon, theme, -5, -3)) {
@@ -202,28 +181,12 @@ int main(int argc, char **argv) {
             }
         }
 
-        ImGui::EndChild();
-        ImGui::PopStyleVar(3);
-        ImGui::PopStyleColor(2);
+        EndOverlayPanel();
 
-         // ----------------Control Panel------------------:
+         // -----------------------------------Control Panel-----------------------------
 
-        ImVec2 panelPos  = ImVec2(90 * scale, 305 * scale);
-        ImVec2 panelSize = ImVec2(60 * scale, 300 * scale);
-        DrawPanelBackground(draw_list, panelPos, panelSize,
-                            ImGui::ColorConvertFloat4ToU32(colors.panelColor(theme)),
-                            colors.panelBorder(theme),
-                            12.0f * scale, 2.0f * scale);
+        BeginOverlayPanel(draw_list, "ControlPanel", ImVec2(90 * scale, 305 * scale), ImVec2(60 * scale, 300 * scale), scale, theme);
 
-        ImGui::SetCursorPos(panelPos);
-        ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0, 0, 0, 0));  
-        ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0, 0, 0, 0));    
-        ImGui::PushStyleVar(ImGuiStyleVar_ChildBorderSize, 2.0f * scale);
-        ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, 12.0f * scale);
-        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(8 * scale, 8 * scale));
-        ImGui::BeginChild("ControlPanel", panelSize,
-                       false,  
-                       ImGuiWindowFlags_NoScrollbar);
         
         GLuint Up_Icon = theme ? images.at("up_white") : images.at("up");
         if (widgets.CustomButton(draw_list, ImVec2(120 * scale, 335 * scale), "Up", scale, Up_Icon, theme, -1, 5)) {
@@ -251,16 +214,16 @@ int main(int argc, char **argv) {
         draw_list->AddText(ImVec2(106 * scale, 572 * scale), colors.white_black(theme), "Origin");
 
         ImGui::PopFont();
-        ImGui::EndChild();
-        ImGui::PopStyleVar(3);
-        ImGui::PopStyleColor(2);
+        EndOverlayPanel();
         
 
         // ---------For testing — replace with ROS later //!!!!!
         ImGui::SetCursorPos(ImVec2(900 * scale, 500 * scale));
         ImGui::BeginChild("TestPanel", ImVec2(600 * scale, 600 * scale), 
                        false,  // border
-                       ImGuiWindowFlags_NoBackground | ImGuiWindowFlags_NoScrollbar);
+                       ImGuiWindowFlags_NoBackground |
+                       ImGuiWindowFlags_NoScrollWithMouse | 
+                       ImGuiWindowFlags_NoScrollbar);
     
         
         ImGui::InputDouble("Lat", &testLat, 0.000001, 0.01, "%.7f");
@@ -274,16 +237,11 @@ int main(int argc, char **argv) {
         ImGui::EndChild();
         
 
-        // --- ---------------Side panel----------------
-        ImGui::SetCursorPos(ImVec2(-20 * scale, -80 * scale));
+        // --- ------------------------------------Side panel--------------------------------------------
 
-        ImGui::PushStyleColor(ImGuiCol_ChildBg, colors.panelColor(theme));
-        ImGui::PushStyleColor(ImGuiCol_Border, colors.panelBorder(theme) );  
-        ImGui::PushStyleVar(ImGuiStyleVar_ChildBorderSize, 2.0f * scale); 
-        ImGui::BeginChild("SidePanel", ImVec2(80 * scale, y_sc + 1000 *  scale), 
-                       true,  // border
-                       ImGuiWindowFlags_NoScrollbar);
-
+        BeginFixedPanel("SidePanel", ImVec2(-20 * scale, -80 * scale), ImVec2(80 * scale, y_sc + 1000 * scale),
+                scale, theme, 0, ImVec2(0, 0));
+   
         GLuint Day_Night_Icon = theme ? images.at("sun") : images.at("moon");
 
         if (widgets.CustomButton(draw_list, ImVec2(30 * scale, 980 * scale),"Day Night",scale, Day_Night_Icon, theme, 0, 0)) {
@@ -291,20 +249,12 @@ int main(int argc, char **argv) {
             
         }
 
-        ImGui::EndChild();
-        ImGui::PopStyleVar();
-        ImGui::PopStyleColor(2);
+        EndFixedPanel();
 
         
-        // ----------------Top Panel------------------:
-        ImGui::SetCursorPos(ImVec2(-20 * scale, -20 * scale));
-
-        ImGui::PushStyleColor(ImGuiCol_ChildBg, colors.panelColor(theme));
-        ImGui::PushStyleColor(ImGuiCol_Border, colors.panelBorder(theme) );  
-        ImGui::PushStyleVar(ImGuiStyleVar_ChildBorderSize, 2.0f * scale); 
-        ImGui::BeginChild("TopPanel", ImVec2(x_sc + 1000 * scale, 80 * scale), 
-                       true,  // border
-                       ImGuiWindowFlags_NoScrollbar);
+        // ----------------------------------------Top Panel-----------------------------------------
+        BeginFixedPanel("TopPanel", ImVec2(-20 * scale, -20 * scale), ImVec2(x_sc + 1000 * scale, 80 * scale),
+                scale, theme, 0, ImVec2(0, 0));
         
         draw_list->AddImageRounded(
             (ImTextureID)(intptr_t)images.at("aau_logo"),
@@ -325,22 +275,16 @@ int main(int argc, char **argv) {
        
 
         
-        ImGui::EndChild();
-        ImGui::PopStyleVar();
-        ImGui::PopStyleColor(2);
+        EndFixedPanel();
 
+        //--------------------------------------Information panels---------------------------------------
+        info_panels.Position_Info(scale, theme);
+        info_panels.Probe_Info(scale, theme);
+        info_panels.Battery_Info(scale, theme);
         
         
-        
-        
-       
-
-
-
-
-
-
-
+        info_panels.ResetPanelTracking();
+  
 
 
 

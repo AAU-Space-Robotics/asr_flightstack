@@ -298,14 +298,7 @@ bool Widgets::DrawCircleGradientButton(ImDrawList* draw_list, ImFont* font, floa
 }
 
 
-void TestFunc::scroll_wheel(ImDrawList* draw_list, float startx, float starty, float width, float height, float scale) {
 
-   
-    draw_list->AddCircleFilled(ImVec2(startx, starty), 100.0f, IM_COL32(255, 255, 255, 255), 20); // Draw white circle at (400,200) with radius 30 
-
-
-
-}
 void Widgets::AltitudeTape(int direction, float altitude, float numStep = 1.0f, bool theme = 0)
 {
     switch (direction)
@@ -313,7 +306,9 @@ void Widgets::AltitudeTape(int direction, float altitude, float numStep = 1.0f, 
     case 1:
     {
   
-    ImGui::BeginChild("AltitudeTape_V", ImVec2(50, 120), true);
+    ImGui::BeginChild("AltitudeTape_V", ImVec2(50, 120), true,
+                        ImGuiWindowFlags_NoScrollbar|
+                        ImGuiWindowFlags_NoScrollWithMouse);
     
     ImDrawList* draw = ImGui::GetWindowDrawList();
     ImVec2 pos = ImGui::GetWindowPos();
@@ -380,7 +375,9 @@ void Widgets::AltitudeTape(int direction, float altitude, float numStep = 1.0f, 
     }
     case 2:
     {
-        ImGui::BeginChild("AltitudeTape_H", ImVec2(100, 80), true);
+        ImGui::BeginChild("AltitudeTape_H", ImVec2(100, 80), true,
+                            ImGuiWindowFlags_NoScrollbar|
+                            ImGuiWindowFlags_NoScrollWithMouse);
     
         ImDrawList* draw = ImGui::GetWindowDrawList();
         ImVec2 pos = ImGui::GetWindowPos();
@@ -461,7 +458,7 @@ void Widgets::GyroScopeIndicator(ImDrawList* draw_list,ImVec2 center, EulerAngle
     float theta = -orientation.roll * (IM_PI / 180.0f);
     float pixels_per_degree = radius / 25.0f;
     float k = -orientation.pitch * pixels_per_degree;
-    float yawTheta = orientation.yaw * (IM_PI / 180.0f);
+    float yawTheta = -orientation.roll * (IM_PI / 180.0f);
 
     auto toScreen = [&](ImVec2 p){
         return ImVec2(
@@ -513,23 +510,29 @@ void Widgets::GyroScopeIndicator(ImDrawList* draw_list,ImVec2 center, EulerAngle
 
     
 
+    auto rotatePoint = [&](float dx, float dy) {
+        float a = yawTheta;  // roll angle, name pending your rename
+        return ImVec2(
+            center.x + dx * cosf(a) - dy * sinf(a),
+            center.y + dx * sinf(a) + dy * cosf(a)
+        );
+    };
 
-    //!!! Make a for loop later
-    draw_list->AddLine(ImVec2(center.x - radius + 35, center.y -30.0f), ImVec2(center.x + radius - 35, center.y -30.0f), white, 1.5f);
-    draw_list->AddLine(ImVec2(center.x - radius + 45, center.y -15.0f), ImVec2(center.x + radius - 45, center.y -15.f), white, 1.5f);
-    draw_list->AddLine(ImVec2(center.x - radius + 35, center.y +30.0f), ImVec2(center.x + radius - 35, center.y +30.0f), white, 1.5f);
-    draw_list->AddLine(ImVec2(center.x - radius + 45, center.y +15.0f), ImVec2(center.x + radius - 45, center.y +15.f), white, 1.5f);
+    draw_list->AddLine(rotatePoint(-(radius - 35), -30.0f), rotatePoint(radius - 35, -30.0f), white, 1.5f);
+    draw_list->AddLine(rotatePoint(-(radius - 45), -15.0f), rotatePoint(radius - 45, -15.0f), white, 1.5f);
+    draw_list->AddLine(rotatePoint(-(radius - 35),  30.0f), rotatePoint(radius - 35,  30.0f), white, 1.5f);
+    draw_list->AddLine(rotatePoint(-(radius - 45),  15.0f), rotatePoint(radius - 45,  15.0f), white, 1.5f);
 
     const float tickSpacingDeg = 15.0f;  
     const float shortTick = 5.0f;
     const float longTick  = 10.0f;
+
     for (int i = 1; i <= 4; ++i) {
         float tickLen = (i % 2 == 0) ? longTick : shortTick;  
 
         for (int side = -1; side <= 1; side += 2) {   
-            float a = side * i * tickSpacingDeg * (IM_PI / 180.0f);
+            float a = side * i * tickSpacingDeg * (IM_PI / 180.0f) + yawTheta;  // + roll offset
 
-          
             ImVec2 dir = ImVec2(sinf(a), -cosf(a));   
 
             ImVec2 outer = ImVec2(center.x + dir.x * radius, center.y + dir.y * radius);
@@ -538,11 +541,13 @@ void Widgets::GyroScopeIndicator(ImDrawList* draw_list,ImVec2 center, EulerAngle
             draw_list->AddLine(outer, inner, white, 1.5f);
         }
     }
-    draw_list->AddLine(ImVec2(center.x, center.y - radius), ImVec2(center.x, center.y - radius + 10.0f), white, 1.5f);
+    ImVec2 start_line = toScreenYaw(ImVec2(0.0f, -radius));
+    ImVec2 end_line = toScreenYaw(ImVec2(0.0f, -radius + 10.0f));
+    draw_list->AddLine(start_line, end_line, white, 1.5f);
 
-    ImVec2 tip_yaw   = toScreenYaw(ImVec2(0.0f, -radius + 2.0f));
-    ImVec2 baseL_yaw = toScreenYaw(ImVec2(-6.0f, -radius + 10.0f));
-    ImVec2 baseR_yaw = toScreenYaw(ImVec2(6.0f, -radius + 10.0f));
+    ImVec2 tip_yaw = ImVec2(center.x, center.y - radius + 2.0f);
+    ImVec2 baseL_yaw = ImVec2(center.x - 6.0f, center.y - radius + 10.0f);
+    ImVec2 baseR_yaw = ImVec2(center.x + 6.0f, center.y - radius + 10.0f);
     draw_list->AddTriangleFilled(tip_yaw, baseL_yaw, baseR_yaw, pointer_color);
 
      // Fixed aircraft reference symbol
@@ -584,11 +589,13 @@ void Widgets::Compas(ImDrawList* draw_list,ImVec2 center, EulerAngles orientatio
         draw_list->AddLine(outer, inner, Color::white_black(theme), 1.5f);
     }
 
-
+   
     draw_list->AddLine(ImVec2(center.x - radius, center.y), ImVec2(center.x - radius + 13, center.y), Color::white_black(theme), 3.0f);
     draw_list->AddLine(ImVec2(center.x + radius, center.y), ImVec2(center.x + radius - 13, center.y), Color::white_black(theme), 3.0f);
     draw_list->AddLine(ImVec2(center.x, center.y + radius), ImVec2(center.x, center.y + radius - 13), Color::white_black(theme), 3.0f);
     draw_list->AddLine(ImVec2(center.x, center.y - radius), ImVec2(center.x, center.y - radius + 13), Color::white_black(theme), 3.0f);
+    
+    
     struct CardinalLabel { const char* text; float angleDeg; ImU32 color; };
     CardinalLabel labels[] = {
         { "N", 0.0f,   pointer_color },  
@@ -783,7 +790,9 @@ GLuint Location::loadTileCached(int zoom, int x, int y)
 }
 void Location::MapWidget(double lat, double lon, float width, float height, float scale, int zoom, GLuint placeholderTile, bool theme)
 {
-    ImGui::BeginChild("MapWidget", ImVec2(width, height), false);
+    ImGui::BeginChild("MapWidget", ImVec2(width, height), false,
+                        ImGuiWindowFlags_NoScrollbar|
+                        ImGuiWindowFlags_NoScrollWithMouse);
     ImDrawList* draw = ImGui::GetWindowDrawList();
     ImVec2 pos = ImGui::GetWindowPos();
 
@@ -908,4 +917,137 @@ void DrawPanelBackground(ImDrawList* draw_list, ImVec2 pos, ImVec2 size,
 
     draw_list->AddRectFilled(p_min, p_max, bg_color, rounding);
     draw_list->AddRect(p_min, p_max, border_color, rounding, 0, border_thickness);
+}
+
+
+ImVec2 InfoPanels::Panel_tracker(ImVec2 size, float scale){
+
+    const int max_panel_space = 1500;
+    const float gap = 10.0f;
+    if (cur_panel_space + size.y > max_panel_space){
+
+        std::cout << "Damn boy" << std::endl;
+
+    }
+
+    ImVec2 panel_pos = ImVec2(1580* scale, (70 * scale + cur_panel_space)); 
+    cur_panel_space += (size.y + gap);
+    tracker.push_back({{1580, (float)cur_panel_space}, {size.x, size.y}, 0});
+    return panel_pos;
+}
+
+void InfoPanels::ResetPanelTracking() {
+    cur_panel_space = 0;
+    tracker.clear();
+}
+
+
+void InfoPanels::Battery_Info(float scale, bool theme){
+
+    ImVec2 pos = InfoPanels::Begin_panels("BatteryInfo",300,scale, theme);
+    ImDrawList* draw = ImGui::GetWindowDrawList();
+    draw->AddText(ImVec2((pos.x + 10), (pos.y + 10)), Color::white_black(theme), "Power & Motors");
+
+    
+
+
+    InfoPanels::End_panels();
+
+}
+
+
+void InfoPanels::Position_Info(float scale, bool theme){
+
+    ImVec2 pos = InfoPanels::Begin_panels("PositionInfo",210,scale, theme);
+    ImDrawList* draw = ImGui::GetWindowDrawList();
+    draw->AddText(ImVec2((pos.x + 10), (pos.y + 10)), Color::white_black(theme),"State-NED");
+
+    
+
+
+    InfoPanels::End_panels();
+
+}
+
+void InfoPanels::Probe_Info(float scale, bool theme){
+
+    ImVec2 pos = InfoPanels::Begin_panels("ProbeInfo",170,scale, theme);
+    ImDrawList* draw = ImGui::GetWindowDrawList();
+    draw->AddText(ImVec2((pos.x + 10), (pos.y + 10)), Color::white_black(theme), "Probe Info");
+
+    
+
+
+    
+   
+    InfoPanels::End_panels();
+}
+
+
+ImVec2 InfoPanels::Begin_panels(const char* id, int y_size, float scale, bool theme){
+
+    const ImVec2 size = ImVec2(310, y_size);
+    ImVec2 pos = InfoPanels::Panel_tracker(size, scale);
+    ImGui::SetCursorPos(ImVec2(pos.x, pos.y)); 
+    ImGui::PushStyleColor(ImGuiCol_ChildBg, Color::panelColor(theme));
+    ImGui::PushStyleColor(ImGuiCol_Border, Color::panelBorder(theme));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(8 * scale, 8 * scale)); 
+    ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, 12.0f * scale);
+    ImGui::PushStyleVar(ImGuiStyleVar_ChildBorderSize, 2.0f * scale);
+    ImGui::BeginChild(id, size, false,
+                        ImGuiWindowFlags_NoScrollbar|
+                        ImGuiWindowFlags_NoScrollWithMouse);
+    return pos;
+}
+
+void InfoPanels::End_panels(){
+    ImGui::EndChild();
+    ImGui::PopStyleVar(3);
+    ImGui::PopStyleColor(2);
+}
+
+void BeginFixedPanel(const char* id, ImVec2 pos, ImVec2 size, float scale, bool theme,
+                      ImGuiWindowFlags extraFlags, ImVec2 padding) {
+    ImGui::SetCursorPos(pos);
+    ImGui::PushStyleColor(ImGuiCol_ChildBg, Color::panelColor(theme));
+    ImGui::PushStyleColor(ImGuiCol_Border, Color::panelBorder(theme));
+    ImGui::PushStyleVar(ImGuiStyleVar_ChildBorderSize, 2.0f * scale);
+    ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, 12.0f * scale);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(padding.x * scale, padding.y * scale));
+    ImGui::BeginChild(id, size, true,
+                       ImGuiWindowFlags_NoScrollbar |
+                       ImGuiWindowFlags_NoScrollWithMouse |
+                       extraFlags);
+}
+
+void EndFixedPanel() {
+    ImGui::EndChild();
+    ImGui::PopStyleVar(3);
+    ImGui::PopStyleColor(2);
+}
+
+void BeginOverlayPanel(ImDrawList* draw_list, const char* id, ImVec2 pos, ImVec2 size,
+                        float scale, bool theme,
+                        ImGuiWindowFlags extraFlags, ImVec2 padding) {
+    DrawPanelBackground(draw_list, pos, size,
+                         ImGui::ColorConvertFloat4ToU32(Color::panelColor(theme)),
+                         Color::panelBorder(theme),
+                         12.0f * scale, 2.0f * scale);
+
+    ImGui::SetCursorPos(pos);
+    ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0, 0, 0, 0));
+    ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0, 0, 0, 0));
+    ImGui::PushStyleVar(ImGuiStyleVar_ChildBorderSize, 2.0f * scale);
+    ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, 12.0f * scale);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(padding.x * scale, padding.y * scale));
+    ImGui::BeginChild(id, size, false,
+                       ImGuiWindowFlags_NoScrollbar |
+                       ImGuiWindowFlags_NoScrollWithMouse |
+                       extraFlags);
+}
+
+void EndOverlayPanel() {
+    ImGui::EndChild();
+    ImGui::PopStyleVar(3);
+    ImGui::PopStyleColor(2);
 }
