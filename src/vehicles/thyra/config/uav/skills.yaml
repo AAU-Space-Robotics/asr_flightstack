@@ -1,0 +1,23 @@
+vehicle: thyra
+
+skills:
+  takeoff:
+    params:
+      alt: {type: float, min: 0.5, max: 10.0}
+
+  land:
+    params: {}
+
+  goto:
+    params:
+      pos: {type: point}
+      yaw: {type: float, required: false, min: -3.1416, max: 3.1416}
+
+  # search_grid and rtl not yet implemented in asr_autopilot.
+  # Add here when the corresponding DroneCommand command_types exist.
+
+conditions:
+  - probes_found
+  - grid_exhausted
+  - battery_low
+  - time_elapsed

@@ -15,8 +15,7 @@ drone_interfaces/log/
 saved_images/**
 src/serial-ros2
 src/px4_ros_com
-src/px4_msgs
-src/px4_msgs_thyra
+src/deps/
 imgui.ini
 src/realsense-ros
 src/matlab_msg_gen

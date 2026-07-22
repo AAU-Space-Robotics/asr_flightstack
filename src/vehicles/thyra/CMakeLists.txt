@@ -31,13 +31,6 @@ install(DIRECTORY config/
   FILES_MATCHING PATTERN "*.yaml"
 )
 
-# Install mission scripts
-install(DIRECTORY missions/
-  DESTINATION lib/${PROJECT_NAME}/missions
-  USE_SOURCE_PERMISSIONS
-  FILES_MATCHING PATTERN "*.py"
-)
-
 
 add_executable(thyra_mission_executor
   src/main.cpp
