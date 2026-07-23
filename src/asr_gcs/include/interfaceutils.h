@@ -48,6 +48,7 @@ class Widgets {
         bool costum_round_button(ImVec2 center, float radius, int segments, ImU32 color);
         bool DrawCircleGradientButton(ImDrawList* draw_list, ImFont* font, float scale, ImVec2 center, float radius, const char* id, float font_size);
         bool CustomButton(ImDrawList* draw_list, ImVec2 center,const char* label,float scale, GLuint tex, bool theme, int but_size, int img_size);
+        bool ArmButton(ImDrawList* draw_list, ImVec2 center, float scale, bool theme, bool arming_state);
         GLuint LoadButtonImage(const char* path);
         void AltitudeTape(int direction, float altitude, float numStep, bool theme);
         void GyroScopeIndicator(ImDrawList* draw_list,ImVec2 center, EulerAngles orientation, bool theme);

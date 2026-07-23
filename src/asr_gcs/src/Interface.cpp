@@ -26,15 +26,14 @@ int main(int argc, char **argv) {
     //    rclcpp::spin(node);
     //});    
     cv::utils::logging::setLogLevel(cv::utils::logging::LOG_LEVEL_SILENT);
-    float armButton = false;
-    float value = 0.0f;
+    bool armButton = false;
     bool theme = 1;
     int map_zoom = 20;
-    float battery_voltage[2] = {0.0f, 0.0f};
+    bool arming_state = false;
+    int panel = 0;
+    
+    DroneInformation Info;
 
-    EulerAngles orientation;
-    ImU32 armColor = IM_COL32(26, 204, 26, 255); // Green color //!!! CLEAN UP
-    const char* armText = "Arm";
     glfwSetErrorCallback([](int error, const char* description) {
         fprintf(stderr, "GLFW Error %d: %s\n", error, description);
     });
@@ -52,7 +51,7 @@ int main(int argc, char **argv) {
     windowVar::display_h = windowVar::monitor_h;
 
     winInit.Setup();
-    GLFWwindow* window = glfwCreateWindow(windowVar::display_w, windowVar::display_h, "Thyra", nullptr, nullptr);
+    GLFWwindow* window = glfwCreateWindow(windowVar::display_w, windowVar::display_h, "AAU SPACE ROBOTICS CONTROL STATION", nullptr, nullptr);
     if (window == nullptr)
         return 1;
     glfwMakeContextCurrent(window);
@@ -80,7 +79,11 @@ int main(int argc, char **argv) {
         {"home",    "home.png"},
         {"home_white", "home_white.png"},
         {"origin",      "origin.png"},
-        {"origin_white", "origin_white.png"}
+        {"origin_white", "origin_white.png"},
+        {"job",        "job.png"},
+        {"job_white",        "job_white.png"},
+        {"f_mode",      "f_mode.png"},
+        {"f_mode_white",      "f_mode_white.png"}
     };
     
     GLuint placeholderTile = location.display_map((package_path + "/images/tile_placeholder.png").c_str(), 1.0f);
@@ -137,8 +140,86 @@ int main(int argc, char **argv) {
                      ImGuiWindowFlags_NoMove |
                      ImGuiWindowFlags_NoCollapse |
                      ImGuiWindowFlags_NoBackground |
-                     ImGuiWindowFlags_NoBringToFrontOnFocus);   
+                     ImGuiWindowFlags_NoBringToFrontOnFocus);  
+         // --- ------------------------------------Side panel--------------------------------------------
+
+        BeginFixedPanel("SidePanel", ImVec2(-20 * scale, -80 * scale), ImVec2(80 * scale, y_sc + 1000 * scale),
+                scale, theme, 0, ImVec2(0, 0));
+   
+        GLuint Day_Night_Icon = theme ? images.at("sun") : images.at("moon");
+
+        if (widgets.CustomButton(draw_list, ImVec2(30 * scale, 980 * scale),"Day Night",scale, Day_Night_Icon, theme, 0, 0)) {
+            theme = !theme;
+            
+        }
+        GLuint Flight_icon = theme ? images.at("f_mode_white") : images.at("f_mode");
+        if (panel == 0) {
+            ImVec2 highlight_center = ImVec2(30 * scale, 100 * scale);
+            float highlight_size = (26 + 2) * scale;  // match the button's own size_x/size_y (but_size=0, img_size=2 here)
+            draw_list->AddRectFilled(
+                ImVec2(highlight_center.x - highlight_size, highlight_center.y - highlight_size),
+                ImVec2(highlight_center.x + highlight_size, highlight_center.y + highlight_size),
+                IM_COL32(255, 130, 30, 255),
+                12.0f  // match rounding used inside CustomButton
+            );
+        }
+        if (widgets.CustomButton(draw_list, ImVec2(30 * scale, 100 * scale),"FlightMode",scale, Flight_icon, theme, 0, 2)) {
+            panel = 0;
+            
+        }
+        GLuint Job_Icon = theme ? images.at("job_white") : images.at("job");
+
+        if (panel == 1) {
+            ImVec2 highlight_center = ImVec2(30 * scale, 160 * scale);
+            float highlight_size = (26 + 2) * scale;
+            draw_list->AddRectFilled(
+                ImVec2(highlight_center.x - highlight_size, highlight_center.y - highlight_size),
+                ImVec2(highlight_center.x + highlight_size, highlight_center.y + highlight_size),
+                IM_COL32(255, 130, 30, 255),
+                12.0f
+            );
+        }
+        if (widgets.CustomButton(draw_list, ImVec2(30 * scale, 160 * scale),"Job",scale, Job_Icon, theme, 0, 2)) {
+            panel = 1;
+            
+        }
+
+
+        EndFixedPanel();
+
         
+        // ----------------------------------------Top Panel-----------------------------------------
+        BeginFixedPanel("TopPanel", ImVec2(-20 * scale, -20 * scale), ImVec2(x_sc + 1000 * scale, 80 * scale),
+                scale, theme, 0, ImVec2(0, 0));
+        
+        draw_list->AddImageRounded(
+            (ImTextureID)(intptr_t)images.at("aau_logo"),
+            ImVec2(5 * scale, 5 * scale),  
+            ImVec2(55 * scale, 55 * scale),  // inset max
+            ImVec2(0, 0), ImVec2(1, 1),
+            IM_COL32(255, 255, 255, 200),
+            12.0f
+        );
+        for (int i = 0; i <= 200; i+=200){
+            draw_list->AddLine(
+                ImVec2((60 + i) * scale, 10 * scale),
+                ImVec2((60 + i) * scale, 45 * scale),   
+                colors.panelBorder(theme),
+                1.0f
+            );
+        }
+        if (widgets.ArmButton(draw_list,ImVec2(340 * scale, 28 * scale), scale, theme, arming_state )){
+            arming_state = !arming_state;
+        }
+
+        
+        EndFixedPanel(); 
+
+        switch (panel)
+        {
+
+        case 0:
+        {
         //--------------------------MAP--------------------------------------------------------------
         static double testLat = 57.063f, testLon = 10.032f; //! Remeber to remove
         BeginFixedPanel("MapPanel", ImVec2(70 * scale, 70 * scale), ImVec2(1500 * scale, 800 * scale),
@@ -151,16 +232,16 @@ int main(int argc, char **argv) {
         }
         
         ImGui::SetCursorPos(ImVec2(1440 * scale, 670 * scale));
-        widgets.AltitudeTape(1, value, 0.5f, theme); 
+        widgets.AltitudeTape(1, Info.xyz_pos[2], 0.5f, theme); 
 
         widgets.GyroScopeIndicator(draw_list,
                                 ImVec2(1320 * scale, 810 * scale),
-                                orientation, 
+                                Info.orientation, 
                                 theme);
 
         widgets.Compas(draw_list,
                                 ImVec2(1440 * scale, 810 * scale),
-                                orientation, 
+                                Info.orientation, 
                                 theme);                   
 
         EndFixedPanel();
@@ -229,69 +310,37 @@ int main(int argc, char **argv) {
         
         ImGui::InputDouble("Lat", &testLat, 0.000001, 0.01, "%.7f");
         ImGui::InputDouble("Lon", &testLon, 0.000001, 0.01, "%.7f");
-        ImGui::SliderFloat("Altitude", &value, -20.0f, 20.0f);
-        ImGui::SliderFloat("Yaw", &orientation.yaw, -180.0f, 180.0f);
-        ImGui::SliderFloat("Roll", &orientation.roll, -180.0f, 180.0f);
-        ImGui::SliderFloat("Pitch", &orientation.pitch, -180.0f, 180.0f);
-        ImGui::SliderFloat("BatteryVoltage", &battery_voltage[0], 0, 1.0f);
+        ImGui::SliderFloat("Altitude", &Info.xyz_pos[2], -20.0f, 20.0f);
+        ImGui::SliderFloat("Yaw", &Info.orientation.yaw, -180.0f, 180.0f);
+        ImGui::SliderFloat("Roll", &Info.orientation.roll, -180.0f, 180.0f);
+        ImGui::SliderFloat("Pitch", &Info.orientation.pitch, -180.0f, 180.0f);
+        ImGui::SliderFloat("BatteryVoltage", &Info.battery_values_C[0], 0, 1.0f);
 
 
 
         ImGui::EndChild();
         
 
-        // --- ------------------------------------Side panel--------------------------------------------
-
-        BeginFixedPanel("SidePanel", ImVec2(-20 * scale, -80 * scale), ImVec2(80 * scale, y_sc + 1000 * scale),
-                scale, theme, 0, ImVec2(0, 0));
-   
-        GLuint Day_Night_Icon = theme ? images.at("sun") : images.at("moon");
-
-        if (widgets.CustomButton(draw_list, ImVec2(30 * scale, 980 * scale),"Day Night",scale, Day_Night_Icon, theme, 0, 0)) {
-            theme = !theme;
-            
-        }
-
-        EndFixedPanel();
-
-        
-        // ----------------------------------------Top Panel-----------------------------------------
-        BeginFixedPanel("TopPanel", ImVec2(-20 * scale, -20 * scale), ImVec2(x_sc + 1000 * scale, 80 * scale),
-                scale, theme, 0, ImVec2(0, 0));
-        
-        draw_list->AddImageRounded(
-            (ImTextureID)(intptr_t)images.at("aau_logo"),
-            ImVec2(5 * scale, 5 * scale),  
-            ImVec2(55 * scale, 55 * scale),  // inset max
-            ImVec2(0, 0), ImVec2(1, 1),
-            IM_COL32(255, 255, 255, 200),
-            12.0f
-        );
-        for (int i = 0; i <= 200; i+=200){
-            draw_list->AddLine(
-                ImVec2((60 + i) * scale, 10 * scale),
-                ImVec2((60 + i) * scale, 45 * scale),   
-                colors.panelBorder(theme),
-                1.0f
-            );
-        }
        
 
-        
-        EndFixedPanel();
-
         //--------------------------------------Information panels---------------------------------------
-        info_panels.Battery_Info(scale, theme, battery_voltage );
+        info_panels.Battery_Info(scale, theme, Info.battery_values_C);
         info_panels.Position_Info(scale, theme);
         info_panels.Probe_Info(scale, theme);
         
         
-        
         info_panels.ResetPanelTracking();
+        
   
 
-
-
+        }
+        case 1:
+        {
+            
+        }
+        default:
+            break;
+        }
         ImGui::End();
 
 
