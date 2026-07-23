@@ -1,12 +1,14 @@
 #include <iostream>
 #include "interfaceutils.h"
 #include "statemanager.h"
+#include "app_window.h"
+#include "info_panels.h"
+#include "map.h"
+#include "widgets.h"
 #include <algorithm>
 #include <opencv2/core/utils/logger.hpp>
 #include <ament_index_cpp/get_package_share_directory.hpp>
 #include <thread>
-
-
 
 WindowInitializer winInit;
 Widgets widgets;

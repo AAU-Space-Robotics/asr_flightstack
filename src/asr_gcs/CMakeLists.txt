@@ -94,9 +94,13 @@ install(DIRECTORY tiles DESTINATION share/${PROJECT_NAME}/)
 
 # Interface node executable
 add_executable(interface
-  src/Interface.cpp
+  src/main.cpp
   src/interfaceutils.cpp
   src/statemanager.cpp
+  src/app_window.cpp
+  src/info_panels.cpp
+  src/map.cpp
+  src/widgets.cpp
   ${imgui_SOURCE_DIR}/imgui.cpp
   ${imgui_SOURCE_DIR}/imgui_demo.cpp
   ${imgui_SOURCE_DIR}/imgui_draw.cpp
