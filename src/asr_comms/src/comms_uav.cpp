@@ -100,6 +100,19 @@ CommsUav::CommsUav()
     manual_input_pub_   = create_publisher<asr_comms::msg::ManualControlInput>("in/manual_input", qos_be_tl);
     servo_command_pub_  = create_publisher<asr_comms::msg::ServoCommand>("in/servo_command", qos_be_vo);
 
+    // Mission bridge — see handle_mission_v2_extension / send_mission_blob.
+    // Reliable: must match mission_executor_node's subscription QoS, and an
+    // upload/start command silently dropped is worse than one queued briefly.
+    mission_upload_pub_ = create_publisher<std_msgs::msg::String>("in/mission_upload", rclcpp::QoS(4).reliable());
+    mission_start_pub_  = create_publisher<std_msgs::msg::String>("in/mission_start", rclcpp::QoS(4).reliable());
+    mission_abort_pub_  = create_publisher<std_msgs::msg::String>("in/mission_abort", rclcpp::QoS(4).reliable());
+    mission_validate_sub_ = create_subscription<std_msgs::msg::String>(
+        "out/mission_validate", rclcpp::QoS(4).reliable(),
+        std::bind(&CommsUav::on_mission_validate, this, std::placeholders::_1));
+    mission_status_sub_ = create_subscription<std_msgs::msg::String>(
+        "out/mission_status", rclcpp::QoS(1).best_effort(),
+        std::bind(&CommsUav::on_mission_status, this, std::placeholders::_1));
+
     // Outgoing to GCS — one subscription per telemetry topic.
     // best_effort + depth 1: only the latest sample matters; never queue stale data
     // that would arrive at the GCS as delayed or "duplicate" bursts.
@@ -317,6 +330,10 @@ void CommsUav::handle_message(const mavlink_message_t& msg)
             servo_command_pub_->publish(out);
         } else if (ext.message_type == ASR_MSG_PEER_BEACON) {
             handle_peer_beacon(ext);
+        } else if (ext.message_type == ASR_MSG_MISSION_UPLOAD ||
+                   ext.message_type == ASR_MSG_MISSION_START ||
+                   ext.message_type == ASR_MSG_MISSION_ABORT) {
+            handle_mission_v2_extension(ext);
         }
         break;
     }
@@ -537,15 +554,78 @@ void CommsUav::handle_peer_beacon(const mavlink_v2_extension_t& ext)
     }
 }
 
+// --- Mission bridge ---
+//
+// comms_uav never parses plan JSON — it only reassembles the fragmented
+// blob and republishes it on in/mission_upload / in/mission_start for
+// mission_executor_node to consume, mirroring how COMMAND_LONG is decoded
+// here but actually executed by asr_autopilot over a ROS action. Status and
+// validation results flow back the same way: mission_executor_node
+// publishes plain JSON strings, comms_uav fragments and forwards them.
+
+void CommsUav::handle_mission_v2_extension(const mavlink_v2_extension_t& ext)
+{
+    MissionReassembler* reassembler;
+    rclcpp::Publisher<std_msgs::msg::String>* pub;
+
+    if (ext.message_type == ASR_MSG_MISSION_UPLOAD) {
+        reassembler = &upload_reassembler_;
+        pub = mission_upload_pub_.get();
+    } else if (ext.message_type == ASR_MSG_MISSION_START) {
+        reassembler = &start_reassembler_;
+        pub = mission_start_pub_.get();
+    } else {
+        reassembler = &abort_reassembler_;
+        pub = mission_abort_pub_.get();
+    }
+
+    auto blob = reassembler->feed(ext.payload, sizeof(ext.payload));
+    if (!blob) return;
+
+    std_msgs::msg::String out{};
+    out.data.assign(blob->begin(), blob->end());
+    pub->publish(out);
+}
+
+void CommsUav::send_mission_blob(uint16_t message_type, uint32_t& transfer_id, const std::string& blob)
+{
+    if (!wifi_transport_ || !wifi_transport_->peer_known()) {
+        RCLCPP_WARN(get_logger(), "Mission blob dropped — WiFi peer not connected");
+        return;
+    }
+
+    std::vector<uint8_t> data(blob.begin(), blob.end());
+    for (auto& frag : mission_fragment(transfer_id, data)) {
+        mavlink_message_t mav{};
+        uint8_t payload[249]{};
+        std::memcpy(payload, frag.data(), frag.size());
+        mavlink_msg_v2_extension_pack(system_id_, component_id_, &mav,
+            0, 0, 0, message_type, payload);
+        send_mavlink(mav, LinkTarget::WifiOnly);
+    }
+    ++transfer_id;
+}
+
+void CommsUav::on_mission_validate(const std_msgs::msg::String::SharedPtr msg)
+{
+    send_mission_blob(ASR_MSG_MISSION_VALIDATE, validate_transfer_id_, msg->data);
+}
+
+void CommsUav::on_mission_status(const std_msgs::msg::String::SharedPtr msg)
+{
+    send_mission_blob(ASR_MSG_MISSION_STATUS, status_transfer_id_, msg->data);
+}
+
 // --- Send path ---
 
-void CommsUav::send_mavlink(mavlink_message_t& msg)
+void CommsUav::send_mavlink(mavlink_message_t& msg, LinkTarget target)
 {
     uint8_t buf[MAVLINK_MAX_PACKET_LEN];
     const uint16_t len = mavlink_msg_to_send_buffer(buf, &msg);
     std::lock_guard<std::mutex> lock(send_mutex_);
-    transport_->send(buf, len);
-    if (wifi_transport_)
+    if (target != LinkTarget::WifiOnly)
+        transport_->send(buf, len);
+    if (target != LinkTarget::RadioOnly && wifi_transport_)
         wifi_transport_->send(buf, len);
 }
 

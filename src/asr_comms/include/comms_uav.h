@@ -10,6 +10,7 @@
 #include <rclcpp/rclcpp.hpp>
 #include <rclcpp_action/rclcpp_action.hpp>
 #include <std_msgs/msg/bool.hpp>
+#include <std_msgs/msg/string.hpp>
 #include <sensor_msgs/msg/compressed_image.hpp>
 #include <px4_msgs/msg/gps_inject_data.hpp>
 #include <px4_msgs/msg/distance_sensor.hpp>
@@ -27,6 +28,7 @@
 #include "camera_protocol.h"
 #include "common/mavlink.h"
 #include "dedup.h"
+#include "mission_protocol.h"
 #include "transport.h"
 #include "udp_socket.h"
 
@@ -54,8 +56,16 @@ private:
     void publish_gps_inject(const uint8_t* data, size_t len);
     void forward_command(const mavlink_command_long_t& cmd);
 
+    // Mission bridge: reassembles upload/start/abort blobs from the GCS
+    // onto in/mission_* for mission_executor_node, and forwards its
+    // out/mission_* back WiFi-only. Never parses plan JSON itself.
+    void handle_mission_v2_extension(const mavlink_v2_extension_t& ext);
+    void send_mission_blob(uint16_t message_type, uint32_t& transfer_id, const std::string& blob);
+    void on_mission_validate(const std_msgs::msg::String::SharedPtr msg);
+    void on_mission_status(const std_msgs::msg::String::SharedPtr msg);
+
     // Send path
-    void send_mavlink(mavlink_message_t& msg);
+    void send_mavlink(mavlink_message_t& msg, LinkTarget target = LinkTarget::Both);
     void send_heartbeat();
     void send_rx_kbps();
     void send_radio_stats();
@@ -144,9 +154,29 @@ private:
     // Command forwarding: COMMAND_LONG → autopilot action → COMMAND_ACK
     rclcpp_action::Client<DroneCommand>::SharedPtr action_client_;
 
+    // Mission bridge (see handle_mission_v2_extension / send_mission_blob).
+    // Reassemblers for blobs arriving from the GCS; each message kind gets
+    // its own instance so an in-flight upload can't be corrupted by an
+    // interleaved start command.
+    MissionReassembler upload_reassembler_;
+    MissionReassembler start_reassembler_;
+    MissionReassembler abort_reassembler_;
+    uint32_t validate_transfer_id_{0};  // outgoing to GCS, incremented per send
+    uint32_t status_transfer_id_{0};
+    rclcpp::Publisher<std_msgs::msg::String>::SharedPtr    mission_upload_pub_;  // -> mission_executor_node
+    rclcpp::Publisher<std_msgs::msg::String>::SharedPtr    mission_start_pub_;   // -> mission_executor_node
+    rclcpp::Publisher<std_msgs::msg::String>::SharedPtr    mission_abort_pub_;   // -> mission_executor_node
+    rclcpp::Subscription<std_msgs::msg::String>::SharedPtr mission_validate_sub_; // <- mission_executor_node
+    rclcpp::Subscription<std_msgs::msg::String>::SharedPtr mission_status_sub_;   // <- mission_executor_node
+
     static constexpr uint16_t ASR_MSG_TELEMETRY_STATUS = 0x9001u;
     static constexpr uint16_t ASR_MSG_SERVO_COMMAND    = 0x9002u;
     static constexpr uint16_t ASR_MSG_PEER_BEACON      = 0x9003u;
+    static constexpr uint16_t ASR_MSG_MISSION_UPLOAD   = 0x9004u;  // GCS -> UAV, fragmented plan JSON
+    static constexpr uint16_t ASR_MSG_MISSION_VALIDATE = 0x9005u;  // UAV -> GCS, fragmented issue list JSON
+    static constexpr uint16_t ASR_MSG_MISSION_START    = 0x9006u;  // GCS -> UAV, plan_id confirmation
+    static constexpr uint16_t ASR_MSG_MISSION_STATUS   = 0x9007u;  // UAV -> GCS, plan_id + active_path JSON
+    static constexpr uint16_t ASR_MSG_MISSION_ABORT    = 0x9008u;  // GCS -> UAV, plan_id confirmation
 
     // ASR custom MAVLink command IDs (local experiment range ≥ 32768)
     static constexpr uint16_t ASR_CMD_GOTO              = 32768u;

@@ -1024,13 +1024,22 @@ private:
             double dt = (get_time() - drone_state.trajectory_start_time_).seconds();
             if (dt > path_planner_.getTotalTime()) {
                 drone_state.trajectory_mode = TrajectoryMode::COMPLETED;
+                drone_state.settle_converged = false;
+                drone_state.settle_stalled = false;
                 state_manager_.setDroneState(drone_state);
                 FullTrajectoryPoint final_point = path_planner_.getTrajectoryPoint(path_planner_.getTotalTime(), trajectoryMethod::MIN_SNAP);
                 Stamped4DVector target_profile(get_time(), final_point.position.x(), final_point.position.y(), final_point.position.z(), 0.0);
                 Stamped3DVector target_velocity_profile(get_time(), final_point.velocity.x(), final_point.velocity.y(), final_point.velocity.z());
                 state_manager_.setTargetPositionProfile(target_profile);
-              
+
                 state_manager_.setTargetAttitude(StampedQuaternion(get_time(), final_point.orientation));
+
+                // Start tracking convergence to this point (see settle_*
+                // members below).
+                settle_target_position_ = final_point.position;
+                settle_best_distance_ = (state_manager_.getGlobalPosition().vector() - settle_target_position_).norm();
+                settle_last_improvement_ = get_time();
+                settle_start_ = get_time();
             }
             else { // If trajectory is still active
                 FullTrajectoryPoint target_point = path_planner_.getTrajectoryPoint(dt, trajectoryMethod::MIN_SNAP);
@@ -1067,6 +1076,28 @@ private:
             state_manager_.setDroneState(drone_state);
             disarm(true);
             cleanupControlLoop();
+        }
+        else if (drone_state.trajectory_mode == TrajectoryMode::COMPLETED &&
+                 !drone_state.settle_converged && !drone_state.settle_stalled) {
+            // Trajectory finished playing out -- check whether the vehicle
+            // has actually settled at the target, or stalled short of it.
+            // Skipped for LAND_POSITION, which has its own completion above.
+            const double distance = (state_manager_.getGlobalPosition().vector() - settle_target_position_).norm();
+            if (distance <= kPositionTolerance) {
+                drone_state.settle_converged = true;
+                state_manager_.setDroneState(drone_state);
+            } else {
+                if (distance < settle_best_distance_ - kMinImprovement) {
+                    settle_best_distance_ = distance;
+                    settle_last_improvement_ = get_time();
+                }
+                if ((get_time() - settle_last_improvement_).seconds() > kStallTimeout ||
+                    (get_time() - settle_start_).seconds() > kMaxSettleTime) {
+                    RCLCPP_WARN(get_logger(), "Position stalled %.2f m from target", distance);
+                    drone_state.settle_stalled = true;
+                    state_manager_.setDroneState(drone_state);
+                }
+            }
         }
         // Get target profiles
         Stamped4DVector target_profile = state_manager_.getTargetPositionProfile();
@@ -1696,6 +1727,10 @@ private:
         drone_state.trajectory_start_time_ = get_time();
         drone_state.trajectory_mode = TrajectoryMode::ACTIVE;
         drone_state.trajectory_duration = rclcpp::Duration::from_seconds(trajectory_duration);
+        // Clear any leftover outcome from the previous maneuver, or
+        // waitForTrajectoryCompletion would see a stale settle_converged.
+        drone_state.settle_converged = false;
+        drone_state.settle_stalled = false;
         state_manager_.setDroneState(drone_state);
     }
 
@@ -1734,28 +1769,85 @@ private:
         result->message = "Drone disarmed.";
     }
 
-    void executeTakeoff(const std::shared_ptr<const DroneCommand::Goal> goal, 
-                        std::shared_ptr<DroneCommand::Result> result) {
+    // Freezes setpoints at the current position (same technique executeArm
+    // uses) and marks the trajectory converged, so settle-tracking doesn't
+    // keep chasing the abandoned target.
+    void holdCurrentPosition() {
+        Stamped3DVector global_pos = state_manager_.getGlobalPosition();
+        Stamped4DVector target_profile = state_manager_.getTargetPositionProfile();
+        target_profile.setTime(get_time());
+        target_profile.setX(global_pos.x());
+        target_profile.setY(global_pos.y());
+        target_profile.setZ(global_pos.z());
+        target_profile.setW(0.0);
+        state_manager_.setTargetPositionProfile(target_profile);
+        state_manager_.setTargetVelocityProfile(Stamped3DVector(get_time(), 0.0, 0.0, 0.0));
+
+        DroneState drone_state = state_manager_.getDroneState();
+        drone_state.trajectory_mode = TrajectoryMode::COMPLETED;
+        drone_state.settle_converged = true;
+        drone_state.settle_stalled = false;
+        state_manager_.setDroneState(drone_state);
+    }
+
+    // Polls positionAndVelocityControl()'s settle outcome rather than
+    // tracking convergence itself. Returns true if cancelled (already
+    // resolved via canceled(), caller must return without touching result);
+    // false otherwise with result->success/message already set.
+    bool waitForTrajectoryCompletion(const std::shared_ptr<GoalHandleDroneCommand> &goal_handle,
+                                     std::shared_ptr<DroneCommand::Result> result) {
+        while (rclcpp::ok()) {
+            if (goal_handle->is_canceling()) {
+                holdCurrentPosition();
+                result->success = false;
+                result->message = "Cancelled.";
+                goal_handle->canceled(result);
+                return true;
+            }
+
+            DroneState drone_state = state_manager_.getDroneState();
+            if (drone_state.settle_converged) {
+                result->success = true;
+                result->message = "Reached target position.";
+                return false;
+            }
+            if (drone_state.settle_stalled) {
+                result->success = false;
+                result->message = "Position stalled before reaching target.";
+                return false;
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        }
+
+        result->success = false;
+        result->message = "Shutdown while waiting for trajectory.";
+        return false;
+    }
+
+    void executeTakeoff(const std::shared_ptr<const DroneCommand::Goal> goal,
+                        std::shared_ptr<DroneCommand::Result> result,
+                        const std::shared_ptr<GoalHandleDroneCommand> &goal_handle) {
         setDroneMode(FlightMode::POSITION);
         ensureControlLoopRunning(2);
 
         TrajectoryInitState init_state = state_manager_.getTrajectoryInitState();
         Eigen::Quaterniond target_quat = transformations_.eulerToQuaternion(0.0, 0.0, init_state.yaw).normalized();
-        Eigen::Vector3d target_position = {init_state.position.x(), init_state.position.y(), 
+        Eigen::Vector3d target_position = {init_state.position.x(), init_state.position.y(),
                                           std::min(goal->target_pose[0], takeoff_height_ + init_state.position.z())};
 
         path_planner_.GenerateTrajectory(init_state.position, target_position, init_state.orientation,
                                         target_quat, Eigen::Vector3d::Zero(), Eigen::Vector3d::Zero(),
                                         trajectoryMethod::MIN_SNAP);
         activateTrajectory(path_planner_.getTotalTime());
+        RCLCPP_INFO(get_logger(), "Takeoff target: %.2f %.2f %.2f",
+                   target_position.x(), target_position.y(), target_position.z());
 
-        result->success = true;
-        result->message = "Drone taking off.";
-        std::cout << "Takeoff target: " << target_position.transpose() << std::endl;
+        waitForTrajectoryCompletion(goal_handle, result);
     }
 
-    void executeGoto(const std::shared_ptr<const DroneCommand::Goal> goal, 
-                     std::shared_ptr<DroneCommand::Result> result) {
+    void executeGoto(const std::shared_ptr<const DroneCommand::Goal> goal,
+                     std::shared_ptr<DroneCommand::Result> result,
+                     const std::shared_ptr<GoalHandleDroneCommand> &goal_handle) {
         setDroneMode(FlightMode::POSITION);
         ensureControlLoopRunning(2);
 
@@ -1769,12 +1861,12 @@ private:
                                         trajectoryMethod::MIN_SNAP);
         activateTrajectory(path_planner_.getTotalTime());
 
-        result->success = true;
-        result->message = "Drone moving to target position.";
+        waitForTrajectoryCompletion(goal_handle, result);
     }
 
-    void executeSpin(const std::shared_ptr<const DroneCommand::Goal> goal, 
-                     std::shared_ptr<DroneCommand::Result> result) {
+    void executeSpin(const std::shared_ptr<const DroneCommand::Goal> goal,
+                     std::shared_ptr<DroneCommand::Result> result,
+                     const std::shared_ptr<GoalHandleDroneCommand> &goal_handle) {
         setDroneMode(FlightMode::POSITION);
         ensureControlLoopRunning(2);
 
@@ -1783,16 +1875,23 @@ private:
         double num_rotations = goal->target_pose[1];
         bool use_longest_path = (goal->target_pose[2] == 1.0);
 
-        path_planner_.GenerateSpinTrajectory(init_state.position, init_state.orientation, 
-                                            target_yaw, num_rotations, use_longest_path, 
+        path_planner_.GenerateSpinTrajectory(init_state.position, init_state.orientation,
+                                            target_yaw, num_rotations, use_longest_path,
                                             trajectoryMethod::MIN_SNAP);
         activateTrajectory(path_planner_.getTotalTime());
-
-        result->success = true;
-        result->message = "Drone spinning to yaw " + std::to_string(target_yaw) + " with " + 
-                         std::to_string(num_rotations) + " rotations.";
-        RCLCPP_INFO(get_logger(), "Spin target: yaw=%.2f, rotations=%.1f, path=%s", 
+        RCLCPP_INFO(get_logger(), "Spin target: yaw=%.2f, rotations=%.1f, path=%s",
                    target_yaw, num_rotations, use_longest_path ? "longest" : "shortest");
+
+        if (waitForTrajectoryCompletion(goal_handle, result)) return;  // cancelled, already resolved
+
+        // waitForTrajectoryCompletion already set result->success/message
+        // (generic position-convergence outcome) -- only customise the
+        // message on the success path, so a stall/timeout failure message
+        // isn't overwritten.
+        if (result->success) {
+            result->message = "Spin complete: yaw " + std::to_string(target_yaw) + " with " +
+                             std::to_string(num_rotations) + " rotations.";
+        }
     }
 
     void executeTestMultiWaypoint(std::shared_ptr<DroneCommand::Result> result) {
@@ -1921,12 +2020,12 @@ private:
                 executeDisarm(result);
             }
             else if (goal->command_type == "takeoff") {
-                executeTakeoff(goal, result);
+                executeTakeoff(goal, result, goal_handle);
             }
             else if (goal->command_type == "goto") {
-                executeGoto(goal, result);
+                executeGoto(goal, result, goal_handle);
             } else if (goal->command_type == "spin") {
-                executeSpin(goal, result);
+                executeSpin(goal, result, goal_handle);
             }
             else if (goal->command_type == "test_multi_waypoint") {
                 executeTestMultiWaypoint(result);
@@ -1962,7 +2061,9 @@ private:
             result->message = "Execution failed.";
         }
 
-        if (rclcpp::ok())
+        // May already be cancelled() via waitForTrajectoryCompletion -- a
+        // goal can only resolve once.
+        if (rclcpp::ok() && goal_handle->is_active())
         {
             goal_handle->succeed(result);
             RCLCPP_INFO(get_logger(), "Goal execution completed.");
@@ -2089,6 +2190,19 @@ private:
     float takeoff_height_;
     float motor_speed_min_;
     float motor_speed_max_;
+
+    // Convergence tracking for the current trajectory (positionAndVelocityControl's
+    // TrajectoryMode::COMPLETED handling). Control-loop-thread-only; only
+    // settle_converged/settle_stalled on DroneState cross to the DroneCommand
+    // execute thread, via state_manager_'s existing mutex.
+    static constexpr double kPositionTolerance = 0.15;  // metres, "arrived"
+    static constexpr double kMinImprovement    = 0.02;  // metres, ignore noise-level jitter
+    static constexpr double kStallTimeout      = 5.0;   // seconds without improvement -> give up
+    static constexpr double kMaxSettleTime     = 120.0; // seconds, absolute ceiling
+    Eigen::Vector3d settle_target_position_ = Eigen::Vector3d::Zero();
+    double settle_best_distance_ = 0.0;
+    rclcpp::Time settle_last_improvement_;
+    rclcpp::Time settle_start_;
 };
 
 int main(int argc, char *argv[])

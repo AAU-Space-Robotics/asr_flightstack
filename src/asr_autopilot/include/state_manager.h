@@ -241,6 +241,12 @@ struct DroneState {
     rclcpp::Time trajectory_start_time_;
     rclcpp::Duration trajectory_duration = rclcpp::Duration(0, 0);
     rclcpp::Duration flight_time = rclcpp::Duration(0, 0); // Total flight time since takeoff, resets on landing/disarming
+
+    // Did the vehicle actually reach the trajectory's endpoint, not just
+    // "time elapsed"? Set by positionAndVelocityControl(), polled by
+    // DroneCommand's execute thread (main.cpp).
+    bool settle_converged = false;
+    bool settle_stalled = false;
 };
 
 

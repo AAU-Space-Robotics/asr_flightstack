@@ -34,3 +34,5 @@ probe_data/
 runs/
 
 .claude/
+
+attach_gz_gui.sh

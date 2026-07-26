@@ -80,8 +80,22 @@ Status PlanExecutor::tick_node(const PlanNode &node, const std::string &path) {
         case NodeKind::RunUntil: {
             const auto &run_until = static_cast<const RunUntilNode &>(node);
 
+            if (!state_map_.count(&node)) {
+                state_map_[&node] = RunUntilState{std::chrono::steady_clock::now()};
+            }
+            auto &state = std::get<RunUntilState>(state_map_.at(&node));
+
             for (const auto &cond : run_until.conditions_any) {
-                if (conditions_.evaluate(cond)) {
+                bool fired;
+                if (cond.cond == "time_elapsed") {
+                    const double elapsed = std::chrono::duration<double>(
+                        std::chrono::steady_clock::now() - state.started_at).count();
+                    fired = cond.op.has_value() && cond.value.has_value() &&
+                            compare(*cond.op, elapsed, *cond.value);
+                } else {
+                    fired = conditions_.evaluate(cond);
+                }
+                if (fired) {
                     reset_node(*run_until.child);
                     return Status::Success;
                 }

@@ -127,6 +127,20 @@ CommsGcs::CommsGcs() : Node("comms_gcs")
     command_ack_pub_ = create_publisher<asr_comms::msg::CommandAck>("command_ack", 10);
     camera_pub_      = create_publisher<sensor_msgs::msg::CompressedImage>("camera/image/compressed", 10);
 
+    // Mission bridge — see handle_mission_v2_extension / send_mission_blob.
+    mission_validate_pub_ = create_publisher<std_msgs::msg::String>("out/mission_validate", 4);
+    mission_status_pub_   = create_publisher<std_msgs::msg::String>("out/mission_status", rclcpp::QoS(1).best_effort());
+    mission_upload_sub_ = create_subscription<std_msgs::msg::String>(
+        "in/mission_upload", rclcpp::QoS(4).reliable(),
+        std::bind(&CommsGcs::on_mission_upload, this, std::placeholders::_1));
+    mission_start_sub_ = create_subscription<std_msgs::msg::String>(
+        "in/mission_start", rclcpp::QoS(4).reliable(),
+        std::bind(&CommsGcs::on_mission_start, this, std::placeholders::_1));
+    mission_abort_sub_ = create_subscription<std_msgs::msg::String>(
+        "in/mission_abort", rclcpp::QoS(4).reliable(),
+        std::bind(&CommsGcs::on_mission_abort, this, std::placeholders::_1));
+    mission_retry_timer_ = create_wall_timer(500ms, std::bind(&CommsGcs::check_mission_retries, this));
+
     camera_stream_sub_ = create_subscription<asr_comms::msg::CameraStreamRequest>(
         "in/camera_stream", 1,
         std::bind(&CommsGcs::on_camera_stream_request, this, std::placeholders::_1));
@@ -393,6 +407,12 @@ void CommsGcs::handle_message(const mavlink_message_t& msg)
     case MAVLINK_MSG_ID_V2_EXTENSION: {
         mavlink_v2_extension_t ext{};
         mavlink_msg_v2_extension_decode(&msg, &ext);
+
+        if (ext.message_type == ASR_MSG_MISSION_VALIDATE ||
+            ext.message_type == ASR_MSG_MISSION_STATUS) {
+            handle_mission_v2_extension(ext);
+            break;
+        }
         if (ext.message_type != ASR_MSG_TELEMETRY_STATUS) break;
 
 #pragma pack(push, 1)
@@ -490,13 +510,15 @@ void CommsGcs::handle_message(const mavlink_message_t& msg)
 
 // --- Send path ---
 
-void CommsGcs::send_mavlink(mavlink_message_t& msg)
+void CommsGcs::send_mavlink(mavlink_message_t& msg, LinkTarget target)
 {
     uint8_t buf[MAVLINK_MAX_PACKET_LEN];
     const uint16_t len = mavlink_msg_to_send_buffer(buf, &msg);
-    transport_->send(buf, len);
-    tx_bytes_ += len;
-    if (wifi_transport_)
+    if (target != LinkTarget::WifiOnly) {
+        transport_->send(buf, len);
+        tx_bytes_ += len;
+    }
+    if (target != LinkTarget::RadioOnly && wifi_transport_)
         wifi_transport_->send(buf, len);
 }
 
@@ -520,6 +542,108 @@ void CommsGcs::send_peer_beacon()
         0, 0, 0, ASR_MSG_PEER_BEACON, payload);
     send_mavlink(msg);
     RCLCPP_DEBUG(get_logger(), "Peer beacon sent (connected=%s)", connected ? "yes" : "no");
+}
+
+// --- Mission bridge ---
+//
+// Mirror image of comms_uav's: comms_gcs never parses plan JSON either, it
+// just fragments/reassembles blobs for whatever future GCS UI publishes on
+// in/mission_upload / in/mission_start and subscribes to out/mission_*.
+
+void CommsGcs::handle_mission_v2_extension(const mavlink_v2_extension_t& ext)
+{
+    MissionReassembler& reassembler =
+        (ext.message_type == ASR_MSG_MISSION_VALIDATE) ? validate_reassembler_ : status_reassembler_;
+    auto* pub = (ext.message_type == ASR_MSG_MISSION_VALIDATE) ? mission_validate_pub_.get()
+                                                                : mission_status_pub_.get();
+
+    auto blob = reassembler.feed(ext.payload, sizeof(ext.payload));
+    if (!blob) return;
+
+    // A complete ValidateResult is itself the upload's ack; any Status
+    // confirms a start or abort took effect (whichever, if either, is
+    // still pending -- harmless to clear both). Neither needs to inspect
+    // the JSON.
+    if (ext.message_type == ASR_MSG_MISSION_VALIDATE) {
+        pending_upload_.active = false;
+    } else {
+        pending_start_.active = false;
+        pending_abort_.active = false;
+    }
+
+    std_msgs::msg::String out{};
+    out.data.assign(blob->begin(), blob->end());
+    pub->publish(out);
+}
+
+void CommsGcs::send_mission_blob(uint16_t message_type, uint32_t& transfer_id, const std::string& blob)
+{
+    if (!wifi_transport_ || !wifi_transport_->peer_known()) {
+        RCLCPP_WARN(get_logger(), "Mission blob dropped — WiFi peer not connected");
+        return;
+    }
+
+    std::vector<uint8_t> data(blob.begin(), blob.end());
+    for (auto& frag : mission_fragment(transfer_id, data)) {
+        mavlink_message_t mav{};
+        uint8_t payload[249]{};
+        std::memcpy(payload, frag.data(), frag.size());
+        mavlink_msg_v2_extension_pack(system_id_, component_id_, &mav,
+            0, 0, 0, message_type, payload);
+        send_mavlink(mav, LinkTarget::WifiOnly);
+    }
+    ++transfer_id;
+}
+
+void CommsGcs::on_mission_upload(const std_msgs::msg::String::SharedPtr msg)
+{
+    pending_upload_ = {true, msg->data, 1, std::chrono::steady_clock::now()};
+    send_mission_blob(ASR_MSG_MISSION_UPLOAD, upload_transfer_id_, msg->data);
+}
+
+void CommsGcs::on_mission_start(const std_msgs::msg::String::SharedPtr msg)
+{
+    pending_start_ = {true, msg->data, 1, std::chrono::steady_clock::now()};
+    send_mission_blob(ASR_MSG_MISSION_START, start_transfer_id_, msg->data);
+}
+
+void CommsGcs::on_mission_abort(const std_msgs::msg::String::SharedPtr msg)
+{
+    pending_abort_ = {true, msg->data, 1, std::chrono::steady_clock::now()};
+    send_mission_blob(ASR_MSG_MISSION_ABORT, abort_transfer_id_, msg->data);
+}
+
+// Resends upload/start/abort on a timeout if their implicit ack never
+// arrives (see handle_mission_v2_extension). Each retry uses a fresh
+// transfer_id -- simplest correct behavior for blobs this small is to
+// resend the whole thing rather than negotiate which fragment was lost.
+void CommsGcs::check_mission_retries()
+{
+    const auto now = std::chrono::steady_clock::now();
+
+    auto retry_if_needed = [&](PendingMissionSend& pending, uint16_t message_type,
+                                uint32_t& transfer_id, const char* kind) {
+        if (!pending.active) return;
+        if (now - pending.sent_at < MISSION_RETRY_TIMEOUT) return;
+
+        if (pending.attempts >= MISSION_MAX_RETRIES) {
+            RCLCPP_ERROR(get_logger(), "Mission %s: no reply after %d attempts — giving up",
+                         kind, pending.attempts);
+            pending.active = false;
+            return;
+        }
+
+        ++pending.attempts;
+        RCLCPP_WARN(get_logger(), "Mission %s: no reply after %ldms — retry %d/%d",
+                    kind, static_cast<long>(MISSION_RETRY_TIMEOUT.count()),
+                    pending.attempts, MISSION_MAX_RETRIES);
+        send_mission_blob(message_type, transfer_id, pending.blob);
+        pending.sent_at = now;
+    };
+
+    retry_if_needed(pending_upload_, ASR_MSG_MISSION_UPLOAD, upload_transfer_id_, "upload");
+    retry_if_needed(pending_start_,  ASR_MSG_MISSION_START,  start_transfer_id_,  "start");
+    retry_if_needed(pending_abort_,  ASR_MSG_MISSION_ABORT,  abort_transfer_id_,  "abort");
 }
 
 void CommsGcs::publish_link_stats()

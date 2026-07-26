@@ -1,5 +1,8 @@
 vehicle: thyra
 
+# alt and pos.z are positive-up (metres above the takeoff point) --
+# mission_executor_node negates them internally before sending to
+# asr_autopilot, which works in NED (up is negative Z).
 skills:
   takeoff:
     params:

@@ -10,6 +10,7 @@
 // the onboard node wires a real runner in, tests and GCS previews use fakes.
 #pragma once
 
+#include <chrono>
 #include <memory>
 #include <string>
 #include <unordered_map>
@@ -37,6 +38,10 @@ public:
     virtual std::unique_ptr<SkillHandle> start(const std::string &skill, const nlohmann::json &params) = 0;
 };
 
+// "time_elapsed" is handled entirely inside PlanExecutor (see RunUntilState)
+// rather than routed here -- it means time since the enclosing run_until
+// started, which is a property of the executor's own state, not something
+// any external telemetry source could answer.
 class ConditionSource {
 public:
     virtual ~ConditionSource() = default;
@@ -72,7 +77,10 @@ private:
     struct TaskState     { std::unique_ptr<SkillHandle> handle; };
     struct SequenceState { size_t index = 0; };
     struct RetryState    { int attempts = 0; };
-    using NodeState = std::variant<TaskState, SequenceState, RetryState>;
+    // started_at is set on this run_until's first tick, so "time_elapsed"
+    // measures time since THIS loop began, not since takeoff or plan start.
+    struct RunUntilState { std::chrono::steady_clock::time_point started_at; };
+    using NodeState = std::variant<TaskState, SequenceState, RetryState, RunUntilState>;
 
     std::unordered_map<const PlanNode *, NodeState> state_map_;
     std::string active_path_;
