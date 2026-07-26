@@ -297,7 +297,7 @@ void InfoPanels::Battery_Info(float scale, bool theme, float battery_percentage[
     InfoPanels::End_panels();
 }
 
-void InfoPanels::Position_Info(float scale, bool theme){
+void InfoPanels::Position_Info(float scale, bool theme, float pos_meter[3]){
 
     ImVec2 pos = InfoPanels::Begin_panels("PositionInfo",210 * scale,scale, theme);
     ImDrawList* draw = ImGui::GetWindowDrawList();
@@ -305,7 +305,6 @@ void InfoPanels::Position_Info(float scale, bool theme){
     draw->AddText(ImVec2((pos.x + 10), (pos.y + 10)), Color::white_black(theme), "State-NED");
     ImGui::PopFont();
 
-    float pos_meter[3] = {2.1f, 20.3f, -10.5f};
     float target_meter[3] = {2.1f, 0.3f, -1.5f};
     float vel_meter[3] = {0.0f, 0.3f, -0.23f};
     ImU32 xyz_color[3] = {

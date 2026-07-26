@@ -26,6 +26,7 @@
 #include "asr_comms/msg/servo_command.hpp"
 #include "asr_comms/msg/probe_locations.hpp"
 #include <px4_msgs/msg/vehicle_attitude.hpp>   
+#include <px4_msgs/msg/vehicle_local_position.hpp>
          
 
 WindowInitializer winInit;
@@ -67,6 +68,9 @@ public:
             "/fmu/out/vehicle_attitude", qos,
             [this](const VehicleAttitude::SharedPtr msg)
             { attitudeCallback(msg); });
+        local_position_sub_ = create_subscription<VehicleLocalPosition>(
+            "/fmu/out/vehicle_local_position", qos,
+            [this](const VehicleLocalPosition::SharedPtr msg) { localPositionCallback(msg); });
     }
     void start()
     {
@@ -77,10 +81,12 @@ public:
     rclcpp::Time get_time() const {
         return clock_->now();
     }
+    StateManager& getStateManager() { return state_manager_; } 
 private:
     StateManager state_manager_;
     std::thread execute_thread_;
     rclcpp::Subscription<VehicleAttitude>::SharedPtr attitude_sub_;
+    rclcpp::Subscription<VehicleLocalPosition>::SharedPtr local_position_sub_;
     std::shared_ptr<rclcpp::Clock> clock_;
 
     void attitudeCallback(const VehicleAttitude::SharedPtr msg)
@@ -93,6 +99,40 @@ private:
         }
         StampedQuaternion attitude(get_time(), Eigen::Quaterniond(msg->q[0], msg->q[1], msg->q[2], msg->q[3]));
         state_manager_.setAttitude(attitude);
+        
+    }
+    void localPositionCallback(const VehicleLocalPosition::SharedPtr msg)
+    {
+        // Reject invalid/non-finite EKF output. Dropping the message leaves the stored
+        // position timestamp stale, which engages the staleness failsafe instead of
+        // feeding garbage (or NaN) into the controller.
+      
+        if (!msg->xy_valid || !msg->z_valid ||
+            !std::isfinite(msg->x) || !std::isfinite(msg->y) || !std::isfinite(msg->z)) {
+            RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 1000,
+                "Rejecting invalid local position (xy_valid=%d z_valid=%d)",
+                msg->xy_valid, msg->z_valid);
+            return;
+        }
+
+        // Note that local position refers to coordinates being expressed in cartesian coordinates from some origin point.
+        Stamped3DVector origin = state_manager_.getOrigin();
+        Stamped3DVector local_position(get_time(), msg->x - origin.x(), msg->y - origin.y(), msg->z - origin.z());
+        state_manager_.setGlobalPosition(local_position);
+
+        // Velocity: only trust it when the EKF marks it valid and finite. A zero velocity
+        // estimate is safe for the controller; a NaN is not.
+        if (msg->v_xy_valid && msg->v_z_valid &&
+            std::isfinite(msg->vx) && std::isfinite(msg->vy) && std::isfinite(msg->vz)) {
+            state_manager_.setGlobalVelocity(Stamped3DVector(get_time(), msg->vx, msg->vy, msg->vz));
+        } else {
+            state_manager_.setGlobalVelocity(Stamped3DVector(get_time(), 0.0, 0.0, 0.0));
+        }
+
+        // Acceleration has no dedicated validity flag; guard against non-finite values only.
+        if (std::isfinite(msg->ax) && std::isfinite(msg->ay) && std::isfinite(msg->az)) {
+            state_manager_.setGlobalAcceleration(Stamped3DVector(get_time(), msg->ax, msg->ay, msg->az));
+        }
     }
 
 };
@@ -111,7 +151,6 @@ int main(int argc, char **argv) {
     int panel = 0;
     
     DroneInformation Info;
-    StateManager state_manager_;
     Transformations transformations_;
 
     glfwSetErrorCallback([](int error, const char* description) {
@@ -223,11 +262,12 @@ int main(int argc, char **argv) {
                      ImGuiWindowFlags_NoBringToFrontOnFocus);  
 
 
-        const StampedQuaternion& attitude = state_manager_.getAttitude();
+        const StampedQuaternion& attitude = ground_control->getStateManager().getAttitude();
         Info.orientation = transformations_.quaternionToEuler(attitude.quaternion());
-        
-
-
+        const Stamped3DVector& position = ground_control->getStateManager().getGlobalPosition();
+        Info.xyz_pos[0] = static_cast<float>(position.x());
+        Info.xyz_pos[1] = static_cast<float>(position.y());
+        Info.xyz_pos[2] = static_cast<float>(position.z());
          // --- ------------------------------------Side panel--------------------------------------------
 
         BeginFixedPanel("SidePanel", ImVec2(-20 * scale, -80 * scale), ImVec2(80 * scale, y_sc + 1000 * scale),
@@ -397,7 +437,7 @@ int main(int argc, char **argv) {
         
         ImGui::InputDouble("Lat", &testLat, 0.000001, 0.01, "%.7f");
         ImGui::InputDouble("Lon", &testLon, 0.000001, 0.01, "%.7f");
-        ImGui::SliderFloat("Altitude", &Info.xyz_pos[2], -20.0f, 20.0f);
+        //ImGui::SliderFloat("Altitude", &Info.xyz_pos[2], -20.0f, 20.0f);
         //float yaw_f = (float)Info.orientation.yaw;
         //if (ImGui::SliderFloat("Yaw", &yaw_f, -180.0f, 180.0f)) {
         //    Info.orientation.yaw = yaw_f;
@@ -424,7 +464,7 @@ int main(int argc, char **argv) {
         //--------------------------------------Information panels---------------------------------------
         info_panels.Battery_Info(scale, theme, Info.battery_values_C);
         
-        info_panels.Position_Info(scale, theme);
+        info_panels.Position_Info(scale, theme, Info.xyz_pos);
         info_panels.Probe_Info(scale, theme);
         
         

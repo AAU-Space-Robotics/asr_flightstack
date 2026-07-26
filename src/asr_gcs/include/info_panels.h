@@ -39,7 +39,7 @@ class InfoPanels {
     public:
         void ResetPanelTracking(); 
         void Battery_Info(float scale, bool theme, float battery_percentage[2]);
-        void Position_Info(float scale, bool theme = 0);
+        void Position_Info(float scale, bool theme, float xyz_pos[3]);
         void Probe_Info(float scale, bool theme = 0);
     private:
         ImVec2 Panel_tracker(ImVec2 size, float scale);
