@@ -13,10 +13,13 @@ endif()
 # Find ROS 2 dependencies
 find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
+find_package(rclcpp_action REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(asr_comms REQUIRED)
 find_package(OpenCV REQUIRED)
 find_package(ament_index_cpp REQUIRED)
+find_package(asr_autopilot REQUIRED)
+find_package(px4_msgs REQUIRED)
 
 # Fetch Dear ImGui, GLFW, ImPlot, and tinyxml2 using FetchContent
 include(FetchContent)
@@ -114,9 +117,12 @@ add_executable(interface
 
 ament_target_dependencies(interface
   rclcpp
+  rclcpp_action
   std_msgs
   asr_comms
   ament_index_cpp
+  asr_autopilot
+  px4_msgs  
 )
 
 install(TARGETS interface
@@ -127,6 +133,7 @@ target_link_libraries(interface
   glfw            # Link GLFW
   tinyxml2        # Link tinyxml2 from FetchContent
   ${OpenCV_LIBS}
+  asr_autopilot::asr_autopilot_core 
 )
 target_include_directories(interface 
   PRIVATE ${OpenCV_INCLUDE_DIRS}

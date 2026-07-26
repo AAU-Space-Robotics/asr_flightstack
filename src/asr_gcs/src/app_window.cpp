@@ -1,5 +1,6 @@
 #include "app_window.h"
 
+
 namespace windowVar {
     int monitor_w = 0;
     int monitor_h = 0;
@@ -7,6 +8,7 @@ namespace windowVar {
     int display_h = 0;
     ImVec4 BackgroundColor = ImVec4(0.0, 0.0, 0.0, 0.0);
 }
+
 
 void WindowInitializer::DrawMultiColor() {
     ImVec2 window_pos(0, 0);

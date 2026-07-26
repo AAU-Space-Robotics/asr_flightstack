@@ -1,6 +1,7 @@
 #include <iostream>
 #include "interfaceutils.h"
-#include "statemanager.h"
+#include "transformations.h"
+#include "state_manager.h"
 #include "app_window.h"
 #include "info_panels.h"
 #include "map.h"
@@ -10,6 +11,23 @@
 #include <ament_index_cpp/get_package_share_directory.hpp>
 #include <thread>
 
+#include <rclcpp/rclcpp.hpp>
+#include <rclcpp_action/rclcpp_action.hpp>
+#include <rcutils/logging.h>
+#include <asr_comms/action/drone_command.hpp>
+#include "asr_comms/msg/telemetry_position.hpp"
+#include "asr_comms/msg/telemetry_attitude.hpp"
+#include "asr_comms/msg/telemetry_battery.hpp"
+#include "asr_comms/msg/telemetry_gps.hpp"
+#include "asr_comms/msg/telemetry_status.hpp"
+#include "asr_comms/msg/gcs_heartbeat.hpp"
+#include "asr_comms/msg/uav_command.hpp"
+#include "asr_comms/msg/command_ack.hpp"
+#include "asr_comms/msg/servo_command.hpp"
+#include "asr_comms/msg/probe_locations.hpp"
+#include <px4_msgs/msg/vehicle_attitude.hpp>   
+         
+
 WindowInitializer winInit;
 Widgets widgets;
 Location location;
@@ -18,15 +36,73 @@ TestFunc test_functions;
 InfoPanels info_panels;
 
 using namespace std;
+using namespace px4_msgs::msg;
+
+
+class AAUGrouncontrol : public rclcpp::Node
+{
+public:
+    ~AAUGrouncontrol()
+    {
+        if (execute_thread_.joinable()) {
+            execute_thread_.join();
+        }
+    }
+    AAUGrouncontrol()
+    : Node("aau_groundcontrol_node")
+    {
+        rclcpp::QoS qos(10);
+        qos.reliability(rclcpp::ReliabilityPolicy::BestEffort);
+        qos.durability(rclcpp::DurabilityPolicy::TransientLocal);
+        bool use_sim_time = false;
+        clock_ = std::make_shared<rclcpp::Clock>(use_sim_time ? RCL_ROS_TIME : RCL_SYSTEM_TIME);
+
+        std::cout << "\n"
+          << "=============================\n"
+          << "    * Interface STARTING... *\n"
+          << "=============================\n"
+          << std::endl;
+
+        attitude_sub_ = create_subscription<VehicleAttitude>(
+            "/fmu/out/vehicle_attitude", qos,
+            [this](const VehicleAttitude::SharedPtr msg)
+            { attitudeCallback(msg); });
+    }
+    void start()
+    {
+        execute_thread_ = std::thread([this]() {
+            rclcpp::spin(this->get_node_base_interface());
+        });
+    }
+    rclcpp::Time get_time() const {
+        return clock_->now();
+    }
+private:
+    StateManager state_manager_;
+    std::thread execute_thread_;
+    rclcpp::Subscription<VehicleAttitude>::SharedPtr attitude_sub_;
+    std::shared_ptr<rclcpp::Clock> clock_;
+
+    void attitudeCallback(const VehicleAttitude::SharedPtr msg)
+    {
+        if (!std::isfinite(msg->q[0]) || !std::isfinite(msg->q[1]) ||
+            !std::isfinite(msg->q[2]) || !std::isfinite(msg->q[3])) {
+            RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 1000,
+                "Rejecting non-finite attitude quaternion");
+            return;
+        }
+        StampedQuaternion attitude(get_time(), Eigen::Quaterniond(msg->q[0], msg->q[1], msg->q[2], msg->q[3]));
+        state_manager_.setAttitude(attitude);
+    }
+
+};
 
 
 int main(int argc, char **argv) {
-    //rclcpp::init(argc, argv);
-    //auto node = std::make_shared<LabBaseNode>(); //!!!! FOR THE ROS LATER
-
-    //thread ros_thread([node]() {
-    //    rclcpp::spin(node);
-    //});    
+    rclcpp::init(argc, argv);
+    auto ground_control = std::make_shared<AAUGrouncontrol>();
+    ground_control->start();
+ 
     cv::utils::logging::setLogLevel(cv::utils::logging::LOG_LEVEL_SILENT);
     bool armButton = false;
     bool theme = 1;
@@ -35,6 +111,8 @@ int main(int argc, char **argv) {
     int panel = 0;
     
     DroneInformation Info;
+    StateManager state_manager_;
+    Transformations transformations_;
 
     glfwSetErrorCallback([](int error, const char* description) {
         fprintf(stderr, "GLFW Error %d: %s\n", error, description);
@@ -143,6 +221,13 @@ int main(int argc, char **argv) {
                      ImGuiWindowFlags_NoCollapse |
                      ImGuiWindowFlags_NoBackground |
                      ImGuiWindowFlags_NoBringToFrontOnFocus);  
+
+
+        const StampedQuaternion& attitude = state_manager_.getAttitude();
+        Info.orientation = transformations_.quaternionToEuler(attitude.quaternion());
+        
+
+
          // --- ------------------------------------Side panel--------------------------------------------
 
         BeginFixedPanel("SidePanel", ImVec2(-20 * scale, -80 * scale), ImVec2(80 * scale, y_sc + 1000 * scale),
@@ -313,9 +398,20 @@ int main(int argc, char **argv) {
         ImGui::InputDouble("Lat", &testLat, 0.000001, 0.01, "%.7f");
         ImGui::InputDouble("Lon", &testLon, 0.000001, 0.01, "%.7f");
         ImGui::SliderFloat("Altitude", &Info.xyz_pos[2], -20.0f, 20.0f);
-        ImGui::SliderFloat("Yaw", &Info.orientation.yaw, -180.0f, 180.0f);
-        ImGui::SliderFloat("Roll", &Info.orientation.roll, -180.0f, 180.0f);
-        ImGui::SliderFloat("Pitch", &Info.orientation.pitch, -180.0f, 180.0f);
+        //float yaw_f = (float)Info.orientation.yaw;
+        //if (ImGui::SliderFloat("Yaw", &yaw_f, -180.0f, 180.0f)) {
+        //    Info.orientation.yaw = yaw_f;
+        //}
+//
+        //float roll_f = (float)Info.orientation.roll;
+        //if (ImGui::SliderFloat("Roll", &roll_f, -180.0f, 180.0f)) {
+        //    Info.orientation.roll = roll_f;
+        //}
+//
+        //float pitch_f = (float)Info.orientation.pitch;
+        //if (ImGui::SliderFloat("Pitch", &pitch_f, -180.0f, 180.0f)) {
+        //    Info.orientation.pitch = pitch_f;
+        //}
         ImGui::SliderFloat("BatteryVoltage", &Info.battery_values_C[0], 0, 1.0f);
 
 
@@ -327,6 +423,7 @@ int main(int argc, char **argv) {
 
         //--------------------------------------Information panels---------------------------------------
         info_panels.Battery_Info(scale, theme, Info.battery_values_C);
+        
         info_panels.Position_Info(scale, theme);
         info_panels.Probe_Info(scale, theme);
         
@@ -365,8 +462,6 @@ int main(int argc, char **argv) {
     glfwDestroyWindow(window);
     glfwTerminate();
 
-    //rclcpp::shutdown();  
-    //ros_thread.join(); 
-
+    rclcpp::shutdown();  
     return 0;
 }
