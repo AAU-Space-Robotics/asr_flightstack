@@ -136,7 +136,32 @@ private:
     }
 
 };
+EulerAngles quaternionToEulerForDisplay(const Eigen::Quaterniond& q) //trying to do a fix..........
+{
+    double qw = q.w(), qx = q.x(), qy = q.y(), qz = q.z();
 
+    // Roll (x-axis rotation)
+    double sinr_cosp = 2.0 * (qw * qx + qy * qz);
+    double cosr_cosp = 1.0 - 2.0 * (qx * qx + qy * qy);
+    double roll = std::atan2(sinr_cosp, cosr_cosp);
+
+    // Pitch (y-axis rotation) — clamped to avoid NaN from float rounding
+    double sinp = 2.0 * (qw * qy - qz * qx);
+    sinp = std::clamp(sinp, -1.0, 1.0);
+    double pitch = std::asin(sinp);
+
+    // Yaw (z-axis rotation)
+    double siny_cosp = 2.0 * (qw * qz + qx * qy);
+    double cosy_cosp = 1.0 - 2.0 * (qy * qy + qz * qz);
+    double yaw = std::atan2(siny_cosp, cosy_cosp);
+
+    // Convert radians -> degrees to match GyroScopeIndicator's expected units
+    return EulerAngles{
+        roll  * (180.0 / M_PI),
+        pitch * (180.0 / M_PI),
+        yaw   * (180.0 / M_PI)
+    };
+}
 
 int main(int argc, char **argv) {
     rclcpp::init(argc, argv);
@@ -263,7 +288,7 @@ int main(int argc, char **argv) {
 
 
         const StampedQuaternion& attitude = ground_control->getStateManager().getAttitude();
-        Info.orientation = transformations_.quaternionToEuler(attitude.quaternion());
+        Info.orientation = quaternionToEulerForDisplay(attitude.quaternion()); 
         const Stamped3DVector& position = ground_control->getStateManager().getGlobalPosition();
         Info.xyz_pos[0] = static_cast<float>(position.x());
         Info.xyz_pos[1] = static_cast<float>(position.y());
@@ -359,7 +384,7 @@ int main(int argc, char **argv) {
         }
         
         ImGui::SetCursorPos(ImVec2(1440 * scale, 670 * scale));
-        widgets.AltitudeTape(1, Info.xyz_pos[2], 0.5f, theme); 
+        widgets.AltitudeTape(1, (-1 * Info.xyz_pos[2]), 0.5f, theme); 
 
         widgets.GyroScopeIndicator(draw_list,
                                 ImVec2(1320 * scale, 810 * scale),
