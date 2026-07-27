@@ -14,7 +14,7 @@
 #include <rclcpp/rclcpp.hpp>
 #include <rclcpp_action/rclcpp_action.hpp>
 #include <rcutils/logging.h>
-#include <asr_comms/action/drone_command.hpp>
+#include <asr_comms/action/uav_command.hpp>
 #include "asr_comms/msg/telemetry_position.hpp"
 #include "asr_comms/msg/telemetry_attitude.hpp"
 #include "asr_comms/msg/telemetry_battery.hpp"
