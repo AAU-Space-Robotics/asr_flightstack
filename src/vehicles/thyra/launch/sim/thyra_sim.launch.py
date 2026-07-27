@@ -63,8 +63,9 @@ def generate_launch_description():
                 cd {px4_dir} && \
                 echo "Now in: $(pwd)" && \
                 export GAZEBO_RESOURCE_PATH={px4_dir}/Tools/simulation/gz/worlds:$GAZEBO_RESOURCE_PATH && \
+                export PX4_PARAM_NAV_DLL_ACT=0 && \
                 echo "Now running PX4 SITL with Gazebo X500 world" && \
-                make px4_sitl gz_x500_lidar_down > /dev/null 2>&1 
+                make px4_sitl gz_x500_lidar_down > /dev/null 2>&1
                 '''
             ],
             output='screen',
