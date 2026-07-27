@@ -29,9 +29,11 @@ public:
 
         detect_aruco_in_camera_frame_initialize();
 
+        // Relative topic — resolves under the node's namespace (e.g. asr/thyra),
+        // matching camera_relay's synced colour stream on the same vehicle.
         auto qos = rclcpp::QoS(5).best_effort();
         image_sub_ = create_subscription<Image>(
-            "/thyra/out/color_image", qos,
+            "out/cam/synced/color", qos,
             std::bind(&ArucoDetectorNode::on_image, this, std::placeholders::_1));
 
         det_pub_ = create_publisher<ArucoDetections>(

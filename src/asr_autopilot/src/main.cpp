@@ -20,7 +20,7 @@
 #include <px4_msgs/msg/actuator_servos.hpp>
 #include <px4_msgs/msg/actuator_test.hpp>
 
-#include <asr_comms/action/drone_command.hpp>
+#include <asr_comms/action/uav_command.hpp>
 #include <asr_comms/msg/manual_control_input.hpp>
 #include <asr_comms/msg/motion_capture_pose.hpp>
 #include <asr_comms/msg/telemetry_position.hpp>
@@ -28,7 +28,7 @@
 #include <asr_comms/msg/telemetry_battery.hpp>
 #include <asr_comms/msg/telemetry_gps.hpp>
 #include <asr_comms/msg/telemetry_status.hpp>
-#include <asr_comms/msg/drone_scope.hpp>
+#include <asr_comms/msg/uav_scope.hpp>
 #include <asr_comms/msg/trajectory_setpoint.hpp>
 #include <asr_comms/msg/control_detail.hpp>
 #include <asr_comms/msg/gcs_heartbeat.hpp>
@@ -49,8 +49,8 @@ using namespace px4_msgs::msg;
 class AAUAutopilot : public rclcpp::Node
 {
 public:
-    using DroneCommand = asr_comms::action::DroneCommand;
-    using GoalHandleDroneCommand = rclcpp_action::ServerGoalHandle<DroneCommand>;
+    using UAVCommand = asr_comms::action::UAVCommand;
+    using GoalHandleUAVCommand = rclcpp_action::ServerGoalHandle<UAVCommand>;
 
     ~AAUAutopilot()
     {
@@ -248,6 +248,7 @@ public:
         this->declare_parameter("safety.safety_thrust_final", -0.45);
         this->declare_parameter("safety.safety_thrustdown_rate", 0.0005);
         this->declare_parameter("safety.check_battery", true);
+        this->declare_parameter("safety.check_battery2", false); // Only enable on airframes with a second (compute) battery
         this->declare_parameter("safety.battery_timeout_threshold", 3.0); // Max age of battery telemetry while armed (s)
         this->declare_parameter("safety.check_geofence", true);
         this->declare_parameter("safety.geofence_radius", 2.0);
@@ -264,6 +265,7 @@ public:
         this->get_parameter("safety.safety_thrust_final", safety_thrust_final_);
         this->get_parameter("safety.safety_thrustdown_rate", safety_thrustdown_rate_);
         this->get_parameter("safety.check_battery", safety_check_battery_);
+        this->get_parameter("safety.check_battery2", safety_check_battery2_);
         this->get_parameter("safety.battery_threshold", safety_battery_threshold_);
         this->get_parameter("safety.battery_timeout_threshold", battery_timeout_threshold_);
         this->get_parameter("safety.check_geofence", safety_check_geofence_);
@@ -280,6 +282,7 @@ public:
             "  safety_thrust_final    = %.2f\n"
             "  safety_thrustdown_rate = %.4f\n"
             "  check_battery          = %s\n"
+            "  check_battery2         = %s\n"
             "  battery_threshold      = %.2f\n"
             "  check_geofence         = %s\n"
             "  geofence_radius        = %.2f m\n"
@@ -292,6 +295,7 @@ public:
             safety_thrust_final_,
             safety_thrustdown_rate_,
             safety_check_battery_ ? "true" : "false",
+            safety_check_battery2_ ? "true" : "false",
             safety_battery_threshold_,
             safety_check_geofence_ ? "true" : "false",
             safety_geofence_radius_,
@@ -344,12 +348,13 @@ public:
         telemetry_position_pub_ = create_publisher<asr_comms::msg::TelemetryPosition>("out/telemetry/position", 10);
         telemetry_attitude_pub_ = create_publisher<asr_comms::msg::TelemetryAttitude>("out/telemetry/attitude", 10);
         telemetry_battery_pub_  = create_publisher<asr_comms::msg::TelemetryBattery>( "out/telemetry/battery",  10);
+        telemetry_battery2_pub_ = create_publisher<asr_comms::msg::TelemetryBattery>( "out/telemetry/battery2", 10);
         telemetry_gps_pub_      = create_publisher<asr_comms::msg::TelemetryGPS>(     "out/telemetry/gps",      10);
         telemetry_status_pub_   = create_publisher<asr_comms::msg::TelemetryStatus>(  "out/telemetry/status",   10);
         origin_offset_pub_ = create_publisher<geometry_msgs::msg::PoseStamped>("out/origin_offset", 10);
         actuator_servos_pub_ = create_publisher<px4_msgs::msg::ActuatorServos>("/fmu/in/actuator_servos", servo_qos);
         actuator_test_pub_ = create_publisher<px4_msgs::msg::ActuatorTest>("/fmu/in/actuator_test", servo_qos);
-        control_scope_pub_ = create_publisher<asr_comms::msg::DroneScope>("out/drone_scope", 10);
+        control_scope_pub_ = create_publisher<asr_comms::msg::UAVScope>("out/uav_scope", 10);
         trajectory_setpoint_pub_ = create_publisher<asr_comms::msg::TrajectorySetpoint>("out/trajectory_setpoint", 10);
         control_detail_pub_ = create_publisher<asr_comms::msg::ControlDetail>("out/control_detail", 10);
         
@@ -388,9 +393,13 @@ public:
         battery_status_sub_ = create_subscription<BatteryStatus>(
             "/fmu/out/battery_status", qos,
             [this](const BatteryStatus::SharedPtr msg)
-            { batteryStatusCallback(msg); });
+            { batteryStatusCallback(msg, 0); });
+        battery_status2_sub_ = create_subscription<BatteryStatus>(
+            "/fmu/out/battery_status1", qos,
+            [this](const BatteryStatus::SharedPtr msg)
+            { batteryStatusCallback(msg, 1); });
         ground_distance_sub_ = create_subscription<DistanceSensor>(
-            "out/distance_sensor", qos,
+            "/fmu/out/distance_sensor", qos,
             [this](const DistanceSensor::SharedPtr msg)
             { GroundDistanceCallback(msg);});
         actuator_output_sub_ = create_subscription<ActuatorOutputs>(
@@ -410,24 +419,24 @@ public:
             {setServo(msg->aux_index, msg->id, msg->value);});
 
         //Action server
-        drone_command_server_ = rclcpp_action::create_server<DroneCommand>(
-            this, "in/drone_command",
-            [this](const rclcpp_action::GoalUUID &uuid, std::shared_ptr<const DroneCommand::Goal> goal)
+        uav_command_server_ = rclcpp_action::create_server<UAVCommand>(
+            this, "in/uav_command",
+            [this](const rclcpp_action::GoalUUID &uuid, std::shared_ptr<const UAVCommand::Goal> goal)
             {
-                return handleDroneCommand(uuid, goal);
+                return handleUAVCommand(uuid, goal);
             },
-            [this](const std::shared_ptr<GoalHandleDroneCommand> goal_handle)
+            [this](const std::shared_ptr<GoalHandleUAVCommand> goal_handle)
             {
                 return handleCancel(goal_handle);
             },
-            [this](const std::shared_ptr<GoalHandleDroneCommand> goal_handle)
+            [this](const std::shared_ptr<GoalHandleUAVCommand> goal_handle)
             {
                 handleAccepted(goal_handle);
             });
 
         // Timers
         offboard_timer_ = create_wall_timer(200ms, [this](){ setOffboardMode(); });
-        drone_state_timer = create_wall_timer(100ms, [this](){ publish_drone_state(); });
+        uav_state_timer = create_wall_timer(100ms, [this](){ publish_uav_state(); });
         safety_timer_ = create_wall_timer(200ms, [this]() { safetyCheckCallback(); });
         offset_timer = create_wall_timer(1000ms, [this]() { publish_origin_offset(); });
         servo_hold_timer_ = create_wall_timer(100ms, [this]() { publishHeldDisarmedServoCommand(); });
@@ -570,12 +579,12 @@ private:
     
     void safetyCheckCallback()
     {
-        DroneState drone_state = state_manager_.getDroneState();
+        UAVState uav_state = state_manager_.getUAVState();
 
-        // Skip checks if drone is disarmed or already in a fail-safe mode
-        if (drone_state.arming_state != ArmingState::ARMED ||
-            drone_state.flight_mode == FlightMode::SAFETYLAND_BLIND ||
-            drone_state.flight_mode == FlightMode::LANDED)
+        // Skip checks if UAV is disarmed or already in a fail-safe mode
+        if (uav_state.arming_state != ArmingState::ARMED ||
+            uav_state.flight_mode == FlightMode::SAFETYLAND_BLIND ||
+            uav_state.flight_mode == FlightMode::LANDED)
         {
             return;
         }
@@ -583,28 +592,59 @@ private:
         bool trigger_emergency_land = false;
         bool trigger_position_land = false;
         bool trigger_blind_land = false;
-        bool landing_position_mode = drone_state.flight_mode == FlightMode::LAND_POSITION;
+        bool landing_position_mode = uav_state.flight_mode == FlightMode::LAND_POSITION;
 
         // Check battery status if enabled
         if (safety_check_battery_ && !landing_position_mode)
         {
             // Get the latest battery state
-            BatteryState battery_state = state_manager_.getBatteryState();
-            double battery_age = (get_time() - battery_state.timestamp).seconds();
+            BatteryState battery_state_main = state_manager_.getBatteryState();
+            double battery_age_main = (get_time() - battery_state_main.timestamp).seconds();
 
-            if (!battery_state.connected || battery_age > battery_timeout_threshold_)
+            if (!battery_state_main.connected || battery_age_main > battery_timeout_threshold_)
             {
                 // No trustworthy battery telemetry while armed: treat as a fault and land.
                 RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 2000,
-                    "Battery telemetry unavailable (connected=%d, age=%.1fs > %.1fs), triggering emergency land",
-                    battery_state.connected, battery_age, battery_timeout_threshold_);
+                    "Main battery telemetry unavailable (connected=%d, age=%.1fs > %.1fs), triggering emergency land",
+                    battery_state_main.connected, battery_age_main, battery_timeout_threshold_);
                 trigger_emergency_land = true;
             }
-            else if (battery_state.charge_remaining < safety_battery_threshold_)
+            else if (battery_state_main.charge_remaining < safety_battery_threshold_)
             {
-                RCLCPP_WARN(get_logger(), "Battery charge low (%.2f < %.2f), triggering emergency land",
-                            battery_state.charge_remaining, safety_battery_threshold_);
+                RCLCPP_WARN(get_logger(), "Main battery charge low (%.2f < %.2f), triggering emergency land",
+                            battery_state_main.charge_remaining, safety_battery_threshold_);
                 trigger_emergency_land = true;
+            }
+            else if (safety_check_battery2_)
+            {
+                // Compute battery checks only engage once its telemetry has arrived at
+                // least once: the default timestamp of 0 means it has never reported.
+                BatteryState battery_state_compute = state_manager_.getBatteryState(1);
+
+                if (battery_state_compute.timestamp.nanoseconds() > 0)
+                {
+                    double battery_age_compute = (get_time() - battery_state_compute.timestamp).seconds();
+
+                    if (!battery_state_compute.connected || battery_age_compute > battery_timeout_threshold_)
+                    {
+                        // Battery 2 reported before but went silent: same fault handling as the main battery.
+                        RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 2000,
+                            "Compute battery telemetry unavailable (connected=%d, age=%.1fs > %.1fs), triggering emergency land",
+                            battery_state_compute.connected, battery_age_compute, battery_timeout_threshold_);
+                        trigger_emergency_land = true;
+                    }
+                    else if (battery_state_compute.charge_remaining < safety_battery_threshold_)
+                    {
+                        RCLCPP_WARN(get_logger(), "Compute battery charge low (%.2f < %.2f), triggering emergency land",
+                                    battery_state_compute.charge_remaining, safety_battery_threshold_);
+                        trigger_emergency_land = true;
+                    }
+                }
+                else
+                {
+                    RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 10000,
+                        "No compute battery telemetry received yet, monitoring main battery only");
+                }
             }
         }
 
@@ -652,13 +692,13 @@ private:
         // Apply fail-safe
         if (trigger_position_land && !landing_position_mode)
             {
-                setDroneMode(FlightMode::BEGIN_LAND_POSITION);
+                setUAVMode(FlightMode::BEGIN_LAND_POSITION);
                 ensureControlLoopRunning(2);
                 landPositionMode();
             }
         else if (trigger_blind_land)
         {
-            setDroneMode(FlightMode::SAFETYLAND_BLIND);
+            setUAVMode(FlightMode::SAFETYLAND_BLIND);
             ensureControlLoopRunning(3); // Switch to safetyLandBlindMode
         }
     }
@@ -709,10 +749,10 @@ private:
         state_manager_.setGlobalPosition(local_position);
     }
 
-    void batteryStatusCallback(const BatteryStatus::SharedPtr msg)
+    void batteryStatusCallback(const BatteryStatus::SharedPtr msg, const size_t battery_index)
     {
         // Preserve the last valid charge estimate when a message arrives with an invalid one.
-        BatteryState battery_state = state_manager_.getBatteryState();
+        BatteryState battery_state = state_manager_.getBatteryState(battery_index);
         battery_state.timestamp = get_time();
         battery_state.connected = msg->connected;
         battery_state.cell_count = msg->cell_count;
@@ -726,7 +766,7 @@ private:
             battery_state.charge_remaining = msg->remaining;
         }
 
-        state_manager_.setBatteryState(battery_state);
+        state_manager_.setBatteryState(battery_state, battery_index);
     }
 
     void attitudeCallback(const VehicleAttitude::SharedPtr msg)
@@ -743,30 +783,30 @@ private:
 
     void vehicleStatusCallback(const VehicleStatus::SharedPtr msg)
     {
-        DroneState drone_state = state_manager_.getDroneState();
+        UAVState uav_state = state_manager_.getUAVState();
         
-        bool arming = (drone_state.arming_state == ArmingState::DISARMED && msg->arming_state == 2);
-        bool disarming = (drone_state.arming_state == ArmingState::ARMED && msg->arming_state != 2);
-        // Reset the control loop if the arming state changes. Only if the drone is asked to be armed, while armed, do nothing.
+        bool arming = (uav_state.arming_state == ArmingState::DISARMED && msg->arming_state == 2);
+        bool disarming = (uav_state.arming_state == ArmingState::ARMED && msg->arming_state != 2);
+        // Reset the control loop if the arming state changes. Only if the UAV is asked to be armed, while armed, do nothing.
         if ((arming || disarming))
         {
-            if (disarming && !(drone_state.flight_mode == FlightMode::EMERGENCY_STOP))
+            if (disarming && !(uav_state.flight_mode == FlightMode::EMERGENCY_STOP))
             {
-                drone_state.flight_mode = FlightMode::STANDBY;
-                drone_state.flight_mode_trait = getFlightModeTraits(drone_state.flight_mode)[0];
+                uav_state.flight_mode = FlightMode::STANDBY;
+                uav_state.flight_mode_trait = getFlightModeTraits(uav_state.flight_mode)[0];
             }
-            else if (arming && (drone_state.flight_mode == FlightMode::EMERGENCY_STOP))
+            else if (arming && (uav_state.flight_mode == FlightMode::EMERGENCY_STOP))
             {
-                drone_state.flight_mode = FlightMode::STANDBY;
-                drone_state.flight_mode_trait = getFlightModeTraits(drone_state.flight_mode)[0];
+                uav_state.flight_mode = FlightMode::STANDBY;
+                uav_state.flight_mode_trait = getFlightModeTraits(uav_state.flight_mode)[0];
             }
             cleanupControlLoop();
         }
 
-        // Set the new drone state
-        drone_state.timestamp = get_time();
-        drone_state.arming_state = (msg->arming_state == 2) ? ArmingState::ARMED : ArmingState::DISARMED;
-        state_manager_.setDroneState(drone_state);
+        // Set the new UAV state
+        uav_state.timestamp = get_time();
+        uav_state.arming_state = (msg->arming_state == 2) ? ArmingState::ARMED : ArmingState::DISARMED;
+        state_manager_.setUAVState(uav_state);
     }
 
     void manualControlInputCallback(const asr_comms::msg::ManualControlInput::SharedPtr msg)
@@ -849,8 +889,8 @@ private:
     }
 
 
-    // Drone state publisher
-    void publish_drone_state()
+    // UAV state publisher
+    void publish_uav_state()
     {
         const uint8_t tick = telemetry_tick_++;
 
@@ -901,6 +941,7 @@ private:
             const auto& battery = state_manager_.getBatteryState();
             asr_comms::msg::TelemetryBattery msg{};
             msg.timestamp       = battery.timestamp.seconds();
+            msg.id              = 1;
             msg.voltage         = battery.voltage;
             msg.current         = battery.average_current;
             msg.percentage      = battery.charge_remaining;
@@ -908,15 +949,29 @@ private:
             msg.average_current = battery.average_current;
             telemetry_battery_pub_->publish(msg);
 
-            const DroneState&      drone_state = state_manager_.getDroneState();
+            // Battery 2 telemetry only flows once the second battery has reported in.
+            const auto& battery2 = state_manager_.getBatteryState(1);
+            if (battery2.timestamp.nanoseconds() > 0) {
+                asr_comms::msg::TelemetryBattery msg2{};
+                msg2.timestamp       = battery2.timestamp.seconds();
+                msg2.id              = 2;
+                msg2.voltage         = battery2.voltage;
+                msg2.current         = battery2.average_current;
+                msg2.percentage      = battery2.charge_remaining;
+                msg2.discharged_mah  = battery2.discharged_mah;
+                msg2.average_current = battery2.average_current;
+                telemetry_battery2_pub_->publish(msg2);
+            }
+
+            const UAVState&      uav_state = state_manager_.getUAVState();
             const Stamped4DVector& actuators   = state_manager_.getActuatorSpeeds();
             asr_comms::msg::TelemetryStatus smsg{};
             smsg.timestamp       = get_clock()->now().seconds();
-            smsg.arming_state    = static_cast<uint8_t>(drone_state.arming_state);
-            smsg.trajectory_mode = static_cast<uint8_t>(drone_state.trajectory_mode);
-            smsg.flight_mode     = static_cast<int16_t>(drone_state.flight_mode);
-            smsg.led_mode        = static_cast<int16_t>(drone_state.flight_mode_trait);
-            smsg.flight_time     = drone_state.flight_time.seconds();
+            smsg.arming_state    = static_cast<uint8_t>(uav_state.arming_state);
+            smsg.trajectory_mode = static_cast<uint8_t>(uav_state.trajectory_mode);
+            smsg.flight_mode     = static_cast<int16_t>(uav_state.flight_mode);
+            smsg.led_mode        = static_cast<int16_t>(uav_state.flight_mode_trait);
+            smsg.flight_time     = uav_state.flight_time.seconds();
             smsg.probes_found    = state_manager_.getGlobalProbeLocations().getProbeCount();
             smsg.actuator_speeds = {static_cast<float>(actuators.x()),
                                     static_cast<float>(actuators.y()),
@@ -962,20 +1017,29 @@ private:
 
     Eigen::Vector4d positionAndVelocityControl()
     {
-        DroneState drone_state = state_manager_.getDroneState();
+        UAVState uav_state = state_manager_.getUAVState();
 
         // Sample trajectory if active, else if landed, disarm
-        if (drone_state.trajectory_mode == TrajectoryMode::ACTIVE) {
-            double dt = (get_time() - drone_state.trajectory_start_time_).seconds();
+        if (uav_state.trajectory_mode == TrajectoryMode::ACTIVE) {
+            double dt = (get_time() - uav_state.trajectory_start_time_).seconds();
             if (dt > path_planner_.getTotalTime()) {
-                drone_state.trajectory_mode = TrajectoryMode::COMPLETED;
-                state_manager_.setDroneState(drone_state);
+                uav_state.trajectory_mode = TrajectoryMode::COMPLETED;
+                uav_state.settle_converged = false;
+                uav_state.settle_stalled = false;
+                state_manager_.setUAVState(uav_state);
                 FullTrajectoryPoint final_point = path_planner_.getTrajectoryPoint(path_planner_.getTotalTime(), trajectoryMethod::MIN_SNAP);
                 Stamped4DVector target_profile(get_time(), final_point.position.x(), final_point.position.y(), final_point.position.z(), 0.0);
                 Stamped3DVector target_velocity_profile(get_time(), final_point.velocity.x(), final_point.velocity.y(), final_point.velocity.z());
                 state_manager_.setTargetPositionProfile(target_profile);
-              
+
                 state_manager_.setTargetAttitude(StampedQuaternion(get_time(), final_point.orientation));
+
+                // Start tracking convergence to this point (see settle_*
+                // members below).
+                settle_target_position_ = final_point.position;
+                settle_best_distance_ = (state_manager_.getGlobalPosition().vector() - settle_target_position_).norm();
+                settle_last_improvement_ = get_time();
+                settle_start_ = get_time();
             }
             else { // If trajectory is still active
                 FullTrajectoryPoint target_point = path_planner_.getTrajectoryPoint(dt, trajectoryMethod::MIN_SNAP);
@@ -1001,17 +1065,54 @@ private:
                 trajectory_setpoint_pub_->publish(tsp);
             }
         }
-        else if (drone_state.flight_mode == FlightMode::LAND_POSITION && drone_state.trajectory_mode == TrajectoryMode::COMPLETED) {
-            // Drone is now landed, update state and disarm
-            RCLCPP_INFO(get_logger(), "Drone has landed, disarming...");
-            drone_state.flight_mode = FlightMode::LANDED;
-            drone_state.flight_mode_trait = getFlightModeTraits(drone_state.flight_mode)[0];
-            drone_state.arming_state = ArmingState::DISARMED;
-            drone_state.command = Command::DISARM;
-            drone_state.trajectory_mode = TrajectoryMode::COMPLETED;
-            state_manager_.setDroneState(drone_state);
-            disarm(true);
-            cleanupControlLoop();
+        else if (uav_state.flight_mode == FlightMode::LAND_POSITION && uav_state.trajectory_mode == TrajectoryMode::COMPLETED) {
+            // The planned descent finished playing out -- check a fresh
+            // ground reading before disarming, rather than trusting that the
+            // one-shot estimate from planLandingDescent() was accurate.
+            Stamped3DVector GroundDistance = state_manager_.getGroundDistanceState();
+            const bool fresh_reading = (get_time() - GroundDistance.getTime()).seconds() < 0.3;
+            const bool touched_down = fresh_reading && GroundDistance.vector().x() <= kLandTolerance;
+
+            if (!touched_down && land_replan_count_ < kMaxLandReplans) {
+                land_replan_count_++;
+                RCLCPP_WARN(get_logger(), "Landing descent finished but ground distance is %.2f m (attempt %d/%d) -- replanning",
+                           fresh_reading ? GroundDistance.vector().x() : -1.0, land_replan_count_, kMaxLandReplans);
+                planLandingDescent();
+            } else {
+                // Either actually down, or out of replans -- land blind on
+                // the last attempt rather than holding indefinitely.
+                RCLCPP_INFO(get_logger(), "UAV has landed, disarming...");
+                uav_state.flight_mode = FlightMode::LANDED;
+                uav_state.flight_mode_trait = getFlightModeTraits(uav_state.flight_mode)[0];
+                uav_state.arming_state = ArmingState::DISARMED;
+                uav_state.command = Command::DISARM;
+                uav_state.trajectory_mode = TrajectoryMode::COMPLETED;
+                state_manager_.setUAVState(uav_state);
+                disarm(true);
+                cleanupControlLoop();
+            }
+        }
+        else if (uav_state.trajectory_mode == TrajectoryMode::COMPLETED &&
+                 !uav_state.settle_converged && !uav_state.settle_stalled) {
+            // Trajectory finished playing out -- check whether the vehicle
+            // has actually settled at the target, or stalled short of it.
+            // Skipped for LAND_POSITION, which has its own completion above.
+            const double distance = (state_manager_.getGlobalPosition().vector() - settle_target_position_).norm();
+            if (distance <= kPositionTolerance) {
+                uav_state.settle_converged = true;
+                state_manager_.setUAVState(uav_state);
+            } else {
+                if (distance < settle_best_distance_ - kMinImprovement) {
+                    settle_best_distance_ = distance;
+                    settle_last_improvement_ = get_time();
+                }
+                if ((get_time() - settle_last_improvement_).seconds() > kStallTimeout ||
+                    (get_time() - settle_start_).seconds() > kMaxSettleTime) {
+                    RCLCPP_WARN(get_logger(), "Position stalled %.2f m from target", distance);
+                    uav_state.settle_stalled = true;
+                    state_manager_.setUAVState(uav_state);
+                }
+            }
         }
         // Get target profiles
         Stamped4DVector target_profile = state_manager_.getTargetPositionProfile();
@@ -1148,11 +1249,11 @@ private:
     void controlLoop()
     {
         // Update flight time
-        DroneState drone_state = state_manager_.getDroneState();
+        UAVState uav_state = state_manager_.getUAVState();
         rclcpp::Time current_time = get_time();
-        drone_state.flight_time = drone_state.flight_time + (current_time - drone_state.timestamp);
-        drone_state.timestamp = current_time;
-        state_manager_.setDroneState(drone_state);
+        uav_state.flight_time = uav_state.flight_time + (current_time - uav_state.timestamp);
+        uav_state.timestamp = current_time;
+        state_manager_.setUAVState(uav_state);
 
         //Lock the current control mode
         std::lock_guard<std::mutex> lock(current_control_mode_mutex_);
@@ -1197,10 +1298,10 @@ private:
                 state_manager_.setTargetPositionProfile(target_profile);
                 publishAttitudeSetpoint(Eigen::Vector4d(0.0, 0.0, 0.0, 0.0));
 
-                DroneState drone_state = state_manager_.getDroneState();
-                drone_state.timestamp = get_time();
-                drone_state.flight_time = rclcpp::Duration(0, 0);
-                state_manager_.setDroneState(drone_state);
+                UAVState uav_state = state_manager_.getUAVState();
+                uav_state.timestamp = get_time();
+                uav_state.flight_time = rclcpp::Duration(0, 0);
+                state_manager_.setUAVState(uav_state);
             }
             catch (const rclcpp::exceptions::RCLError &e)
             {
@@ -1216,11 +1317,11 @@ private:
             current_control_mode_ = mode;
             RCLCPP_INFO(get_logger(), "Control mode updated to: %d", mode);
         }
-        DroneState drone_state = state_manager_.getDroneState();
-        if (!control_timer_ && drone_state.arming_state == ArmingState::ARMED) {
-            drone_state.timestamp = get_time();
-            drone_state.flight_time = rclcpp::Duration(0, 0);
-            state_manager_.setDroneState(drone_state);
+        UAVState uav_state = state_manager_.getUAVState();
+        if (!control_timer_ && uav_state.arming_state == ArmingState::ARMED) {
+            uav_state.timestamp = get_time();
+            uav_state.flight_time = rclcpp::Duration(0, 0);
+            state_manager_.setUAVState(uav_state);
 
             // Fresh control session: clear PID error/integral state so windup from a previous
             // flight is not carried into this takeoff. Safe to touch here — control_timer_ is
@@ -1237,22 +1338,22 @@ private:
     }
 
     Eigen::Vector4d safetyLandBlindMode(){
-        DroneState drone_state = state_manager_.getDroneState();
-        // Get current yaw of the drone
+        UAVState uav_state = state_manager_.getUAVState();
+        // Get current yaw of the UAV
         StampedQuaternion attitude = state_manager_.getAttitude();
         EulerAngles euler = transformations_.quaternionToEuler(attitude.quaternion());
 
-        if (drone_state.flight_mode != FlightMode::SAFETYLAND_BLIND)
+        if (uav_state.flight_mode != FlightMode::SAFETYLAND_BLIND)
         {
-            // Make the drone go into safety land mode
+            // Make the UAV go into safety land mode
             RCLCPP_INFO(get_logger(), "Safety land mode activated.");
-            drone_state.timestamp = get_time();
-            drone_state.flight_mode = FlightMode::SAFETYLAND_BLIND;
-            drone_state.flight_mode_trait = getFlightModeTraits(drone_state.flight_mode)[0];
-            state_manager_.setDroneState(drone_state);
+            uav_state.timestamp = get_time();
+            uav_state.flight_mode = FlightMode::SAFETYLAND_BLIND;
+            uav_state.flight_mode_trait = getFlightModeTraits(uav_state.flight_mode)[0];
+            state_manager_.setUAVState(uav_state);
             safety_land_start_time_ = get_time();
         }
-        else if (drone_state.flight_mode == FlightMode::SAFETYLAND_BLIND)
+        else if (uav_state.flight_mode == FlightMode::SAFETYLAND_BLIND)
         {
             double time_elapsed = (get_time() - safety_land_start_time_).seconds();
 
@@ -1263,14 +1364,14 @@ private:
     
             if (safety_thrust_ >= safety_thrust_final_ - 0.02)
             {
-                drone_state.timestamp = get_time();
-                drone_state.flight_mode = FlightMode::LANDED;
-                drone_state.flight_mode_trait = getFlightModeTraits(drone_state.flight_mode)[0];
+                uav_state.timestamp = get_time();
+                uav_state.flight_mode = FlightMode::LANDED;
+                uav_state.flight_mode_trait = getFlightModeTraits(uav_state.flight_mode)[0];
 
                 // Clean up control loop
                 disarm(true);
                 cleanupControlLoop();
-                RCLCPP_INFO(get_logger(), "Drone landed safely, maybe?.");
+                RCLCPP_INFO(get_logger(), "UAV landed safely, maybe?.");
             }
         }
 
@@ -1278,45 +1379,55 @@ private:
         return Eigen::Vector4d(euler.roll, euler.pitch, euler.yaw, safety_thrust_);
     }
 
+    // Generates a fresh landing descent trajectory from the current position
+    // down to the current best ground-level estimate (one-shot ground
+    // distance sample). Used both to start a landing and, from
+    // positionAndVelocityControl(), to retry it if the previous attempt
+    // finished without actually reaching the ground.
+    void planLandingDescent()
+    {
+        TrajectoryInitState init_state = state_manager_.getTrajectoryInitState();
+        Stamped3DVector GroundDistance = state_manager_.getGroundDistanceState();
+
+        // Calculate the landing position
+        double z_landing = 0.0; // Default landing height
+        if ((get_time() - GroundDistance.getTime()).seconds() < 0.3)
+        {
+            z_landing = init_state.position.z() + GroundDistance.vector().x();
+            RCLCPP_INFO(get_logger(), "Using ground distance sensor for landing: z_landing=%.2f", z_landing);
+        }
+
+        // Set the target landing position and orientation (maintain current orientation)
+        Eigen::Vector3d target_position = {init_state.position.x(), init_state.position.y(), z_landing};
+        Eigen::Quaterniond target_quat = init_state.orientation; // Preserve current orientation
+
+        // Generate landing trajectory
+        path_planner_.GenerateTrajectory(init_state.position, target_position, init_state.orientation,
+                                        target_quat, init_state.velocity, init_state.acceleration,
+                                        trajectoryMethod::MIN_SNAP);
+        float trajectory_duration = path_planner_.getTotalTime();
+
+        // Set trajectory start time and update flight mode
+        UAVState uav_state = state_manager_.getUAVState();
+        uav_state.flight_mode = FlightMode::LAND_POSITION;
+        uav_state.flight_mode_trait = getFlightModeTraits(uav_state.flight_mode)[0];
+        uav_state.trajectory_start_time_ = get_time();
+        uav_state.trajectory_mode = TrajectoryMode::ACTIVE;
+        uav_state.trajectory_duration = rclcpp::Duration::from_seconds(trajectory_duration);
+        state_manager_.setUAVState(uav_state);
+    }
+
     void landPositionMode()
     {
-        // Get current state of the drone
-        DroneState drone_state = state_manager_.getDroneState();
+        // Get current state of the UAV
+        UAVState uav_state = state_manager_.getUAVState();
 
-        if (drone_state.flight_mode == FlightMode::BEGIN_LAND_POSITION)
+        if (uav_state.flight_mode == FlightMode::BEGIN_LAND_POSITION)
         {
-            // Make the drone go into safety land mode
+            // Make the UAV go into safety land mode
             RCLCPP_INFO(get_logger(), "Position based land mode activated.");
-
-            // Get trajectory initialization state with current position, velocity, and acceleration
-            TrajectoryInitState init_state = state_manager_.getTrajectoryInitState();
-            Stamped3DVector GroundDistance = state_manager_.getGroundDistanceState();
-
-            // Calculate the landing position
-            double z_landing = 0.0; // Default landing height
-            if ((get_time() - GroundDistance.getTime()).seconds() < 0.3)
-            {
-                z_landing = init_state.position.z() + GroundDistance.vector().x();
-                RCLCPP_INFO(get_logger(), "Using ground distance sensor for landing: z_landing=%.2f", z_landing);
-            }
-            
-            // Set the target landing position and orientation (maintain current orientation)
-            Eigen::Vector3d target_position = {init_state.position.x(), init_state.position.y(), z_landing};
-            Eigen::Quaterniond target_quat = init_state.orientation; // Preserve current orientation
-
-            // Generate landing trajectory
-            path_planner_.GenerateTrajectory(init_state.position, target_position, init_state.orientation, 
-                                            target_quat, init_state.velocity, init_state.acceleration, 
-                                            trajectoryMethod::MIN_SNAP);
-            float trajectory_duration = path_planner_.getTotalTime();
-
-            // Set trajectory start time and update flight mode
-            drone_state.flight_mode = FlightMode::LAND_POSITION;
-            drone_state.flight_mode_trait = getFlightModeTraits(drone_state.flight_mode)[0];
-            drone_state.trajectory_start_time_ = get_time();
-            drone_state.trajectory_mode = TrajectoryMode::ACTIVE;
-            drone_state.trajectory_duration = rclcpp::Duration::from_seconds(trajectory_duration);
-            state_manager_.setDroneState(drone_state);
+            land_replan_count_ = 0;
+            planLandingDescent();
         }
     }
 
@@ -1325,17 +1436,17 @@ private:
         return get_clock()->now() < mode_change_deadline_;
     }
 
-    void setDroneMode(FlightMode mode)
+    void setUAVMode(FlightMode mode)
     {
-        DroneState drone_state = state_manager_.getDroneState();
-        FlightMode old_flight_mode = drone_state.flight_mode;
+        UAVState uav_state = state_manager_.getUAVState();
+        FlightMode old_flight_mode = uav_state.flight_mode;
 
         if (old_flight_mode != mode)
         {
-            drone_state.timestamp = get_time();
-            drone_state.flight_mode = mode;
-            drone_state.flight_mode_trait = getFlightModeTraits(mode)[0];
-            state_manager_.setDroneState(drone_state);
+            uav_state.timestamp = get_time();
+            uav_state.flight_mode = mode;
+            uav_state.flight_mode_trait = getFlightModeTraits(mode)[0];
+            state_manager_.setUAVState(uav_state);
 
             // Only delay if switching between autonomous/manual, but NOT if switching to standby or between estop and standby
             if (do_mode_change_delay_ &&
@@ -1412,7 +1523,7 @@ private:
             value = std::clamp(value, -1.0f, 1.0f);
         }
          
-       bool armed = (state_manager_.getDroneState().arming_state == ArmingState::ARMED);
+       bool armed = (state_manager_.getUAVState().arming_state == ArmingState::ARMED);
        const int64_t now_ns = get_time().nanoseconds();
 
        latest_servo_aux_index_ = aux_index;
@@ -1447,7 +1558,7 @@ private:
 
     void publishControlScope()
     {
-        asr_comms::msg::DroneScope msg{};
+        asr_comms::msg::UAVScope msg{};
         msg.timestamp        = get_time().seconds();
         msg.control_output_z = state_manager_.getLatestControlSignalPosition().z();
         msg.target_z         = state_manager_.getTargetPositionProfile().vector().z();
@@ -1466,7 +1577,7 @@ private:
             return;
         }
 
-        bool armed = (state_manager_.getDroneState().arming_state == ArmingState::ARMED);
+        bool armed = (state_manager_.getUAVState().arming_state == ArmingState::ARMED);
         if (armed) {
             return;
         }
@@ -1505,13 +1616,13 @@ private:
     }
 
     // Action server handlers
-    rclcpp_action::GoalResponse handleDroneCommand(const rclcpp_action::GoalUUID & /*uuid*/,
-                                                std::shared_ptr<const DroneCommand::Goal> goal)
+    rclcpp_action::GoalResponse handleUAVCommand(const rclcpp_action::GoalUUID & /*uuid*/,
+                                                std::shared_ptr<const UAVCommand::Goal> goal)
     {
-        static const std::vector<std::string> allowed_commands = {"arm", "disarm", "takeoff", "goto", "land", "estop", "eland", "manual", "manual_aided", "set_origin", "set_linear_speed", "set_angular_speed", "spin", "test_multi_waypoint"};
+        static const std::vector<std::string> allowed_commands = {"arm", "disarm", "takeoff", "goto", "land", "estop", "eland", "manual", "manual_aided", "set_origin", "set_linear_speed", "set_angular_speed", "spin", "test_multi_waypoint", "rth", "rtl"};
         RCLCPP_INFO(get_logger(), "Received goal request with command_type: %s", goal->command_type.c_str());
 
-        DroneState drone_state = state_manager_.getDroneState();
+        UAVState uav_state = state_manager_.getUAVState();
         if (std::find(allowed_commands.begin(), allowed_commands.end(), goal->command_type) == allowed_commands.end())
         {
             RCLCPP_WARN(get_logger(), "Rejected invalid command_type: %s", goal->command_type.c_str());
@@ -1519,31 +1630,31 @@ private:
         }
 
         if (goal->command_type == "arm") {
-            if (drone_state.arming_state == ArmingState::ARMED) {
-                RCLCPP_WARN(get_logger(), "Rejected: drone already armed.");
+            if (uav_state.arming_state == ArmingState::ARMED) {
+                RCLCPP_WARN(get_logger(), "Rejected: UAV already armed.");
                 return rclcpp_action::GoalResponse::REJECT;
             }
         } else if (goal->command_type == "disarm") {
-            if (drone_state.arming_state == ArmingState::DISARMED) {
-                RCLCPP_WARN(get_logger(), "Rejected: drone already disarmed.");
+            if (uav_state.arming_state == ArmingState::DISARMED) {
+                RCLCPP_WARN(get_logger(), "Rejected: UAV already disarmed.");
                 return rclcpp_action::GoalResponse::REJECT;
             }
         } else if (goal->command_type == "land" && false) {
-            RCLCPP_WARN(get_logger(), "Rejected: invalid land parameters or drone not armed.");
+            RCLCPP_WARN(get_logger(), "Rejected: invalid land parameters or UAV not armed.");
             return rclcpp_action::GoalResponse::REJECT;
         } else if (goal->command_type == "manual") {
-            if (drone_state.flight_mode == FlightMode::MANUAL || drone_state.arming_state != ArmingState::ARMED) {
-                RCLCPP_WARN(get_logger(), "Rejected: already in manual mode or drone not armed.");
+            if (uav_state.flight_mode == FlightMode::MANUAL || uav_state.arming_state != ArmingState::ARMED) {
+                RCLCPP_WARN(get_logger(), "Rejected: already in manual mode or UAV not armed.");
                 return rclcpp_action::GoalResponse::REJECT;
             }
         } else if (goal->command_type == "set_origin") {
-            if (drone_state.arming_state != ArmingState::DISARMED) {
-                RCLCPP_WARN(get_logger(), "Rejected: Drone was not disarmed");
+            if (uav_state.arming_state != ArmingState::DISARMED) {
+                RCLCPP_WARN(get_logger(), "Rejected: UAV was not disarmed");
                 return rclcpp_action::GoalResponse::REJECT;
             }
         } else if (goal->command_type == "set_linear_speed") {
-            if (goal->target_pose.size() != 1 || drone_state.arming_state != ArmingState::DISARMED) {
-                RCLCPP_WARN(get_logger(), "Rejected: invalid set_linear_speed parameters or drone not armed.");
+            if (goal->target_pose.size() != 1 || uav_state.arming_state != ArmingState::DISARMED) {
+                RCLCPP_WARN(get_logger(), "Rejected: invalid set_linear_speed parameters or UAV not armed.");
                 return rclcpp_action::GoalResponse::REJECT;
             }
             float linear_speed = goal->target_pose[0];
@@ -1552,8 +1663,8 @@ private:
                 return rclcpp_action::GoalResponse::REJECT;
             }
         } else if (goal->command_type == "set_angular_speed") {
-            if (goal->target_pose.size() != 1 || drone_state.arming_state != ArmingState::DISARMED) {
-                RCLCPP_WARN(get_logger(), "Rejected: invalid set_angular_speed parameters or drone not armed.");
+            if (goal->target_pose.size() != 1 || uav_state.arming_state != ArmingState::DISARMED) {
+                RCLCPP_WARN(get_logger(), "Rejected: invalid set_angular_speed parameters or UAV not armed.");
                 return rclcpp_action::GoalResponse::REJECT;
             }
             float angular_speed = goal->target_pose[0];
@@ -1562,21 +1673,21 @@ private:
                 return rclcpp_action::GoalResponse::REJECT;
             }
         } else if (goal->command_type == "spin") {
-            if (goal->target_pose.size() != 3 || drone_state.arming_state != ArmingState::ARMED || 
+            if (goal->target_pose.size() != 3 || uav_state.arming_state != ArmingState::ARMED || 
                 goal->target_pose[1] < 0.0 || (goal->target_pose[2] != 0.0 && goal->target_pose[2] != 1.0) ||
                 !std::isfinite(goal->target_pose[0]) || !std::isfinite(goal->target_pose[1]) || !std::isfinite(goal->target_pose[2])) {
-                RCLCPP_WARN(get_logger(), "Rejected: invalid spin parameters, drone not armed, negative rotations, invalid path selection, or non-finite values.");
+                RCLCPP_WARN(get_logger(), "Rejected: invalid spin parameters, UAV not armed, negative rotations, invalid path selection, or non-finite values.");
                 return rclcpp_action::GoalResponse::REJECT;
             }
         } else if (goal->command_type == "takeoff") {
             if (goal->target_pose.size() != 1) {
                 RCLCPP_WARN(get_logger(), "Rejected: invalid takeoff parameters, expected single altitude value.");
                 return rclcpp_action::GoalResponse::REJECT;
-            } else if (drone_state.arming_state != ArmingState::ARMED) {
-                RCLCPP_WARN(get_logger(), "Rejected: drone not armed for takeoff.");
+            } else if (uav_state.arming_state != ArmingState::ARMED) {
+                RCLCPP_WARN(get_logger(), "Rejected: UAV not armed for takeoff.");
                 return rclcpp_action::GoalResponse::REJECT;
-            } else if (drone_state.flight_mode != FlightMode::LANDED &&
-                       drone_state.flight_mode != FlightMode::STANDBY) {
+            } else if (uav_state.flight_mode != FlightMode::LANDED &&
+                       uav_state.flight_mode != FlightMode::STANDBY) {
                 RCLCPP_WARN(get_logger(), "Rejected: takeoff only allowed from ground (LANDED/STANDBY).");
                 return rclcpp_action::GoalResponse::REJECT;
             } else if (!std::isfinite(goal->target_pose[0])){
@@ -1590,8 +1701,8 @@ private:
             if (goal->target_pose.size() != 3) {
                 RCLCPP_WARN(get_logger(), "Rejected: invalid goto parameters, expected x, y, z coordinates.");
                 return rclcpp_action::GoalResponse::REJECT;
-            } else if (drone_state.arming_state != ArmingState::ARMED) {
-                RCLCPP_WARN(get_logger(), "Rejected: drone not armed for goto.");
+            } else if (uav_state.arming_state != ArmingState::ARMED) {
+                RCLCPP_WARN(get_logger(), "Rejected: UAV not armed for goto.");
                 return rclcpp_action::GoalResponse::REJECT;
             } else if (!std::isfinite(goal->target_pose[0]) || !std::isfinite(goal->target_pose[1]) || !std::isfinite(goal->target_pose[2])) {
                 RCLCPP_WARN(get_logger(), "Rejected: goto coordinates are not finite real numbers (x: %f, y: %f, z: %f).", 
@@ -1606,13 +1717,18 @@ private:
                 return rclcpp_action::GoalResponse::REJECT;
             }
         } else if (goal->command_type == "manual_aided") {
-            if (drone_state.flight_mode == FlightMode::MANUAL_AIDED || drone_state.arming_state != ArmingState::ARMED) {
-                RCLCPP_WARN(get_logger(), "Rejected: already in manual aided mode or drone not armed.");
+            if (uav_state.flight_mode == FlightMode::MANUAL_AIDED || uav_state.arming_state != ArmingState::ARMED) {
+                RCLCPP_WARN(get_logger(), "Rejected: already in manual aided mode or UAV not armed.");
                 return rclcpp_action::GoalResponse::REJECT;
             }
         } else if (goal->command_type == "test_multi_waypoint") {
-            if (drone_state.arming_state != ArmingState::ARMED) {
-                RCLCPP_WARN(get_logger(), "Rejected: drone not armed for test_multi_waypoint.");
+            if (uav_state.arming_state != ArmingState::ARMED) {
+                RCLCPP_WARN(get_logger(), "Rejected: UAV not armed for test_multi_waypoint.");
+                return rclcpp_action::GoalResponse::REJECT;
+            }
+        } else if (goal->command_type == "rth" || goal->command_type == "rtl") {
+            if (uav_state.arming_state != ArmingState::ARMED) {
+                RCLCPP_WARN(get_logger(), "Rejected: UAV not armed for %s.", goal->command_type.c_str());
                 return rclcpp_action::GoalResponse::REJECT;
             }
         }
@@ -1621,13 +1737,13 @@ private:
     }
 
 
-    rclcpp_action::CancelResponse handleCancel(const std::shared_ptr<GoalHandleDroneCommand> /*goal_handle*/)
+    rclcpp_action::CancelResponse handleCancel(const std::shared_ptr<GoalHandleUAVCommand> /*goal_handle*/)
     {
         RCLCPP_INFO(get_logger(), "Received request to cancel goal");
         return rclcpp_action::CancelResponse::ACCEPT;
     }
 
-    void handleAccepted(const std::shared_ptr<GoalHandleDroneCommand> goal_handle)
+    void handleAccepted(const std::shared_ptr<GoalHandleUAVCommand> goal_handle)
     {
         if (execute_thread_.joinable()) {
             execute_thread_.join();
@@ -1637,28 +1753,33 @@ private:
 
     // Command execution handlers
     void activateTrajectory(float trajectory_duration) {
-        DroneState drone_state = state_manager_.getDroneState();
-        drone_state.trajectory_start_time_ = get_time();
-        drone_state.trajectory_mode = TrajectoryMode::ACTIVE;
-        drone_state.trajectory_duration = rclcpp::Duration::from_seconds(trajectory_duration);
-        state_manager_.setDroneState(drone_state);
+        UAVState uav_state = state_manager_.getUAVState();
+        uav_state.trajectory_start_time_ = get_time();
+        uav_state.trajectory_mode = TrajectoryMode::ACTIVE;
+        uav_state.trajectory_duration = rclcpp::Duration::from_seconds(trajectory_duration);
+        // Clear any leftover outcome from the previous maneuver, or
+        // waitForTrajectoryCompletion would see a stale settle_converged.
+        uav_state.settle_converged = false;
+        uav_state.settle_stalled = false;
+        state_manager_.setUAVState(uav_state);
     }
 
-    void executeEstop(std::shared_ptr<DroneCommand::Result> result) {
-        setDroneMode(FlightMode::EMERGENCY_STOP);
+    void executeEstop(std::shared_ptr<UAVCommand::Result> result) {
+        setUAVMode(FlightMode::EMERGENCY_STOP);
         disarm(true);
         cleanupControlLoop();
         result->success = true;
         result->message = "Emergency stop executed.";
     }
 
-    void executeEland(std::shared_ptr<DroneCommand::Result> result) {
+    void executeEland(std::shared_ptr<UAVCommand::Result> result) {
         ensureControlLoopRunning(3);
         result->success = true;
         result->message = "Emergency landing executed.";
     }
 
-    void executeArm(std::shared_ptr<DroneCommand::Result> result) {
+    void executeArm(std::shared_ptr<UAVCommand::Result> result,
+                    const std::shared_ptr<GoalHandleUAVCommand> &goal_handle) {
         Stamped4DVector target_profile = state_manager_.getTargetPositionProfile();
         Stamped3DVector global_pos = state_manager_.getGlobalPosition();
         target_profile.setTime(get_time());
@@ -1668,40 +1789,121 @@ private:
         target_profile.setW(0.0);
         state_manager_.setTargetPositionProfile(target_profile);
         arm();
-        result->success = true;
-        result->message = "Drone armed.";
+
+        // PX4 needs time to actually confirm arming after the command is sent
+        // -- return only once arming_state has caught up, so callers (e.g.
+        // AutoArmSkillHandle) never chain into a command PX4 will still reject.
+        const rclcpp::Time start = get_time();
+        while (rclcpp::ok()) {
+            if (goal_handle->is_canceling()) {
+                result->success = false;
+                result->message = "Cancelled.";
+                goal_handle->canceled(result);
+                return;
+            }
+            if (state_manager_.getUAVState().arming_state == ArmingState::ARMED) {
+                result->success = true;
+                result->message = "UAV armed.";
+                return;
+            }
+            if ((get_time() - start).seconds() > kArmTimeout) {
+                result->success = false;
+                result->message = "Timed out waiting for arm confirmation.";
+                return;
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        }
+        result->success = false;
+        result->message = "Shutdown while waiting for arm confirmation.";
     }
 
-    void executeDisarm(std::shared_ptr<DroneCommand::Result> result) {
+    void executeDisarm(std::shared_ptr<UAVCommand::Result> result) {
         disarm();
         cleanupControlLoop();
         result->success = true;
-        result->message = "Drone disarmed.";
+        result->message = "UAV disarmed.";
     }
 
-    void executeTakeoff(const std::shared_ptr<const DroneCommand::Goal> goal, 
-                        std::shared_ptr<DroneCommand::Result> result) {
-        setDroneMode(FlightMode::POSITION);
+    // Freezes setpoints at the current position (same technique executeArm
+    // uses) and marks the trajectory converged, so settle-tracking doesn't
+    // keep chasing the abandoned target.
+    void holdCurrentPosition() {
+        Stamped3DVector global_pos = state_manager_.getGlobalPosition();
+        Stamped4DVector target_profile = state_manager_.getTargetPositionProfile();
+        target_profile.setTime(get_time());
+        target_profile.setX(global_pos.x());
+        target_profile.setY(global_pos.y());
+        target_profile.setZ(global_pos.z());
+        target_profile.setW(0.0);
+        state_manager_.setTargetPositionProfile(target_profile);
+        state_manager_.setTargetVelocityProfile(Stamped3DVector(get_time(), 0.0, 0.0, 0.0));
+
+        UAVState uav_state = state_manager_.getUAVState();
+        uav_state.trajectory_mode = TrajectoryMode::COMPLETED;
+        uav_state.settle_converged = true;
+        uav_state.settle_stalled = false;
+        state_manager_.setUAVState(uav_state);
+    }
+
+    // Polls positionAndVelocityControl()'s settle outcome rather than
+    // tracking convergence itself. Returns true if cancelled (already
+    // resolved via canceled(), caller must return without touching result);
+    // false otherwise with result->success/message already set.
+    bool waitForTrajectoryCompletion(const std::shared_ptr<GoalHandleUAVCommand> &goal_handle,
+                                     std::shared_ptr<UAVCommand::Result> result) {
+        while (rclcpp::ok()) {
+            if (goal_handle->is_canceling()) {
+                holdCurrentPosition();
+                result->success = false;
+                result->message = "Cancelled.";
+                goal_handle->canceled(result);
+                return true;
+            }
+
+            UAVState uav_state = state_manager_.getUAVState();
+            if (uav_state.settle_converged) {
+                result->success = true;
+                result->message = "Reached target position.";
+                return false;
+            }
+            if (uav_state.settle_stalled) {
+                result->success = false;
+                result->message = "Position stalled before reaching target.";
+                return false;
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        }
+
+        result->success = false;
+        result->message = "Shutdown while waiting for trajectory.";
+        return false;
+    }
+
+    void executeTakeoff(const std::shared_ptr<const UAVCommand::Goal> goal,
+                        std::shared_ptr<UAVCommand::Result> result,
+                        const std::shared_ptr<GoalHandleUAVCommand> &goal_handle) {
+        setUAVMode(FlightMode::POSITION);
         ensureControlLoopRunning(2);
 
         TrajectoryInitState init_state = state_manager_.getTrajectoryInitState();
         Eigen::Quaterniond target_quat = transformations_.eulerToQuaternion(0.0, 0.0, init_state.yaw).normalized();
-        Eigen::Vector3d target_position = {init_state.position.x(), init_state.position.y(), 
+        Eigen::Vector3d target_position = {init_state.position.x(), init_state.position.y(),
                                           std::min(goal->target_pose[0], takeoff_height_ + init_state.position.z())};
 
         path_planner_.GenerateTrajectory(init_state.position, target_position, init_state.orientation,
                                         target_quat, Eigen::Vector3d::Zero(), Eigen::Vector3d::Zero(),
                                         trajectoryMethod::MIN_SNAP);
         activateTrajectory(path_planner_.getTotalTime());
+        RCLCPP_INFO(get_logger(), "Takeoff target: %.2f %.2f %.2f",
+                   target_position.x(), target_position.y(), target_position.z());
 
-        result->success = true;
-        result->message = "Drone taking off.";
-        std::cout << "Takeoff target: " << target_position.transpose() << std::endl;
+        waitForTrajectoryCompletion(goal_handle, result);
     }
 
-    void executeGoto(const std::shared_ptr<const DroneCommand::Goal> goal, 
-                     std::shared_ptr<DroneCommand::Result> result) {
-        setDroneMode(FlightMode::POSITION);
+    void executeGoto(const std::shared_ptr<const UAVCommand::Goal> goal,
+                     std::shared_ptr<UAVCommand::Result> result,
+                     const std::shared_ptr<GoalHandleUAVCommand> &goal_handle) {
+        setUAVMode(FlightMode::POSITION);
         ensureControlLoopRunning(2);
 
         TrajectoryInitState init_state = state_manager_.getTrajectoryInitState();
@@ -1714,13 +1916,54 @@ private:
                                         trajectoryMethod::MIN_SNAP);
         activateTrajectory(path_planner_.getTotalTime());
 
-        result->success = true;
-        result->message = "Drone moving to target position.";
+        waitForTrajectoryCompletion(goal_handle, result);
     }
 
-    void executeSpin(const std::shared_ptr<const DroneCommand::Goal> goal, 
-                     std::shared_ptr<DroneCommand::Result> result) {
-        setDroneMode(FlightMode::POSITION);
+    // Flies from the current position to home -- GlobalPosition (0,0,z), which
+    // is what "origin" means by construction (see localPositionCallback,
+    // executeSetOrigin) -- at the current altitude. Shared transit leg for
+    // executeRth and executeRtl. Returns true if the goal was already
+    // resolved (cancelled), matching waitForTrajectoryCompletion's contract.
+    bool flyToHome(std::shared_ptr<UAVCommand::Result> result,
+                   const std::shared_ptr<GoalHandleUAVCommand> &goal_handle) {
+        setUAVMode(FlightMode::POSITION);
+        ensureControlLoopRunning(2);
+
+        TrajectoryInitState init_state = state_manager_.getTrajectoryInitState();
+        Eigen::Vector3d target_position = {0.0, 0.0, init_state.position.z()};
+
+        path_planner_.GenerateTrajectory(init_state.position, target_position, init_state.orientation,
+                                        init_state.orientation, init_state.velocity, init_state.acceleration,
+                                        trajectoryMethod::MIN_SNAP);
+        activateTrajectory(path_planner_.getTotalTime());
+
+        return waitForTrajectoryCompletion(goal_handle, result);
+    }
+
+    void executeRth(std::shared_ptr<UAVCommand::Result> result,
+                    const std::shared_ptr<GoalHandleUAVCommand> &goal_handle) {
+        if (flyToHome(result, goal_handle)) return;  // cancelled, already resolved
+        if (result->success) {
+            result->message = "Reached home.";
+        }
+    }
+
+    void executeRtl(std::shared_ptr<UAVCommand::Result> result,
+                    const std::shared_ptr<GoalHandleUAVCommand> &goal_handle) {
+        if (flyToHome(result, goal_handle)) return;  // cancelled, already resolved
+        if (!result->success) return;  // stalled/failed transit -- don't attempt to land
+
+        setUAVMode(FlightMode::BEGIN_LAND_POSITION);
+        ensureControlLoopRunning(2);
+        landPositionMode();
+        result->success = true;
+        result->message = "UAV landing at home.";
+    }
+
+    void executeSpin(const std::shared_ptr<const UAVCommand::Goal> goal,
+                     std::shared_ptr<UAVCommand::Result> result,
+                     const std::shared_ptr<GoalHandleUAVCommand> &goal_handle) {
+        setUAVMode(FlightMode::POSITION);
         ensureControlLoopRunning(2);
 
         TrajectoryInitState init_state = state_manager_.getTrajectoryInitState();
@@ -1728,20 +1971,27 @@ private:
         double num_rotations = goal->target_pose[1];
         bool use_longest_path = (goal->target_pose[2] == 1.0);
 
-        path_planner_.GenerateSpinTrajectory(init_state.position, init_state.orientation, 
-                                            target_yaw, num_rotations, use_longest_path, 
+        path_planner_.GenerateSpinTrajectory(init_state.position, init_state.orientation,
+                                            target_yaw, num_rotations, use_longest_path,
                                             trajectoryMethod::MIN_SNAP);
         activateTrajectory(path_planner_.getTotalTime());
-
-        result->success = true;
-        result->message = "Drone spinning to yaw " + std::to_string(target_yaw) + " with " + 
-                         std::to_string(num_rotations) + " rotations.";
-        RCLCPP_INFO(get_logger(), "Spin target: yaw=%.2f, rotations=%.1f, path=%s", 
+        RCLCPP_INFO(get_logger(), "Spin target: yaw=%.2f, rotations=%.1f, path=%s",
                    target_yaw, num_rotations, use_longest_path ? "longest" : "shortest");
+
+        if (waitForTrajectoryCompletion(goal_handle, result)) return;  // cancelled, already resolved
+
+        // waitForTrajectoryCompletion already set result->success/message
+        // (generic position-convergence outcome) -- only customise the
+        // message on the success path, so a stall/timeout failure message
+        // isn't overwritten.
+        if (result->success) {
+            result->message = "Spin complete: yaw " + std::to_string(target_yaw) + " with " +
+                             std::to_string(num_rotations) + " rotations.";
+        }
     }
 
-    void executeTestMultiWaypoint(std::shared_ptr<DroneCommand::Result> result) {
-        setDroneMode(FlightMode::POSITION);
+    void executeTestMultiWaypoint(std::shared_ptr<UAVCommand::Result> result) {
+        setUAVMode(FlightMode::POSITION);
         ensureControlLoopRunning(2);
 
         TrajectoryInitState init_state = state_manager_.getTrajectoryInitState();
@@ -1785,30 +2035,30 @@ private:
                          std::to_string(trajectory_duration) + " seconds.";
     }
 
-    void executeManual(std::shared_ptr<DroneCommand::Result> result) {
+    void executeManual(std::shared_ptr<UAVCommand::Result> result) {
         cleanupControlLoop();
-        setDroneMode(FlightMode::MANUAL);
+        setUAVMode(FlightMode::MANUAL);
         ensureControlLoopRunning(0);
         result->success = true;
-        result->message = "Drone in manual mode.";
+        result->message = "UAV in manual mode.";
     }
 
-    void executeManualAided(std::shared_ptr<DroneCommand::Result> result) {
-        setDroneMode(FlightMode::MANUAL_AIDED);
+    void executeManualAided(std::shared_ptr<UAVCommand::Result> result) {
+        setUAVMode(FlightMode::MANUAL_AIDED);
         ensureControlLoopRunning(1);
         result->success = true;
-        result->message = "Drone in manual aided mode.";
+        result->message = "UAV in manual aided mode.";
     }
 
-    void executeLand(std::shared_ptr<DroneCommand::Result> result) {
-        setDroneMode(FlightMode::BEGIN_LAND_POSITION);
+    void executeLand(std::shared_ptr<UAVCommand::Result> result) {
+        setUAVMode(FlightMode::BEGIN_LAND_POSITION);
         ensureControlLoopRunning(2);
         landPositionMode();
         result->success = true;
-        result->message = "Drone landing.";
+        result->message = "UAV landing.";
     }
 
-    void executeSetOrigin(std::shared_ptr<DroneCommand::Result> result) {
+    void executeSetOrigin(std::shared_ptr<UAVCommand::Result> result) {
         Stamped3DVector global_position = state_manager_.getGlobalPosition();
         Stamped3DVector Current_origin = state_manager_.getOrigin();
         global_position.vector().x() = global_position.vector().x() + Current_origin.vector().x();
@@ -1822,8 +2072,8 @@ private:
         result->message = "Origin set to current position.";
     }
 
-    void executeSetLinearSpeed(const std::shared_ptr<const DroneCommand::Goal> goal, 
-                               std::shared_ptr<DroneCommand::Result> result) {
+    void executeSetLinearSpeed(const std::shared_ptr<const UAVCommand::Goal> goal, 
+                               std::shared_ptr<UAVCommand::Result> result) {
         float linear_speed = goal->target_pose[0];
         bool velocity_set = path_planner_.setLinearVelocity(linear_speed);
         result->success = velocity_set;
@@ -1834,8 +2084,8 @@ private:
         }
     }
 
-    void executeSetAngularSpeed(const std::shared_ptr<const DroneCommand::Goal> goal, 
-                                std::shared_ptr<DroneCommand::Result> result) {
+    void executeSetAngularSpeed(const std::shared_ptr<const UAVCommand::Goal> goal, 
+                                std::shared_ptr<UAVCommand::Result> result) {
         float angular_speed = goal->target_pose[0];
         bool velocity_set = path_planner_.setAngularVelocity(angular_speed);
         result->success = velocity_set;
@@ -1846,10 +2096,10 @@ private:
         }
     }
 
-    void execute(const std::shared_ptr<GoalHandleDroneCommand> goal_handle)
+    void execute(const std::shared_ptr<GoalHandleUAVCommand> goal_handle)
     {
         const auto goal = goal_handle->get_goal();
-        auto result = std::make_shared<DroneCommand::Result>();
+        auto result = std::make_shared<UAVCommand::Result>();
 
         try
         {
@@ -1860,18 +2110,18 @@ private:
                 executeEland(result);
             }
             else if (goal->command_type == "arm") {
-                executeArm(result);
+                executeArm(result, goal_handle);
             }
             else if (goal->command_type == "disarm") {
                 executeDisarm(result);
             }
             else if (goal->command_type == "takeoff") {
-                executeTakeoff(goal, result);
+                executeTakeoff(goal, result, goal_handle);
             }
             else if (goal->command_type == "goto") {
-                executeGoto(goal, result);
+                executeGoto(goal, result, goal_handle);
             } else if (goal->command_type == "spin") {
-                executeSpin(goal, result);
+                executeSpin(goal, result, goal_handle);
             }
             else if (goal->command_type == "test_multi_waypoint") {
                 executeTestMultiWaypoint(result);
@@ -1884,6 +2134,12 @@ private:
             }
             else if (goal->command_type == "land") {
                 executeLand(result);
+            }
+            else if (goal->command_type == "rth") {
+                executeRth(result, goal_handle);
+            }
+            else if (goal->command_type == "rtl") {
+                executeRtl(result, goal_handle);
             }
             else if (goal->command_type == "set_origin") {
                 executeSetOrigin(result);
@@ -1907,7 +2163,9 @@ private:
             result->message = "Execution failed.";
         }
 
-        if (rclcpp::ok())
+        // May already be cancelled() via waitForTrajectoryCompletion -- a
+        // goal can only resolve once.
+        if (rclcpp::ok() && goal_handle->is_active())
         {
             goal_handle->succeed(result);
             RCLCPP_INFO(get_logger(), "Goal execution completed.");
@@ -1925,12 +2183,13 @@ private:
     rclcpp::Publisher<asr_comms::msg::TelemetryPosition>::SharedPtr telemetry_position_pub_;
     rclcpp::Publisher<asr_comms::msg::TelemetryAttitude>::SharedPtr telemetry_attitude_pub_;
     rclcpp::Publisher<asr_comms::msg::TelemetryBattery>::SharedPtr  telemetry_battery_pub_;
+    rclcpp::Publisher<asr_comms::msg::TelemetryBattery>::SharedPtr  telemetry_battery2_pub_;
     rclcpp::Publisher<asr_comms::msg::TelemetryGPS>::SharedPtr      telemetry_gps_pub_;
     rclcpp::Publisher<asr_comms::msg::TelemetryStatus>::SharedPtr   telemetry_status_pub_;
     rclcpp::Publisher<geometry_msgs::msg::PoseStamped>::SharedPtr origin_offset_pub_;
     rclcpp::Publisher<px4_msgs::msg::ActuatorServos>::SharedPtr actuator_servos_pub_;
     rclcpp::Publisher<px4_msgs::msg::ActuatorTest>::SharedPtr actuator_test_pub_;
-    rclcpp::Publisher<asr_comms::msg::DroneScope>::SharedPtr control_scope_pub_;
+    rclcpp::Publisher<asr_comms::msg::UAVScope>::SharedPtr control_scope_pub_;
     rclcpp::Publisher<asr_comms::msg::TrajectorySetpoint>::SharedPtr trajectory_setpoint_pub_;
     rclcpp::Publisher<asr_comms::msg::ControlDetail>::SharedPtr control_detail_pub_;
 
@@ -1941,6 +2200,7 @@ private:
     rclcpp::Subscription<VehicleStatus>::SharedPtr status_sub_;
     rclcpp::Subscription<asr_comms::msg::ManualControlInput>::SharedPtr manual_input_sub_;
     rclcpp::Subscription<BatteryStatus>::SharedPtr battery_status_sub_;
+    rclcpp::Subscription<BatteryStatus>::SharedPtr battery_status2_sub_;
     rclcpp::Subscription<DistanceSensor>::SharedPtr ground_distance_sub_;
     rclcpp::Subscription<ActuatorOutputs>::SharedPtr actuator_output_sub_;
     //rclcpp::Subscription<asr_comms::msg::ProbeLocations>::SharedPtr probe_global_locations_sub_;
@@ -1949,12 +2209,12 @@ private:
 
     rclcpp::TimerBase::SharedPtr control_timer_;
     rclcpp::TimerBase::SharedPtr offboard_timer_;
-    rclcpp::TimerBase::SharedPtr drone_state_timer;
+    rclcpp::TimerBase::SharedPtr uav_state_timer;
     uint8_t telemetry_tick_{0};
     rclcpp::TimerBase::SharedPtr safety_timer_;
     rclcpp::TimerBase::SharedPtr offset_timer;
     rclcpp::TimerBase::SharedPtr servo_hold_timer_;
-    rclcpp_action::Server<DroneCommand>::SharedPtr drone_command_server_;
+    rclcpp_action::Server<UAVCommand>::SharedPtr uav_command_server_;
     rclcpp::TimerBase::SharedPtr gimbal_timeout_timer_;
 
 
@@ -1990,6 +2250,7 @@ private:
     float position_timeout_threshold_;
     rclcpp::Time safety_land_start_time_;
     bool safety_check_battery_;
+    bool safety_check_battery2_;
     float safety_battery_threshold_;
     float battery_timeout_threshold_;
     bool safety_check_geofence_;
@@ -2031,6 +2292,23 @@ private:
     float takeoff_height_;
     float motor_speed_min_;
     float motor_speed_max_;
+
+    // Convergence tracking for the current trajectory (positionAndVelocityControl's
+    // TrajectoryMode::COMPLETED handling). Control-loop-thread-only; only
+    // settle_converged/settle_stalled on UAVState cross to the UAVCommand
+    // execute thread, via state_manager_'s existing mutex.
+    static constexpr double kPositionTolerance = 0.15;  // metres, "arrived"
+    static constexpr double kMinImprovement    = 0.02;  // metres, ignore noise-level jitter
+    static constexpr double kStallTimeout      = 5.0;   // seconds without improvement -> give up
+    static constexpr double kMaxSettleTime     = 120.0; // seconds, absolute ceiling
+    static constexpr double kArmTimeout        = 3.0;   // seconds to wait for PX4 arm confirmation
+    static constexpr double kLandTolerance     = 0.05;  // metres, ground distance counted as "touched down"
+    static constexpr int    kMaxLandReplans    = 2;     // retries before landing blind on the last attempt
+    Eigen::Vector3d settle_target_position_ = Eigen::Vector3d::Zero();
+    double settle_best_distance_ = 0.0;
+    rclcpp::Time settle_last_improvement_;
+    rclcpp::Time settle_start_;
+    int land_replan_count_ = 0;
 };
 
 int main(int argc, char *argv[])

@@ -40,18 +40,31 @@ static uint64_t nowUs()
 LoggerNode::LoggerNode()
 : Node("asr_logger")
 {
-    declare_parameter("log_dir",  std::string{"~/flight_logs"});
-    declare_parameter("log_mode", std::string{"general"});
+    declare_parameter("log_dir",     std::string{"~/flight_logs"});
+    declare_parameter("log_mode",    std::string{"general"});
+    declare_parameter("log_trigger", std::string{"always"});
+    declare_parameter("sys_name",    std::string{"asr_thyra"});
 
-    log_dir_  = get_parameter("log_dir").as_string();
-    log_mode_ = get_parameter("log_mode").as_string();
+    log_dir_     = get_parameter("log_dir").as_string();
+    log_mode_    = get_parameter("log_mode").as_string();
+    log_trigger_ = get_parameter("log_trigger").as_string();
+    sys_name_    = get_parameter("sys_name").as_string();
+
+    if (log_trigger_ != "always" && log_trigger_ != "armed") {
+        RCLCPP_WARN(get_logger(),
+            "Unknown log_trigger '%s' — falling back to 'always'", log_trigger_.c_str());
+        log_trigger_ = "always";
+    }
 
     if (!log_dir_.empty() && log_dir_[0] == '~') {
         const char* home = std::getenv("HOME");
         if (home) log_dir_ = std::string(home) + log_dir_.substr(1);
     }
 
-    initWriter();
+    // With the "armed" trigger the writer is opened on arming (onStatus) instead.
+    if (log_trigger_ == "always") {
+        initWriter();
+    }
 
     auto qos = rclcpp::SensorDataQoS();
 
@@ -71,9 +84,9 @@ LoggerNode::LoggerNode()
         "out/telemetry/status", qos,
         std::bind(&LoggerNode::onStatus, this, _1));
 
-    // DroneScope subscription always active; only written in control_inspection mode
-    drone_scope_sub_ = create_subscription<asr_comms::msg::DroneScope>(
-        "out/drone_scope", qos,
+    // UAVScope subscription always active; only written in control_inspection mode
+    uav_scope_sub_ = create_subscription<asr_comms::msg::UAVScope>(
+        "out/uav_scope", qos,
         std::bind(&LoggerNode::onScope, this, _1));
 
     trajectory_setpoint_sub_ = create_subscription<asr_comms::msg::TrajectorySetpoint>(
@@ -92,7 +105,8 @@ LoggerNode::LoggerNode()
         std::chrono::seconds(1),
         std::bind(&LoggerNode::onFlushTimer, this));
 
-    RCLCPP_INFO(get_logger(), "Logger started — mode: %s", log_mode_.c_str());
+    RCLCPP_INFO(get_logger(), "Logger started — mode: %s, trigger: %s",
+                log_mode_.c_str(), log_trigger_.c_str());
 }
 
 LoggerNode::~LoggerNode()
@@ -161,7 +175,7 @@ void LoggerNode::initWriter()
     const std::string path = makeLogFilename(log_dir_);
 
     writer_ = std::make_unique<ulog_cpp::SimpleWriter>(path, nowUs());
-    writer_->writeInfo("sys_name", std::string{"asr_thyra"});
+    writer_->writeInfo("sys_name", sys_name_);
     writer_->writeInfo("log_mode", log_mode_);
 
     writer_->writeMessageFormat("position",             position_fields);
@@ -193,6 +207,7 @@ void LoggerNode::initWriter()
 
 void LoggerNode::onPosition(const asr_comms::msg::TelemetryPosition& msg)
 {
+    if (!writer_) return;
     UlogPosition frame{
         .timestamp = toUs(msg.timestamp),
         .pos_x = msg.position[0], .pos_y = msg.position[1], .pos_z = msg.position[2],
@@ -206,6 +221,7 @@ void LoggerNode::onPosition(const asr_comms::msg::TelemetryPosition& msg)
 
 void LoggerNode::onAttitude(const asr_comms::msg::TelemetryAttitude& msg)
 {
+    if (!writer_) return;
     UlogAttitude frame{
         .timestamp = toUs(msg.timestamp),
         .roll  = msg.orientation[0],
@@ -220,6 +236,7 @@ void LoggerNode::onAttitude(const asr_comms::msg::TelemetryAttitude& msg)
 
 void LoggerNode::onBattery(const asr_comms::msg::TelemetryBattery& msg)
 {
+    if (!writer_) return;
     UlogBattery frame{
         .timestamp       = toUs(msg.timestamp),
         .voltage         = msg.voltage,
@@ -233,6 +250,15 @@ void LoggerNode::onBattery(const asr_comms::msg::TelemetryBattery& msg)
 
 void LoggerNode::onStatus(const asr_comms::msg::TelemetryStatus& msg)
 {
+    // "armed" trigger: one log per flight. Opened as soon as the vehicle starts
+    // arming and closed after the final disarmed sample, so the log always
+    // records both transitions. arming_state: 0=DISARMED, 1=ARMED, 2=ARMING, 3=DISARMING.
+    const bool active = (msg.arming_state != 0);
+    if (log_trigger_ == "armed" && active && !writer_) {
+        initWriter();
+    }
+    if (!writer_) return;
+
     UlogStatus frame{
         .timestamp       = toUs(msg.timestamp),
         .flight_time     = static_cast<float>(msg.flight_time),
@@ -248,10 +274,17 @@ void LoggerNode::onStatus(const asr_comms::msg::TelemetryStatus& msg)
         .estop           = msg.estop,
     };
     writer_->writeData(id_status_, frame);
+
+    if (log_trigger_ == "armed" && !active) {
+        writer_->fsync();
+        writer_.reset();
+        RCLCPP_INFO(get_logger(), "Disarmed — log closed.");
+    }
 }
 
-void LoggerNode::onScope(const asr_comms::msg::DroneScope& msg)
+void LoggerNode::onScope(const asr_comms::msg::UAVScope& msg)
 {
+    if (!writer_) return;
     if (log_mode_ != "control_inspection") {
         return;
     }
@@ -265,6 +298,7 @@ void LoggerNode::onScope(const asr_comms::msg::DroneScope& msg)
 
 void LoggerNode::onTrajectorySetpoint(const asr_comms::msg::TrajectorySetpoint& msg)
 {
+    if (!writer_) return;
     UlogTrajectorySetpoint frame{
         .timestamp = toUs(msg.timestamp),
         .ref_pos_x = msg.ref_pos_x, .ref_pos_y = msg.ref_pos_y, .ref_pos_z = msg.ref_pos_z,
@@ -277,6 +311,7 @@ void LoggerNode::onTrajectorySetpoint(const asr_comms::msg::TrajectorySetpoint& 
 
 void LoggerNode::onControlDetail(const asr_comms::msg::ControlDetail& msg)
 {
+    if (!writer_) return;
     if (log_mode_ != "control_inspection") {
         return;
     }
@@ -308,6 +343,7 @@ void LoggerNode::onFlushTimer()
 
 void LoggerNode::onCommsHealth(const asr_comms::msg::CommsHealth& msg)
 {
+    if (!writer_) return;
     UlogCommsHealth frame{
         .timestamp      = toUs(msg.timestamp),
         .rx_kbps        = msg.rx_kbps,

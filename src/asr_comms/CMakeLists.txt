@@ -26,7 +26,6 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "ros/msg/command/UAVCommand.msg"
   "ros/msg/command/CommandAck.msg"
   "ros/msg/command/AttitudeSetpointRPY.msg"
-  "ros/msg/command/DroneCommand.msg"
   "ros/msg/command/ManualControlInput.msg"
   "ros/msg/command/ServoCommand.msg"
   "ros/msg/command/TrajectorySetpoint.msg"
@@ -37,7 +36,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "ros/msg/comms/CameraStreamRequest.msg"
   # control
   "ros/msg/control/ControlDetail.msg"
-  "ros/msg/control/DroneScope.msg"
+  "ros/msg/control/UAVScope.msg"
   # probe
   "ros/msg/probe/ProbeDetections.msg"
   "ros/msg/probe/ProbeLocations.msg"
@@ -51,7 +50,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "ros/msg/telemetry/TelemetryBattery.msg"
   "ros/msg/telemetry/TelemetryGPS.msg"
   "ros/msg/telemetry/TelemetryStatus.msg"
-  "ros/action/DroneCommand.action"
+  "ros/action/UAVCommand.action"
   "ros/action/MissionComand.action"
   "ros/action/SystemControl.action"
   "ros/srv/Clock.srv"
@@ -62,7 +61,7 @@ set(MAVLINK_INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/mavlink)
 
 set(COMMS_DEPS rclcpp px4_msgs std_msgs sensor_msgs)
 
-# --- comms_uav: runs on the drone ---
+# --- comms_uav: runs on the UAV ---
 add_executable(comms_uav
   src/comms_uav.cpp
 )

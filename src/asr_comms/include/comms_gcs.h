@@ -6,6 +6,7 @@
 
 #include <rclcpp/rclcpp.hpp>
 #include <std_msgs/msg/bool.hpp>
+#include <std_msgs/msg/string.hpp>
 #include <std_msgs/msg/u_int8_multi_array.hpp>
 #include <sensor_msgs/msg/compressed_image.hpp>
 #include <asr_comms/msg/camera_stream_request.hpp>
@@ -20,12 +21,16 @@
 #include <asr_comms/msg/manual_control_input.hpp>
 #include <asr_comms/msg/servo_command.hpp>
 #include <asr_comms/msg/link_stats.hpp>
+#include <px4_msgs/msg/distance_sensor.hpp>
 
 #include "camera_protocol.h"
 #include "common/mavlink.h"
 #include "dedup.h"
+#include "mission_protocol.h"
 #include "transport.h"
 #include "udp_socket.h"
+
+class SerialPort;
 
 // Runs on the GCS machine. Transport is either UDP or a serial SiK radio.
 // Sends to drone:      heartbeat, RTK corrections.
@@ -39,10 +44,11 @@ private:
     // Receive path
     void recv_loop();
     void wifi_recv_loop();
+    bool reconnect_serial();
     void handle_message(const mavlink_message_t& msg);
 
     // Send path
-    void send_mavlink(mavlink_message_t& msg);
+    void send_mavlink(mavlink_message_t& msg, LinkTarget target = LinkTarget::Both);
     void send_heartbeat();
     void send_peer_beacon();
     void send_rtcm(const std_msgs::msg::UInt8MultiArray::SharedPtr msg);
@@ -52,11 +58,27 @@ private:
     void on_servo_command(const asr_comms::msg::ServoCommand::SharedPtr msg);
     void publish_link_stats();
 
+    // Mission bridge — mirror image of comms_uav's: reassembles
+    // validate/status blobs from the UAV and republishes them on
+    // out/mission_* for a future GCS UI; fragments and forwards
+    // in/mission_upload / in/mission_start / in/mission_abort to the UAV
+    // WiFi-only. Upload/start/abort are resent on a timeout if their
+    // implicit ack (a ValidateResult for upload, any Status for start or
+    // abort) never arrives -- see check_mission_retries.
+    void handle_mission_v2_extension(const mavlink_v2_extension_t& ext);
+    void send_mission_blob(uint16_t message_type, uint32_t& transfer_id, const std::string& blob);
+    void on_mission_upload(const std_msgs::msg::String::SharedPtr msg);
+    void on_mission_start(const std_msgs::msg::String::SharedPtr msg);
+    void on_mission_abort(const std_msgs::msg::String::SharedPtr msg);
+    void check_mission_retries();
+
     // Camera streaming
     void camera_recv_loop();
     void on_camera_stream_request(const asr_comms::msg::CameraStreamRequest::SharedPtr msg);
 
     std::unique_ptr<ITransport> transport_;
+    SerialPort*                 serial_{nullptr};  // aliases transport_ when serial; used by recv_loop to reopen after unplug
+    std::string                 serial_param_;     // configured device path or "auto"
     std::unique_ptr<UdpSocket>  wifi_transport_;  // server-mode UDP, nullptr until WiFi ready
     uint32_t                    beacon_tick_{0};  // counts 1 Hz timer fires for keepalive pacing
 
@@ -78,8 +100,10 @@ private:
     rclcpp::Publisher<asr_comms::msg::TelemetryPosition>::SharedPtr position_pub_;
     rclcpp::Publisher<asr_comms::msg::TelemetryAttitude>::SharedPtr attitude_pub_;
     rclcpp::Publisher<asr_comms::msg::TelemetryBattery>::SharedPtr  battery_pub_;
+    rclcpp::Publisher<asr_comms::msg::TelemetryBattery>::SharedPtr  battery2_pub_;
     rclcpp::Publisher<asr_comms::msg::TelemetryGPS>::SharedPtr      gps_pub_;
     rclcpp::Publisher<asr_comms::msg::TelemetryStatus>::SharedPtr   status_pub_;
+    rclcpp::Publisher<px4_msgs::msg::DistanceSensor>::SharedPtr     distance_pub_;
 
     // Send side
     rclcpp::TimerBase::SharedPtr heartbeat_timer_;
@@ -142,9 +166,42 @@ private:
     std::string pending_command_type_;
     std::chrono::steady_clock::time_point last_command_sent_{};
 
+    // Mission bridge (see handle_mission_v2_extension / send_mission_blob).
+    MissionReassembler validate_reassembler_;
+    MissionReassembler status_reassembler_;
+    uint32_t upload_transfer_id_{0};  // outgoing to UAV, incremented per send
+    uint32_t start_transfer_id_{0};
+    uint32_t abort_transfer_id_{0};
+    rclcpp::Publisher<std_msgs::msg::String>::SharedPtr    mission_validate_pub_;  // -> future GCS UI
+    rclcpp::Publisher<std_msgs::msg::String>::SharedPtr    mission_status_pub_;    // -> future GCS UI
+    rclcpp::Subscription<std_msgs::msg::String>::SharedPtr mission_upload_sub_;    // <- future GCS UI
+    rclcpp::Subscription<std_msgs::msg::String>::SharedPtr mission_start_sub_;     // <- future GCS UI
+    rclcpp::Subscription<std_msgs::msg::String>::SharedPtr mission_abort_sub_;     // <- future GCS UI
+
+    // Retry state for upload/start/abort (see check_mission_retries). One
+    // in-flight attempt tracked per kind; a new send of that kind from the
+    // GCS UI replaces whatever was pending.
+    struct PendingMissionSend {
+        bool        active{false};
+        std::string blob;      // resent verbatim under a new transfer_id each retry
+        int         attempts{0};
+        std::chrono::steady_clock::time_point sent_at{};
+    };
+    PendingMissionSend pending_upload_;
+    PendingMissionSend pending_start_;
+    PendingMissionSend pending_abort_;
+    rclcpp::TimerBase::SharedPtr mission_retry_timer_;
+    static constexpr int MISSION_MAX_RETRIES = 5;
+    static constexpr std::chrono::milliseconds MISSION_RETRY_TIMEOUT{2000};
+
     static constexpr uint16_t ASR_MSG_TELEMETRY_STATUS = 0x9001u;
     static constexpr uint16_t ASR_MSG_SERVO_COMMAND    = 0x9002u;
     static constexpr uint16_t ASR_MSG_PEER_BEACON      = 0x9003u;
+    static constexpr uint16_t ASR_MSG_MISSION_UPLOAD   = 0x9004u;
+    static constexpr uint16_t ASR_MSG_MISSION_VALIDATE = 0x9005u;
+    static constexpr uint16_t ASR_MSG_MISSION_START    = 0x9006u;
+    static constexpr uint16_t ASR_MSG_MISSION_STATUS   = 0x9007u;
+    static constexpr uint16_t ASR_MSG_MISSION_ABORT    = 0x9008u;
 
     // ASR custom MAVLink command IDs (local experiment range ≥ 32768)
     static constexpr uint16_t ASR_CMD_GOTO              = 32768u;

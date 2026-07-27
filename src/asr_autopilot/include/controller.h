@@ -57,7 +57,7 @@ public:
     
     float ema_filter_alpha_ = 0.01; // Alpha value for EMA filter
 
-    double hover_thrust_estimate_ = -0.5; // Initial estimated hover thrust for most drones
+    double hover_thrust_estimate_ = -0.5; // Initial estimated hover thrust for most UAVs
     double hover_learning_rate_ = 0.0001;
 
     // Velocity saturation limits (set from motion_constraints.limits.max_linear_velocity)

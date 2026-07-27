@@ -15,7 +15,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Clone px4_msgs
-        run: git clone https://github.com/AAU-Space-Robotics/px4_msgs_thyra.git src/px4_msgs_thyra
+        run: git clone https://github.com/AAU-Space-Robotics/px4_msgs_thyra.git src/px4_msgs
 
       - name: Install ROS2 Jazzy
         run: |
@@ -60,7 +60,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Clone px4_msgs
-        run: git clone https://github.com/AAU-Space-Robotics/px4_msgs_thyra.git src/px4_msgs_thyra
+        run: git clone https://github.com/AAU-Space-Robotics/px4_msgs_thyra.git src/px4_msgs
 
       - name: Install ROS2 Humble
         run: |

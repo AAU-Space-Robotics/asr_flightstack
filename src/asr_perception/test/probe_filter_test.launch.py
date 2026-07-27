@@ -54,7 +54,7 @@ def generate_launch_description():
         parameters=[{
             **camera_params,
             'min_observations':       3,
-            'merge_distance_m':       0.6,
+            'merge_distance_m':       0.5,
             'max_distance_m':         4.0,
             'aruco_min_observations': 2,
             'publish_rate_hz':        1.0,
@@ -72,7 +72,11 @@ def generate_launch_description():
                                    -1.0, 2.5, 0.0,
                                    2.0, -1.0, 0.0,
                                    -2.0, -2.0, 0.0],
-            # Lawnmower scan: 6×6 m area at 2.5 m altitude, 0.4 m step → ~450 waypoints
+            # Lawnmower scan: 8×6 m area at 2.5 m altitude, 0.4 m step → 336 waypoints.
+            # Altitude stays at 2.5 m: the camera looks 45° forward+down, so the
+            # ground slant range is already ~3.5 m and max_distance_m/depth_max are
+            # 4.0 — raising altitude pushes detections out of range, starving both
+            # the filter and the average baseline rather than making it a fair test.
             'scan_altitude':       2.5,
             'scan_x_min':         -4.0,
             'scan_x_max':          4.0,
@@ -80,10 +84,32 @@ def generate_launch_description():
             'scan_y_max':          3.0,
             'scan_step':           0.4,
             'detection_noise_px':  5.0,
-            # D435i depth: σ_z = coeff * z²  →  ~9 mm RMS at 2.5 m
-            'depth_noise_coeff':   0.0015,
+            # ── HARDER STATIC-PROBE REGIME ──────────────────────────────────────
+            # Probes stay static (the filter's design point); we make the *sensing*
+            # tougher. White noise (pixels, depth, position) averages out for both
+            # the filter and a plain mean, so the real differentiator is CORRELATED
+            # attitude error: a slow tilt/yaw drift the mean cannot remove but the
+            # filter's bias state is built to absorb. We raise both its magnitude
+            # and its correlation toward that regime.
+            # D435i depth: σ_z = coeff * z²  →  ~16 mm RMS at 2.5 m (was 9 mm)
+            'depth_noise_coeff':   0.0025,
             # Drone pose position noise: 2 cm σ per axis → ±4 cm (~2σ) models RTK GPS
             'pose_pos_noise_m':    0.02,
+            # Attitude estimate noise, 1-σ: tilt (roll/pitch) and yaw, both raised.
+            'pose_tilt_noise_deg': 1.5,   # was 0.5
+            'pose_yaw_noise_deg':  3.0,   # was 1.0
+            # Slow AR(1) attitude drift: 0.97 ≈ 33-frame correlation, so the error
+            # does NOT average out over a probe's visible window — the mean keeps a
+            # residual offset the bias-augmented filter should be able to track.
+            'pose_att_correlation': 0.97, # was 0.9
+            # ── DETECTOR IMPERFECTIONS — the decisive real-world test ───────────
+            # A real YOLO stream drops true probes and fires on ground clutter.
+            # The filter's gating + 3-observation persistence must survive this;
+            # the oracle average baseline cannot see clutter (it knows truth), so
+            # the real question is whether the FILTER stays at 4 clean probes or
+            # lets clutter coalesce into ghost tracks (the merge can help it do so).
+            'detection_miss_prob':        0.15,  # drop 15% of true detections
+            'false_detections_per_frame': 0.02,  # rare clutter: ~1 per 50 frames (~7 / scan)
             'publish_rate_hz':    10.0,
         }],
     )

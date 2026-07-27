@@ -5,6 +5,12 @@ RTCM Reader node — runs on the GCS machine.
 Configures a u-blox receiver as an RTK base station (survey-in), then
 streams raw RTCM3 correction messages to /rtcm for comms_gcs to forward.
 
+Waits (1 s retry) for the receiver at startup and reconnects the same way if
+it is unplugged. On every (re)connect the receiver is polled for NAV-SVIN:
+if it still holds a valid survey (it kept power — data-only disconnect or
+node restart), streaming resumes without re-surveying; if it rebooted (USB
+power cycle wiped the survey), it is reconfigured and a fresh survey runs.
+
 Parameters (set via asr_gcs_params.yaml):
   port                 Serial device, or "auto" to find the u-blox by its
                        /dev/serial/by-id name (default: auto)
@@ -24,9 +30,9 @@ import rclpy
 from rclpy.node import Node
 from std_msgs.msg import UInt8MultiArray
 
-from serial import Serial
+from serial import Serial, SerialException
 from pyrtcm import RTCMReader
-from pyubx2 import UBXMessage, UBXReader, SET
+from pyubx2 import UBXMessage, UBXReader, SET, POLL
 from pyubx2.ubxtypes_configdb import UBX_CONFIG_DATABASE as _UBX_CFG_DB
 
 
@@ -44,7 +50,8 @@ for _name, _correct_id in (
 
 
 def resolve_port(port):
-    """Resolve port='auto' to the u-blox GNSS receiver's stable by-id path.
+    """Resolve port='auto' to the u-blox GNSS receiver's stable by-id path,
+    or None if no receiver is present.
 
     Matching on device identity (not enumeration order) keeps this from ever
     colliding with the telemetry radio that comms_gcs opens.
@@ -55,9 +62,7 @@ def resolve_port(port):
         name = os.path.basename(path).lower()
         if 'u-blox' in name or 'gnss' in name:
             return path
-    raise RuntimeError(
-        'No u-blox GNSS receiver found under /dev/serial/by-id/ — is it plugged in?'
-    )
+    return None
 
 
 NMEA_IDS = [0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x08]
@@ -96,8 +101,8 @@ class RtcmReaderNode(Node):
         self.declare_parameter('survey_accuracy_mm', 500000)
         self.declare_parameter('measurement_rate_hz', 1.0)
 
-        port = resolve_port(self.get_parameter('port').value)
-        baudrate = self.get_parameter('baudrate').value
+        self._port_param = self.get_parameter('port').value
+        self._baudrate = self.get_parameter('baudrate').value
         self._configure = self.get_parameter('configure_receiver').value
         self._survey_min_dur = self.get_parameter('survey_min_duration').value
         self._survey_acc_limit = self.get_parameter('survey_accuracy_mm').value
@@ -108,24 +113,97 @@ class RtcmReaderNode(Node):
 
         self._rtcm_pub = self.create_publisher(UInt8MultiArray, 'rtcm', 10)
 
-        self.get_logger().info(f'Opening serial port {port} @ {baudrate} baud')
-        self._serial = Serial(port, baudrate, timeout=1)
-
+        self._serial = None
         self._thread = threading.Thread(target=self._run, daemon=True)
         self._thread.start()
 
     # ------------------------------------------------------------------
-    # Main thread: configure → survey-in → stream
+    # Main thread: wait for port → configure → survey-in → stream,
+    # reconnecting whenever the receiver disappears.
     # ------------------------------------------------------------------
 
     def _run(self):
-        try:
-            if self._configure:
-                self._configure_receiver()
-                self._wait_for_survey()
-            self._stream_rtcm()
-        except Exception as e:
-            self.get_logger().error(f'rtcm_reader thread crashed: {e}')
+        while rclpy.ok():
+            self._serial = self._wait_for_port()
+            if self._serial is None:
+                return  # ROS shut down while waiting
+
+            try:
+                if self._configure:
+                    # The survey lives in the receiver's RAM: only re-survey if
+                    # the receiver actually lost it (power cycle). A data-only
+                    # disconnect keeps the surveyed position valid.
+                    state = self._survey_state()
+                    if state == 'valid':
+                        self.get_logger().info(
+                            'Receiver still holds a valid survey-in position — '
+                            'resuming RTCM stream without re-surveying')
+                        self._enable_rtcm_output()
+                    elif state == 'active':
+                        self.get_logger().info(
+                            'Receiver survey-in still in progress — waiting for it to finish')
+                        self._enable_rtcm_output()
+                        self._wait_for_survey()
+                    else:
+                        self._configure_receiver()
+                        self._wait_for_survey()
+                self._stream_rtcm()
+                return  # clean exit — ROS shut down
+            except (SerialException, OSError) as e:
+                self.get_logger().warn(f'RTK receiver link lost ({e}) — reconnecting')
+                try:
+                    self._serial.close()
+                except Exception:
+                    pass
+            except Exception as e:
+                self.get_logger().error(f'rtcm_reader thread crashed: {e}')
+                return
+
+    def _wait_for_port(self):
+        """Block until the receiver's serial port exists and opens (1 s retry).
+        Returns an open Serial, or None if ROS shut down while waiting."""
+        while rclpy.ok():
+            port = resolve_port(self._port_param)
+            if port is not None:
+                try:
+                    ser = Serial(port, self._baudrate, timeout=1)
+                    self.get_logger().info(f'Opened serial port {port} @ {self._baudrate} baud')
+                    return ser
+                except (SerialException, OSError) as e:
+                    reason = str(e)
+            else:
+                reason = 'no u-blox receiver under /dev/serial/by-id/'
+            self.get_logger().warn(
+                f"Waiting for RTK receiver '{self._port_param}' ({reason})",
+                throttle_duration_sec=5.0)
+            time.sleep(1.0)
+        return None
+
+    def _survey_state(self, timeout=2.0):
+        """Poll NAV-SVIN once to learn whether the receiver kept its survey
+        through a disconnect (it did iff it never lost power).
+        Returns 'valid' (survey done), 'active' (survey running) or 'none'
+        (fresh boot / no reply — needs full configuration and a new survey)."""
+        self._serial.reset_input_buffer()
+        self._serial.write(UBXMessage('NAV', 'NAV-SVIN', POLL).serialize())
+        reader = UBXReader(self._serial)
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            try:
+                _, msg = reader.read()
+            except (SerialException, OSError):
+                raise
+            except Exception:
+                continue
+            if msg is None:
+                continue
+            if msg.identity == 'NAV-SVIN':
+                if msg.valid:
+                    return 'valid'
+                if msg.active:
+                    return 'active'
+                return 'none'
+        return 'none'
 
     # ------------------------------------------------------------------
     # Step 1 — Configure u-blox receiver
@@ -188,6 +266,16 @@ class RtcmReaderNode(Node):
         elif ack is None:
             self.get_logger().warn('No ACK seen for survey-in config — proceeding anyway')
 
+        self._enable_rtcm_output()
+
+        self.get_logger().info(
+            f'Survey-in started — min {self._survey_min_dur}s, '
+            f'acc limit {self._survey_acc_limit / 1000:.1f} m'
+        )
+
+    def _enable_rtcm_output(self):
+        """Enable NAV-SVIN + RTCM3 periodic output. Idempotent — also used when
+        resuming with a receiver that kept its RAM config through a disconnect."""
         # Enable NAV-SVIN output via CFG-MSG (works across all u-blox generations)
         msg = UBXMessage('CFG', 'CFG-MSG', SET, msgClass=0x01, msgID=0x3B, rateUSB=1)
         self._serial.write(msg.serialize())
@@ -200,11 +288,6 @@ class RtcmReaderNode(Node):
                              msgClass=cls, msgID=mid, rateUSB=divisor)
             self._serial.write(msg.serialize())
             time.sleep(0.05)
-
-        self.get_logger().info(
-            f'Survey-in started — min {self._survey_min_dur}s, '
-            f'acc limit {self._survey_acc_limit / 1000:.1f} m'
-        )
 
     def _await_ack(self, timeout=2.0):
         """Read serial after a config write and return True on ACK-ACK, False on
@@ -241,6 +324,8 @@ class RtcmReaderNode(Node):
             try:
                 _, msg = reader.read()
                 consecutive_errors = 0
+            except (SerialException, OSError):
+                raise  # link lost — _run() reconnects
             except Exception as e:
                 consecutive_errors += 1
                 if consecutive_errors == 1 or consecutive_errors % 50 == 0:
@@ -280,25 +365,29 @@ class RtcmReaderNode(Node):
     # ------------------------------------------------------------------
 
     def _stream_rtcm(self):
-        # quitonerror=0 makes RTCMReader silently skip non-RTCM frames (e.g. UBX)
-        reader = RTCMReader(self._serial, quitonerror=0)
         consecutive_errors = 0
 
-        for raw, _ in reader:
-            if not rclpy.ok():
-                break
-            try:
-                if raw:
-                    out = UInt8MultiArray()
-                    out.data = list(raw)
-                    self._rtcm_pub.publish(out)
-                    consecutive_errors = 0
-            except Exception as e:
-                consecutive_errors += 1
-                if consecutive_errors == 1 or consecutive_errors % 50 == 0:
-                    self.get_logger().error(
-                        f'RTCM publish error (x{consecutive_errors}): {e} — corrections may have stopped'
-                    )
+        # The iterator ends after a quiet second (serial timeout), e.g. during a
+        # signal fade — loop and keep reading. An unplug raises SerialException
+        # out of the for-loop instead, and _run() reconnects.
+        while rclpy.ok():
+            # quitonerror=0 makes RTCMReader silently skip non-RTCM frames (e.g. UBX)
+            reader = RTCMReader(self._serial, quitonerror=0)
+            for raw, _ in reader:
+                if not rclpy.ok():
+                    return
+                try:
+                    if raw:
+                        out = UInt8MultiArray()
+                        out.data = list(raw)
+                        self._rtcm_pub.publish(out)
+                        consecutive_errors = 0
+                except Exception as e:
+                    consecutive_errors += 1
+                    if consecutive_errors == 1 or consecutive_errors % 50 == 0:
+                        self.get_logger().error(
+                            f'RTCM publish error (x{consecutive_errors}): {e} — corrections may have stopped'
+                        )
 
 
 def main(args=None):
@@ -310,7 +399,7 @@ def main(args=None):
         pass
     finally:
         node.destroy_node()
-        rclpy.shutdown()
+        rclpy.try_shutdown()
 
 
 if __name__ == '__main__':

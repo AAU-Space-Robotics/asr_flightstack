@@ -30,6 +30,19 @@ target_include_directories(asr_logger PRIVATE
   ${ULOG_CPP_DIR}
 )
 
-install(TARGETS asr_logger DESTINATION lib/${PROJECT_NAME})
+add_executable(logger_gcs
+  src/logger_gcs_node.cpp
+  ${ULOG_CPP_DIR}/messages.cpp
+  ${ULOG_CPP_DIR}/writer.cpp
+  ${ULOG_CPP_DIR}/simple_writer.cpp
+)
+
+ament_target_dependencies(logger_gcs rclcpp asr_comms std_msgs)
+
+target_include_directories(logger_gcs PRIVATE
+  ${ULOG_CPP_DIR}
+)
+
+install(TARGETS asr_logger logger_gcs DESTINATION lib/${PROJECT_NAME})
 
 ament_package()

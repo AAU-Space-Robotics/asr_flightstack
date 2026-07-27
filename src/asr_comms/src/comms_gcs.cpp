@@ -7,7 +7,9 @@
 #include <chrono>
 #include <cstring>
 #include <glob.h>
+#include <iostream>
 #include <stdexcept>
+#include <thread>
 #include <rclcpp/rclcpp.hpp>
 
 using namespace std::chrono_literals;
@@ -56,7 +58,7 @@ static std::string auto_detect_serial()
         }
         globfree(&gf);
     }
-    throw std::runtime_error("No serial radio found — is the USB radio module plugged in?");
+    return {};
 }
 
 CommsGcs::CommsGcs() : Node("comms_gcs")
@@ -78,12 +80,30 @@ CommsGcs::CommsGcs() : Node("comms_gcs")
     camera_port_  = static_cast<uint16_t>(get_parameter("camera_port").as_int());
     const bool wifi_enabled = get_parameter("wifi_enabled").as_bool();
 
-    const auto serial_port = get_parameter("serial_port").as_string();
-    if (!serial_port.empty()) {
-        const auto dev  = (serial_port == "auto") ? auto_detect_serial() : serial_port;
-        const int  baud = static_cast<int>(get_parameter("baud_rate").as_int());
-        transport_ = std::make_unique<SerialPort>(dev, baud);
-        RCLCPP_INFO(get_logger(), "GCS comms — serial %s @ %d baud", dev.c_str(), baud);
+    serial_param_ = get_parameter("serial_port").as_string();
+    if (!serial_param_.empty()) {
+        const int baud = static_cast<int>(get_parameter("baud_rate").as_int());
+        // The radio may not be plugged in yet — keep retrying instead of
+        // failing, but stay interruptible by Ctrl+C.
+        std::unique_ptr<SerialPort> serial;
+        while (!serial && rclcpp::ok()) {
+            try {
+                const auto dev = (serial_param_ == "auto") ? auto_detect_serial()
+                                                           : serial_param_;
+                if (dev.empty())
+                    throw std::runtime_error("no USB serial device present");
+                serial = std::make_unique<SerialPort>(dev, baud);
+                RCLCPP_INFO(get_logger(), "GCS comms — serial %s @ %d baud", dev.c_str(), baud);
+            } catch (const std::exception& e) {
+                RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 5000,
+                    "Waiting for serial port '%s' (%s)", serial_param_.c_str(), e.what());
+                std::this_thread::sleep_for(1s);
+            }
+        }
+        if (!serial)
+            throw std::runtime_error("Interrupted while waiting for serial port");
+        serial_    = serial.get();
+        transport_ = std::move(serial);
     } else {
         const auto bind_port   = static_cast<uint16_t>(get_parameter("bind_port").as_int());
         const auto target_ip   = get_parameter("target_ip").as_string();
@@ -97,11 +117,29 @@ CommsGcs::CommsGcs() : Node("comms_gcs")
     uav_heartbeat_pub_ = create_publisher<std_msgs::msg::Bool>("uav_heartbeat", 10);
     position_pub_ = create_publisher<asr_comms::msg::TelemetryPosition>("telemetry/position", 10);
     attitude_pub_ = create_publisher<asr_comms::msg::TelemetryAttitude>("telemetry/attitude", 10);
-    battery_pub_  = create_publisher<asr_comms::msg::TelemetryBattery>( "telemetry/battery",  10);
+    battery_pub_  = create_publisher<asr_comms::msg::TelemetryBattery>( "telemetry/battery_main",  10);
+    battery2_pub_ = create_publisher<asr_comms::msg::TelemetryBattery>( "telemetry/battery_compute", 10);
     gps_pub_      = create_publisher<asr_comms::msg::TelemetryGPS>(     "telemetry/gps",      10);
     status_pub_   = create_publisher<asr_comms::msg::TelemetryStatus>(  "telemetry/status",   10);
+    // Same topic + QoS profile the GUI already subscribes with (best-effort, transient-local)
+    distance_pub_ = create_publisher<px4_msgs::msg::DistanceSensor>("/fmu/out/distance_sensor",
+        rclcpp::QoS(1).best_effort().transient_local());
     command_ack_pub_ = create_publisher<asr_comms::msg::CommandAck>("command_ack", 10);
     camera_pub_      = create_publisher<sensor_msgs::msg::CompressedImage>("camera/image/compressed", 10);
+
+    // Mission bridge — see handle_mission_v2_extension / send_mission_blob.
+    mission_validate_pub_ = create_publisher<std_msgs::msg::String>("out/mission_validate", 4);
+    mission_status_pub_   = create_publisher<std_msgs::msg::String>("out/mission_status", rclcpp::QoS(1).best_effort());
+    mission_upload_sub_ = create_subscription<std_msgs::msg::String>(
+        "in/mission_upload", rclcpp::QoS(4).reliable(),
+        std::bind(&CommsGcs::on_mission_upload, this, std::placeholders::_1));
+    mission_start_sub_ = create_subscription<std_msgs::msg::String>(
+        "in/mission_start", rclcpp::QoS(4).reliable(),
+        std::bind(&CommsGcs::on_mission_start, this, std::placeholders::_1));
+    mission_abort_sub_ = create_subscription<std_msgs::msg::String>(
+        "in/mission_abort", rclcpp::QoS(4).reliable(),
+        std::bind(&CommsGcs::on_mission_abort, this, std::placeholders::_1));
+    mission_retry_timer_ = create_wall_timer(500ms, std::bind(&CommsGcs::check_mission_retries, this));
 
     camera_stream_sub_ = create_subscription<asr_comms::msg::CameraStreamRequest>(
         "in/camera_stream", 1,
@@ -206,7 +244,12 @@ void CommsGcs::recv_loop()
 
     while (running_) {
         const ssize_t n = transport_->recv(buf, sizeof(buf));
-        if (n <= 0) continue;
+        if (n <= 0) {
+            // 0 is a normal VMIN/VTIME timeout — but a USB unplug hangs up
+            // the tty and reads look identical, so probe the fd to tell.
+            if (serial_ && !serial_->alive() && !reconnect_serial()) break;
+            continue;
+        }
 
         radio_rx_bytes_ += static_cast<size_t>(n);
         last_rx_ns_.store(static_cast<uint64_t>(
@@ -221,6 +264,26 @@ void CommsGcs::recv_loop()
             }
         }
     }
+}
+
+// Blocks the receive thread until the radio re-enumerates, then re-points the
+// existing SerialPort at it. The rest of the node keeps running meanwhile:
+// sends fail silently on the dead fd, WiFi still delivers, and the 1 Hz
+// LinkStats publisher keeps reporting the (dis)connected state.
+// Returns false when shut down while waiting.
+bool CommsGcs::reconnect_serial()
+{
+    RCLCPP_WARN(get_logger(), "Serial link lost — waiting for '%s' to come back",
+                serial_param_.c_str());
+    while (running_ && rclcpp::ok()) {
+        const auto dev = (serial_param_ == "auto") ? auto_detect_serial() : serial_param_;
+        if (!dev.empty() && serial_->reopen(dev)) {
+            RCLCPP_INFO(get_logger(), "Serial link restored on %s", dev.c_str());
+            return true;
+        }
+        std::this_thread::sleep_for(1s);
+    }
+    return false;
 }
 
 void CommsGcs::wifi_recv_loop()
@@ -293,12 +356,38 @@ void CommsGcs::handle_message(const mavlink_message_t& msg)
 
         asr_comms::msg::TelemetryBattery out{};
         out.timestamp       = get_clock()->now().seconds();
+        out.id              = b.id;
         out.voltage         = b.voltages[0] / 1000.0f;
         out.current         = b.current_battery / 100.0f;
         out.percentage      = static_cast<float>(b.battery_remaining) / 100.0f;
         out.discharged_mah  = static_cast<float>(b.current_consumed);
         out.average_current = out.current;
-        battery_pub_->publish(out);
+        if (b.id == 2) {
+            battery2_pub_->publish(out);
+        } else {
+            battery_pub_->publish(out);
+        }
+        break;
+    }
+
+    case MAVLINK_MSG_ID_DISTANCE_SENSOR: {
+        mavlink_distance_sensor_t d{};
+        mavlink_msg_distance_sensor_decode(&msg, &d);
+
+        px4_msgs::msg::DistanceSensor out{};
+        out.timestamp        = static_cast<uint64_t>(d.time_boot_ms) * 1000;  // ms → µs
+        out.device_id        = d.id;
+        out.min_distance     = d.min_distance / 100.0f;   // cm → m
+        out.max_distance     = d.max_distance / 100.0f;
+        out.current_distance = d.current_distance / 100.0f;
+        out.variance         = 0.0f;  // not carried over the link
+        out.signal_quality   = (d.signal_quality == 0) ? -1 : static_cast<int8_t>(d.signal_quality);
+        out.type             = d.type;
+        out.h_fov            = d.horizontal_fov;
+        out.v_fov            = d.vertical_fov;
+        for (size_t i = 0; i < out.q.size(); ++i) out.q[i] = d.quaternion[i];
+        out.orientation      = d.orientation;
+        distance_pub_->publish(out);
         break;
     }
 
@@ -318,6 +407,12 @@ void CommsGcs::handle_message(const mavlink_message_t& msg)
     case MAVLINK_MSG_ID_V2_EXTENSION: {
         mavlink_v2_extension_t ext{};
         mavlink_msg_v2_extension_decode(&msg, &ext);
+
+        if (ext.message_type == ASR_MSG_MISSION_VALIDATE ||
+            ext.message_type == ASR_MSG_MISSION_STATUS) {
+            handle_mission_v2_extension(ext);
+            break;
+        }
         if (ext.message_type != ASR_MSG_TELEMETRY_STATUS) break;
 
 #pragma pack(push, 1)
@@ -415,13 +510,15 @@ void CommsGcs::handle_message(const mavlink_message_t& msg)
 
 // --- Send path ---
 
-void CommsGcs::send_mavlink(mavlink_message_t& msg)
+void CommsGcs::send_mavlink(mavlink_message_t& msg, LinkTarget target)
 {
     uint8_t buf[MAVLINK_MAX_PACKET_LEN];
     const uint16_t len = mavlink_msg_to_send_buffer(buf, &msg);
-    transport_->send(buf, len);
-    tx_bytes_ += len;
-    if (wifi_transport_)
+    if (target != LinkTarget::WifiOnly) {
+        transport_->send(buf, len);
+        tx_bytes_ += len;
+    }
+    if (target != LinkTarget::RadioOnly && wifi_transport_)
         wifi_transport_->send(buf, len);
 }
 
@@ -445,6 +542,108 @@ void CommsGcs::send_peer_beacon()
         0, 0, 0, ASR_MSG_PEER_BEACON, payload);
     send_mavlink(msg);
     RCLCPP_DEBUG(get_logger(), "Peer beacon sent (connected=%s)", connected ? "yes" : "no");
+}
+
+// --- Mission bridge ---
+//
+// Mirror image of comms_uav's: comms_gcs never parses plan JSON either, it
+// just fragments/reassembles blobs for whatever future GCS UI publishes on
+// in/mission_upload / in/mission_start and subscribes to out/mission_*.
+
+void CommsGcs::handle_mission_v2_extension(const mavlink_v2_extension_t& ext)
+{
+    MissionReassembler& reassembler =
+        (ext.message_type == ASR_MSG_MISSION_VALIDATE) ? validate_reassembler_ : status_reassembler_;
+    auto* pub = (ext.message_type == ASR_MSG_MISSION_VALIDATE) ? mission_validate_pub_.get()
+                                                                : mission_status_pub_.get();
+
+    auto blob = reassembler.feed(ext.payload, sizeof(ext.payload));
+    if (!blob) return;
+
+    // A complete ValidateResult is itself the upload's ack; any Status
+    // confirms a start or abort took effect (whichever, if either, is
+    // still pending -- harmless to clear both). Neither needs to inspect
+    // the JSON.
+    if (ext.message_type == ASR_MSG_MISSION_VALIDATE) {
+        pending_upload_.active = false;
+    } else {
+        pending_start_.active = false;
+        pending_abort_.active = false;
+    }
+
+    std_msgs::msg::String out{};
+    out.data.assign(blob->begin(), blob->end());
+    pub->publish(out);
+}
+
+void CommsGcs::send_mission_blob(uint16_t message_type, uint32_t& transfer_id, const std::string& blob)
+{
+    if (!wifi_transport_ || !wifi_transport_->peer_known()) {
+        RCLCPP_WARN(get_logger(), "Mission blob dropped — WiFi peer not connected");
+        return;
+    }
+
+    std::vector<uint8_t> data(blob.begin(), blob.end());
+    for (auto& frag : mission_fragment(transfer_id, data)) {
+        mavlink_message_t mav{};
+        uint8_t payload[249]{};
+        std::memcpy(payload, frag.data(), frag.size());
+        mavlink_msg_v2_extension_pack(system_id_, component_id_, &mav,
+            0, 0, 0, message_type, payload);
+        send_mavlink(mav, LinkTarget::WifiOnly);
+    }
+    ++transfer_id;
+}
+
+void CommsGcs::on_mission_upload(const std_msgs::msg::String::SharedPtr msg)
+{
+    pending_upload_ = {true, msg->data, 1, std::chrono::steady_clock::now()};
+    send_mission_blob(ASR_MSG_MISSION_UPLOAD, upload_transfer_id_, msg->data);
+}
+
+void CommsGcs::on_mission_start(const std_msgs::msg::String::SharedPtr msg)
+{
+    pending_start_ = {true, msg->data, 1, std::chrono::steady_clock::now()};
+    send_mission_blob(ASR_MSG_MISSION_START, start_transfer_id_, msg->data);
+}
+
+void CommsGcs::on_mission_abort(const std_msgs::msg::String::SharedPtr msg)
+{
+    pending_abort_ = {true, msg->data, 1, std::chrono::steady_clock::now()};
+    send_mission_blob(ASR_MSG_MISSION_ABORT, abort_transfer_id_, msg->data);
+}
+
+// Resends upload/start/abort on a timeout if their implicit ack never
+// arrives (see handle_mission_v2_extension). Each retry uses a fresh
+// transfer_id -- simplest correct behavior for blobs this small is to
+// resend the whole thing rather than negotiate which fragment was lost.
+void CommsGcs::check_mission_retries()
+{
+    const auto now = std::chrono::steady_clock::now();
+
+    auto retry_if_needed = [&](PendingMissionSend& pending, uint16_t message_type,
+                                uint32_t& transfer_id, const char* kind) {
+        if (!pending.active) return;
+        if (now - pending.sent_at < MISSION_RETRY_TIMEOUT) return;
+
+        if (pending.attempts >= MISSION_MAX_RETRIES) {
+            RCLCPP_ERROR(get_logger(), "Mission %s: no reply after %d attempts — giving up",
+                         kind, pending.attempts);
+            pending.active = false;
+            return;
+        }
+
+        ++pending.attempts;
+        RCLCPP_WARN(get_logger(), "Mission %s: no reply after %ldms — retry %d/%d",
+                    kind, static_cast<long>(MISSION_RETRY_TIMEOUT.count()),
+                    pending.attempts, MISSION_MAX_RETRIES);
+        send_mission_blob(message_type, transfer_id, pending.blob);
+        pending.sent_at = now;
+    };
+
+    retry_if_needed(pending_upload_, ASR_MSG_MISSION_UPLOAD, upload_transfer_id_, "upload");
+    retry_if_needed(pending_start_,  ASR_MSG_MISSION_START,  start_transfer_id_,  "start");
+    retry_if_needed(pending_abort_,  ASR_MSG_MISSION_ABORT,  abort_transfer_id_,  "abort");
 }
 
 void CommsGcs::publish_link_stats()
@@ -747,7 +946,11 @@ void CommsGcs::on_camera_stream_request(
 int main(int argc, char* argv[])
 {
     rclcpp::init(argc, argv);
-    rclcpp::spin(std::make_shared<CommsGcs>());
+    try {
+        rclcpp::spin(std::make_shared<CommsGcs>());
+    } catch (const std::exception& e) {
+        std::cerr << "comms_gcs: " << e.what() << std::endl;
+    }
     rclcpp::shutdown();
     return 0;
 }

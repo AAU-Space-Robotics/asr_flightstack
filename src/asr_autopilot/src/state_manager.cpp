@@ -106,38 +106,38 @@ GCSHeartbeat StateManager::getHeartbeat() {
 
 // ---
 
-void StateManager::setDroneCmdAck(const DroneCmdAck& new_data) {
-    std::lock_guard<std::mutex> lock(drone_cmd_ack_mutex_);
-    drone_cmd_ack_ = new_data;   
+void StateManager::setUAVCmdAck(const UAVCmdAck& new_data) {
+    std::lock_guard<std::mutex> lock(uav_cmd_ack_mutex_);
+    uav_cmd_ack_ = new_data;   
 }
 
-DroneCmdAck StateManager::getDroneCmdAck() {
-    std::lock_guard<std::mutex> lock(drone_cmd_ack_mutex_);
-    return drone_cmd_ack_;   
-}
-
-// ---
-
-void StateManager::setDroneState(const DroneState& new_data) {
-    std::lock_guard<std::mutex> lock(drone_state_mutex_);
-    drone_state_ = new_data;   
-}
-
-DroneState StateManager::getDroneState() {
-    std::lock_guard<std::mutex> lock(drone_state_mutex_);
-    return drone_state_;   
+UAVCmdAck StateManager::getUAVCmdAck() {
+    std::lock_guard<std::mutex> lock(uav_cmd_ack_mutex_);
+    return uav_cmd_ack_;   
 }
 
 // ---
 
-void StateManager::setBatteryState(const BatteryState& new_data) {
-    std::lock_guard<std::mutex> lock(battery_state_mutex_);
-    battery_state_ = new_data;   
+void StateManager::setUAVState(const UAVState& new_data) {
+    std::lock_guard<std::mutex> lock(uav_state_mutex_);
+    uav_state_ = new_data;   
 }
 
-BatteryState StateManager::getBatteryState() {
+UAVState StateManager::getUAVState() {
+    std::lock_guard<std::mutex> lock(uav_state_mutex_);
+    return uav_state_;   
+}
+
+// ---
+
+void StateManager::setBatteryState(const BatteryState& new_data, size_t battery_index) {
     std::lock_guard<std::mutex> lock(battery_state_mutex_);
-    return battery_state_;   
+    battery_states_[battery_index < kNumBatteries ? battery_index : 0] = new_data;
+}
+
+BatteryState StateManager::getBatteryState(size_t battery_index) {
+    std::lock_guard<std::mutex> lock(battery_state_mutex_);
+    return battery_states_[battery_index < kNumBatteries ? battery_index : 0];
 }
 
 // ---

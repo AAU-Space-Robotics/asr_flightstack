@@ -93,6 +93,8 @@ install(PROGRAMS
 install(DIRECTORY fonts DESTINATION share/${PROJECT_NAME}/)
 install(DIRECTORY images DESTINATION share/${PROJECT_NAME}/)
 install(DIRECTORY tiles DESTINATION share/${PROJECT_NAME}/)
+install(DIRECTORY launch DESTINATION share/${PROJECT_NAME}/)
+install(DIRECTORY config DESTINATION share/${PROJECT_NAME}/)
 
 
 # Interface node executable

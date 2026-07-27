@@ -61,6 +61,12 @@ install(PROGRAMS
   DESTINATION lib/${PROJECT_NAME}
 )
 
+install(PROGRAMS
+  script/gimbal/gimbal.py
+  script/system/system_manager.py
+  DESTINATION lib/${PROJECT_NAME}
+)
+
 # Install header files
 install(DIRECTORY include/
   DESTINATION include/${PROJECT_NAME}
