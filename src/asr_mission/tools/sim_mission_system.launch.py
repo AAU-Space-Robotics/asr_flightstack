@@ -6,7 +6,7 @@ this kind of manual sim testing is no longer needed.
 
 Includes thyra_sim.launch.py (PX4 SITL + Gazebo, MicroXRCEAgent, comms_uav,
 asr_autopilot -- all namespaced asr/thyra) and adds the two pieces it
-doesn't start: mission_executor (same namespace, so its DroneCommand action
+doesn't start: mission_executor (same namespace, so its UAVCommand action
 client and mission topics line up with comms_uav/asr_autopilot) and
 comms_gcs (no namespace -- stands in for a separate GCS machine, with ports
 crossed to match comms_uav's launch-file overrides: comms_uav binds 14561/
@@ -17,8 +17,8 @@ Usage:
 
 Once it's up (give PX4/Gazebo ~20-30s to boot), arm before running a plan --
 arming is deliberately not a plan skill, see asr_mission/README.md:
-    ros2 action send_goal /asr/thyra/in/drone_command \\
-        asr_comms/action/DroneCommand "{command_type: 'arm'}"
+    ros2 action send_goal /asr/thyra/in/uav_command \\
+        asr_comms/action/UAVCommand "{command_type: 'arm'}"
 
 Then drive a plan through it with:
     ros2 run asr_mission mission_cli <plan_file.json> [--vehicle thyra] [--abort-after N]
@@ -45,7 +45,7 @@ def generate_launch_description():
 
         # Onboard mission executor -- same namespace as comms_uav/asr_autopilot
         # so in/mission_upload, in/mission_start, out/mission_validate,
-        # out/mission_status, and the DroneCommand action client all resolve
+        # out/mission_status, and the UAVCommand action client all resolve
         # to /asr/thyra/... and line up with what comms_uav bridges.
         Node(
             package='asr_mission',

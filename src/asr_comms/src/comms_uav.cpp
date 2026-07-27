@@ -168,7 +168,7 @@ CommsUav::CommsUav()
         std::bind(&CommsUav::on_distance, this, std::placeholders::_1));
 
     // Action client — forwards COMMAND_LONG from GCS to the autopilot action server
-    action_client_ = rclcpp_action::create_client<DroneCommand>(this, "in/drone_command");
+    action_client_ = rclcpp_action::create_client<UAVCommand>(this, "in/uav_command");
 
     // Camera subscription — store latest compressed frame; sends only when streaming is active
     const auto camera_topic = get_parameter("camera_topic").as_string();
@@ -389,7 +389,7 @@ void CommsUav::forward_command(const mavlink_command_long_t& cmd)
         return;
     }
 
-    DroneCommand::Goal goal{};
+    UAVCommand::Goal goal{};
 
     switch (cmd.command) {
     case MAV_CMD_COMPONENT_ARM_DISARM:
@@ -452,9 +452,9 @@ void CommsUav::forward_command(const mavlink_command_long_t& cmd)
     }
 
     const uint16_t cmd_id = cmd.command;
-    auto opts = rclcpp_action::Client<DroneCommand>::SendGoalOptions{};
+    auto opts = rclcpp_action::Client<UAVCommand>::SendGoalOptions{};
 
-    opts.goal_response_callback = [this, cmd_id](const GoalHandleDroneCmd::SharedPtr& handle) {
+    opts.goal_response_callback = [this, cmd_id](const GoalHandleUAVCmd::SharedPtr& handle) {
         if (!handle) {
             mavlink_message_t mav{};
             mavlink_msg_command_ack_pack(system_id_, component_id_, &mav,
@@ -463,7 +463,7 @@ void CommsUav::forward_command(const mavlink_command_long_t& cmd)
         }
     };
 
-    opts.result_callback = [this, cmd_id](const GoalHandleDroneCmd::WrappedResult& res) {
+    opts.result_callback = [this, cmd_id](const GoalHandleUAVCmd::WrappedResult& res) {
         uint8_t mav_result;
         if (res.code == rclcpp_action::ResultCode::SUCCEEDED && res.result->success)
             mav_result = MAV_RESULT_ACCEPTED;

@@ -6,7 +6,7 @@
 // seconds, so the executor must poll it rather than wait on it.
 //
 // Skills and conditions are injected through SkillRunner/ConditionSource, so
-// PlanExecutor itself stays free of any DroneCommand/action-client specifics;
+// PlanExecutor itself stays free of any UAVCommand/action-client specifics;
 // the onboard node wires a real runner in, tests and GCS previews use fakes.
 #pragma once
 
@@ -24,7 +24,7 @@ namespace asr_mission {
 
 enum class Status { Running, Success, Failure };
 
-// A running skill instance (e.g. one in-flight DroneCommand goal).
+// A running skill instance (e.g. one in-flight UAVCommand goal).
 class SkillHandle {
 public:
     virtual ~SkillHandle() = default;

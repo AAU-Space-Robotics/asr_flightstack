@@ -1,7 +1,7 @@
 #include <rclcpp/rclcpp.hpp>
 #include <rclcpp_action/rclcpp_action.hpp>
 #include <std_msgs/msg/string.hpp>
-#include <asr_comms/action/drone_command.hpp>
+#include <asr_comms/action/uav_command.hpp>
 #include <asr_comms/msg/telemetry_status.hpp>
 #include <asr_comms/msg/telemetry_battery.hpp>
 
@@ -12,10 +12,10 @@
 
 namespace asr_mission {
 
-using DroneCommand           = asr_comms::action::DroneCommand;
-using GoalHandleDroneCommand = rclcpp_action::ClientGoalHandle<DroneCommand>;
+using UAVCommand           = asr_comms::action::UAVCommand;
+using GoalHandleUAVCommand = rclcpp_action::ClientGoalHandle<UAVCommand>;
 
-// One in-flight DroneCommand goal. Mirrors the goal_response/result_callback
+// One in-flight UAVCommand goal. Mirrors the goal_response/result_callback
 // pattern comms_uav.cpp already uses to bridge this same action to mavlink.
 //
 // cancel() only *requests* an async cancel -- the actual result_callback
@@ -26,14 +26,14 @@ using GoalHandleDroneCommand = rclcpp_action::ClientGoalHandle<DroneCommand>;
 // heap-allocated CallbackState, captured by shared_ptr (not raw `this`) in
 // the lambdas, so they stay valid until the last owner -- this handle or the
 // still-pending callback, whichever outlives the other -- lets go of it.
-class DroneCommandSkillHandle : public SkillHandle {
+class UAVCommandSkillHandle : public SkillHandle {
 public:
-    DroneCommandSkillHandle(rclcpp_action::Client<DroneCommand>::SharedPtr client,
-                            const DroneCommand::Goal &goal, rclcpp::Logger logger)
+    UAVCommandSkillHandle(rclcpp_action::Client<UAVCommand>::SharedPtr client,
+                            const UAVCommand::Goal &goal, rclcpp::Logger logger)
         : client_(client), state_(std::make_shared<CallbackState>())
     {
         if (!client_->action_server_is_ready()) {
-            RCLCPP_ERROR(logger, "DroneCommand action server not ready — skill '%s' failed",
+            RCLCPP_ERROR(logger, "UAVCommand action server not ready — skill '%s' failed",
                         goal.command_type.c_str());
             state_->done = true;
             state_->succeeded = false;
@@ -41,17 +41,17 @@ public:
         }
 
         auto state = state_;  // copied into the lambdas below, not `this`
-        rclcpp_action::Client<DroneCommand>::SendGoalOptions opts;
-        opts.goal_response_callback = [state, logger](const GoalHandleDroneCommand::SharedPtr &handle) {
+        rclcpp_action::Client<UAVCommand>::SendGoalOptions opts;
+        opts.goal_response_callback = [state, logger](const GoalHandleUAVCommand::SharedPtr &handle) {
             if (!handle) {
-                RCLCPP_ERROR(logger, "DroneCommand goal rejected");
+                RCLCPP_ERROR(logger, "UAVCommand goal rejected");
                 state->done = true;
                 state->succeeded = false;
             } else {
                 state->goal_handle = handle;
             }
         };
-        opts.result_callback = [state, logger](const GoalHandleDroneCommand::WrappedResult &result) {
+        opts.result_callback = [state, logger](const GoalHandleUAVCommand::WrappedResult &result) {
             state->succeeded = (result.code == rclcpp_action::ResultCode::SUCCEEDED) &&
                                result.result->success;
             if (!state->succeeded) {
@@ -60,9 +60,9 @@ public:
                     // Expected outcome when a run_until or mission abort
                     // cancels an in-flight skill on purpose -- not a real
                     // failure, so don't log it as one.
-                    RCLCPP_INFO(logger, "DroneCommand cancelled: %s", message);
+                    RCLCPP_INFO(logger, "UAVCommand cancelled: %s", message);
                 } else {
-                    RCLCPP_ERROR(logger, "DroneCommand failed: %s", message);
+                    RCLCPP_ERROR(logger, "UAVCommand failed: %s", message);
                 }
             }
             state->done = true;
@@ -83,59 +83,23 @@ public:
 
 private:
     struct CallbackState {
-        GoalHandleDroneCommand::SharedPtr goal_handle;
+        GoalHandleUAVCommand::SharedPtr goal_handle;
         bool done = false;
         bool succeeded = false;
     };
 
-    rclcpp_action::Client<DroneCommand>::SharedPtr client_;
+    rclcpp_action::Client<UAVCommand>::SharedPtr client_;
     std::shared_ptr<CallbackState> state_;
     bool done_ = false;
     bool succeeded_ = false;
 };
 
-// Translates a skill+params pair (as declared in skills.yaml) into a
-// DroneCommand goal. The mapping lives here rather than in PlanExecutor so
-// the executor itself stays free of any DroneCommand-specific knowledge.
-class DroneCommandSkillRunner : public SkillRunner {
-public:
-    DroneCommandSkillRunner(rclcpp::Node *node, rclcpp::Logger logger)
-        : logger_(logger)
-    {
-        client_ = rclcpp_action::create_client<DroneCommand>(node, "in/drone_command");
-    }
-
-    std::unique_ptr<SkillHandle> start(const std::string &skill,
-                                       const nlohmann::json &params) override {
-        DroneCommand::Goal goal;
-        goal.command_type = skill;
-
-        if (skill == "takeoff") {
-            // Plans express altitude as positive-up (skills.yaml: "alt");
-            // asr_autopilot works in NED, where up is negative Z.
-            goal.target_pose = {-params.at("alt").get<double>()};
-        } else if (skill == "goto") {
-            auto pos = params.at("pos").get<std::vector<double>>();
-            if (pos.size() == 3) pos[2] = -pos[2];  // same positive-up -> NED conversion
-            goal.target_pose = pos;
-            if (params.contains("yaw")) {
-                goal.yaw = params.at("yaw").get<double>();
-            }
-        }
-        // land and other no-param skills: command_type alone is enough.
-
-        return std::make_unique<DroneCommandSkillHandle>(client_, goal, logger_);
-    }
-
-private:
-    rclcpp_action::Client<DroneCommand>::SharedPtr client_;
-    rclcpp::Logger logger_;
-};
-
 // Evaluates conditions against live telemetry, published locally by
 // asr_autopilot on this same vehicle-side ROS graph -- no comms bridge
 // needed, mission_executor_node just subscribes directly like comms_uav
-// does for the same topics.
+// does for the same topics. Also tracks arming_state, since
+// UAVCommandSkillRunner needs it to decide whether a skill must arm the
+// vehicle before it can run (see AutoArmSkillHandle).
 class TelemetryConditionSource : public ConditionSource {
 public:
     explicit TelemetryConditionSource(rclcpp::Node *node) {
@@ -143,6 +107,7 @@ public:
             "out/telemetry/status", rclcpp::QoS(1).best_effort(),
             [this](const asr_comms::msg::TelemetryStatus::SharedPtr msg) {
                 probes_found_ = msg->probes_found;
+                arming_state_ = msg->arming_state;
             });
         battery_sub_ = node->create_subscription<asr_comms::msg::TelemetryBattery>(
             "out/telemetry/battery", rclcpp::QoS(1).best_effort(),
@@ -168,13 +133,120 @@ public:
         return false;
     }
 
+    // Mirrors asr_autopilot's ArmingState::ARMED (state_manager.h) --
+    // TelemetryStatus.msg just forwards the raw uint8 cast of that enum.
+    bool is_armed() const { return arming_state_ == kArmingStateArmed; }
+
 private:
+    static constexpr uint8_t kArmingStateArmed = 1;
+
     static bool has_op_value(const Condition &c) { return c.op.has_value() && c.value.has_value(); }
 
     rclcpp::Subscription<asr_comms::msg::TelemetryStatus>::SharedPtr  status_sub_;
     rclcpp::Subscription<asr_comms::msg::TelemetryBattery>::SharedPtr battery_sub_;
     int32_t probes_found_{0};
     float   battery_percent_{100.0f};  // optimistic default until the first real sample arrives
+    uint8_t arming_state_{0};          // 0 = DISARMED, matches ArmingState::DISARMED
+};
+
+// Arms the vehicle first, then runs the real command. asr_autopilot's
+// handleUAVCommand rejects takeoff/goto/spin goals outright unless the
+// vehicle is already ARMED, so this lets a plan skip an explicit "arm" step
+// -- the operator writes "takeoff" or "goto" and arming happens implicitly.
+// Only constructed when the vehicle isn't already armed (see
+// UAVCommandSkillRunner::start()); an already-armed vehicle just gets a
+// plain UAVCommandSkillHandle for the real command.
+class AutoArmSkillHandle : public SkillHandle {
+public:
+    AutoArmSkillHandle(rclcpp_action::Client<UAVCommand>::SharedPtr client,
+                       const UAVCommand::Goal &goal, rclcpp::Logger logger)
+        : client_(client), goal_(goal), logger_(logger)
+    {
+        UAVCommand::Goal arm_goal;
+        arm_goal.command_type = "arm";
+        arming_ = std::make_unique<UAVCommandSkillHandle>(client_, arm_goal, logger_);
+    }
+
+    Status poll() override {
+        if (arming_) {
+            Status arm_status = arming_->poll();
+            if (arm_status != Status::Success) { return arm_status; }
+            arming_.reset();
+            command_ = std::make_unique<UAVCommandSkillHandle>(client_, goal_, logger_);
+        }
+        return command_->poll();
+    }
+
+    void cancel() override {
+        if (arming_) { arming_->cancel(); }
+        else if (command_) { command_->cancel(); }
+    }
+
+private:
+    rclcpp_action::Client<UAVCommand>::SharedPtr client_;
+    UAVCommand::Goal goal_;
+    rclcpp::Logger logger_;
+    std::unique_ptr<UAVCommandSkillHandle> arming_;
+    std::unique_ptr<UAVCommandSkillHandle> command_;
+};
+
+// Translates a skill+params pair (as declared in skills.yaml) into a
+// UAVCommand goal. The mapping lives here rather than in PlanExecutor so
+// the executor itself stays free of any UAVCommand-specific knowledge.
+class UAVCommandSkillRunner : public SkillRunner {
+public:
+    UAVCommandSkillRunner(rclcpp::Node *node, rclcpp::Logger logger,
+                            const TelemetryConditionSource &telemetry)
+        : logger_(logger), telemetry_(telemetry)
+    {
+        client_ = rclcpp_action::create_client<UAVCommand>(node, "in/uav_command");
+    }
+
+    std::unique_ptr<SkillHandle> start(const std::string &skill,
+                                       const nlohmann::json &params) override {
+        UAVCommand::Goal goal;
+        goal.command_type = skill;
+        bool needs_armed = false;
+
+        if (skill == "takeoff") {
+            // Plans express altitude as positive-up (skills.yaml: "alt");
+            // asr_autopilot works in NED, where up is negative Z.
+            goal.target_pose = {-params.at("alt").get<double>()};
+            needs_armed = true;
+        } else if (skill == "goto") {
+            auto pos = params.at("pos").get<std::vector<double>>();
+            if (pos.size() == 3) pos[2] = -pos[2];  // same positive-up -> NED conversion
+            goal.target_pose = pos;
+            if (params.contains("yaw")) {
+                goal.yaw = params.at("yaw").get<double>();
+            }
+            needs_armed = true;
+        } else if (skill == "spin") {
+            // target_pose = [target_yaw, num_rotations, use_longest_path] --
+            // see executeSpin() in asr_autopilot/src/main.cpp.
+            const bool longest = params.contains("longest_path") &&
+                                 params.at("longest_path").get<bool>();
+            goal.target_pose = {
+                params.at("yaw").get<double>(),
+                params.at("rotations").get<double>(),
+                longest ? 1.0 : 0.0,
+            };
+            needs_armed = true;
+        } else if (skill == "rth" || skill == "rtl") {
+            needs_armed = true;
+        }
+        // land and other no-param skills: command_type alone is enough.
+
+        if (needs_armed && !telemetry_.is_armed()) {
+            return std::make_unique<AutoArmSkillHandle>(client_, goal, logger_);
+        }
+        return std::make_unique<UAVCommandSkillHandle>(client_, goal, logger_);
+    }
+
+private:
+    rclcpp_action::Client<UAVCommand>::SharedPtr client_;
+    rclcpp::Logger logger_;
+    const TelemetryConditionSource &telemetry_;
 };
 
 class MissionExecutorNode : public rclcpp::Node {
@@ -182,8 +254,8 @@ public:
     MissionExecutorNode()
     : rclcpp::Node("mission_executor")
     {
-        runner_     = std::make_unique<DroneCommandSkillRunner>(this, get_logger());
         conditions_ = std::make_unique<TelemetryConditionSource>(this);
+        runner_     = std::make_unique<UAVCommandSkillRunner>(this, get_logger(), *conditions_);
 
         declare_parameter<std::string>("vehicle", "");
         const std::string vehicle = get_parameter("vehicle").as_string();
@@ -340,8 +412,8 @@ private:
     std::unique_ptr<VehicleCapabilities> capabilities_;
     std::unique_ptr<Plan> pending_plan_;  // validated, not yet started
     std::unique_ptr<Plan> plan_;          // currently running
+    std::unique_ptr<TelemetryConditionSource> conditions_;  // declared before runner_: runner_ holds a reference to it
     std::unique_ptr<SkillRunner> runner_;
-    std::unique_ptr<ConditionSource> conditions_;
     std::unique_ptr<PlanExecutor> executor_;
     Status status_ = Status::Success;  // idle state; no plan has failed or is running
     rclcpp::TimerBase::SharedPtr timer_;

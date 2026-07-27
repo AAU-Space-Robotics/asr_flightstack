@@ -207,8 +207,8 @@ struct StampedQuaternion {
     void setTime(const rclcpp::Time& new_time) { timestamp = new_time; }
 };
 
-// DroneCmdAck structure
-struct DroneCmdAck {
+// UAVCmdAck structure
+struct UAVCmdAck {
     rclcpp::Time timestamp = rclcpp::Time(0, 0);
     
     //Command data
@@ -228,11 +228,11 @@ struct GCSHeartbeat {
     int8_t gcs_nominal = 0; // 0: not nominal, 1: nominal
 };
 
-// Drone state
-struct DroneState {
+// UAV state
+struct UAVState {
     rclcpp::Time timestamp = rclcpp::Time(0, 0);
      
-    //Drone state data
+    //UAV state data
     Command command = Command::DISARM;
     ArmingState arming_state = ArmingState::DISARMED;
     FlightMode flight_mode = FlightMode::STANDBY;
@@ -244,7 +244,7 @@ struct DroneState {
 
     // Did the vehicle actually reach the trajectory's endpoint, not just
     // "time elapsed"? Set by positionAndVelocityControl(), polled by
-    // DroneCommand's execute thread (main.cpp).
+    // UAVCommand's execute thread (main.cpp).
     bool settle_converged = false;
     bool settle_stalled = false;
 };
@@ -336,11 +336,11 @@ public:
     void setHeartbeat(const GCSHeartbeat& new_data);
     GCSHeartbeat getHeartbeat();
 
-    void setDroneCmdAck(const DroneCmdAck& new_data);
-    DroneCmdAck getDroneCmdAck();
+    void setUAVCmdAck(const UAVCmdAck& new_data);
+    UAVCmdAck getUAVCmdAck();
 
-    void setDroneState(const DroneState& new_data);
-    DroneState getDroneState();
+    void setUAVState(const UAVState& new_data);
+    UAVState getUAVState();
 
     static constexpr size_t kNumBatteries = 2;
     void setBatteryState(const BatteryState& new_data, size_t battery_index = 0);
@@ -397,8 +397,8 @@ private:
     std::mutex target_position_profile_mutex_;
     std::mutex target_velocity_profile_mutex_;
     std::mutex target_attitude_mutex_;
-    std::mutex drone_cmd_ack_mutex_;
-    std::mutex drone_state_mutex_;
+    std::mutex uav_cmd_ack_mutex_;
+    std::mutex uav_state_mutex_;
     std::mutex manual_control_input_mutex_;
     std::mutex acceleration_error_mutex_;
     std::mutex position_error_mutex_;
@@ -425,8 +425,8 @@ private:
     Stamped4DVector target_position_profile_;
     Stamped3DVector target_velocity_profile_;
     StampedQuaternion target_attitude_;
-    DroneCmdAck drone_cmd_ack_;
-    DroneState drone_state_;
+    UAVCmdAck uav_cmd_ack_;
+    UAVState uav_state_;
     BatteryState battery_states_[kNumBatteries]; // Index 0 = battery 1, index 1 = battery 2
     Stamped4DVector manual_control_input_;
     AccelerationError acceleration_error_;

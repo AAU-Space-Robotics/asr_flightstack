@@ -7,11 +7,11 @@
 #include <rcutils/logging.h>
 
 
-#include <asr_comms/action/drone_command.hpp>
+#include <asr_comms/action/uav_command.hpp>
 #include <asr_comms/msg/manual_control_input.hpp>
 #include <asr_comms/msg/motion_capture_pose.hpp>
 #include <asr_comms/msg/telemetry_status.hpp>
-#include <asr_comms/msg/drone_scope.hpp>
+#include <asr_comms/msg/uav_scope.hpp>
 #include <asr_comms/msg/gcs_heartbeat.hpp>
 #include <asr_comms/msg/probe_locations.hpp>
 #include <asr_comms/msg/attitude_setpoint_rpy.hpp>
@@ -22,8 +22,8 @@
 class ThyraMissionExecutor : public rclcpp::Node
 {
 public:
-    using DroneCommand = asr_comms::action::DroneCommand;
-    using GoalHandleDroneCommand = rclcpp_action::ServerGoalHandle<DroneCommand>;
+    using UAVCommand = asr_comms::action::UAVCommand;
+    using GoalHandleUAVCommand = rclcpp_action::ServerGoalHandle<UAVCommand>;
 
 
 
@@ -75,7 +75,7 @@ public:
         sub_state = create_subscription<asr_comms::msg::TelemetryStatus>(
             "/asr/thyra/out/telemetry/status", qos,
             [this](const asr_comms::msg::TelemetryStatus::SharedPtr msg)
-            { droneStateCallback(msg); }
+            { uavStateCallback(msg); }
         );
         sub_RGB_image = create_subscription<sensor_msgs::msg::CompressedImage>(
             "/asr/thyra/out/color_image/compressed", qos,
@@ -90,15 +90,15 @@ public:
         );
 
         // Action server
-        drone_command_server_ = rclcpp_action::create_server<DroneCommand>(
+        uav_command_server_ = rclcpp_action::create_server<UAVCommand>(
             this, "in/mission_command",
-            [this](const rclcpp_action::GoalUUID &uuid, std::shared_ptr<const DroneCommand::Goal> goal)
-            {                return handleDroneCommand(uuid, goal);
+            [this](const rclcpp_action::GoalUUID &uuid, std::shared_ptr<const UAVCommand::Goal> goal)
+            {                return handleUAVCommand(uuid, goal);
             },
-            [this](const std::shared_ptr<GoalHandleDroneCommand> goal_handle)
+            [this](const std::shared_ptr<GoalHandleUAVCommand> goal_handle)
             {                return handleCancel(goal_handle);
             },
-            [this](const std::shared_ptr<GoalHandleDroneCommand> goal_handle)
+            [this](const std::shared_ptr<GoalHandleUAVCommand> goal_handle)
             {                handleAccepted(goal_handle);
             });
 
@@ -110,9 +110,9 @@ public:
         }
 private:
 
-    void droneStateCallback(const asr_comms::msg::TelemetryStatus::SharedPtr msg)
+    void uavStateCallback(const asr_comms::msg::TelemetryStatus::SharedPtr msg)
     {
-        last_drone_state = msg;
+        last_uav_state = msg;
         RCLCPP_INFO(get_logger(), "Received status: arming_state=%d, flight_mode=%d", msg->arming_state, msg->flight_mode);
     }
     void RGBCallback(const sensor_msgs::msg::CompressedImage::ConstSharedPtr msg)
@@ -131,19 +131,19 @@ private:
 
 
      //-----------------------Action Server Handlers-----------------------
-    rclcpp_action::GoalResponse handleDroneCommand(const rclcpp_action::GoalUUID & /*uuid*/,
-                                                std::shared_ptr<const DroneCommand::Goal> goal)
+    rclcpp_action::GoalResponse handleUAVCommand(const rclcpp_action::GoalUUID & /*uuid*/,
+                                                std::shared_ptr<const UAVCommand::Goal> goal)
     {   
         RCLCPP_INFO(get_logger(), "Received goal request: command_type=%s", goal->command_type.c_str());
         
          return rclcpp_action::GoalResponse::ACCEPT_AND_EXECUTE;
     }
-    rclcpp_action::CancelResponse handleCancel(const std::shared_ptr<GoalHandleDroneCommand> /*goal_handle*/)
+    rclcpp_action::CancelResponse handleCancel(const std::shared_ptr<GoalHandleUAVCommand> /*goal_handle*/)
     {
         RCLCPP_INFO(get_logger(), "Received request to cancel goal");
         return rclcpp_action::CancelResponse::ACCEPT;
     }
-    void handleAccepted(const std::shared_ptr<GoalHandleDroneCommand> goal_handle)
+    void handleAccepted(const std::shared_ptr<GoalHandleUAVCommand> goal_handle)
     {
         if (execute_thread_.joinable()) {
             execute_thread_.join();
@@ -158,17 +158,17 @@ private:
     rclcpp::Subscription<sensor_msgs::msg::CompressedImage>::SharedPtr sub_RGB_image;
     rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr sub_pose_synced;
 
-    rclcpp_action::Server<DroneCommand>::SharedPtr drone_command_server_;
+    rclcpp_action::Server<UAVCommand>::SharedPtr uav_command_server_;
 
 
-    asr_comms::msg::TelemetryStatus::SharedPtr last_drone_state;
+    asr_comms::msg::TelemetryStatus::SharedPtr last_uav_state;
     sensor_msgs::msg::CompressedImage::ConstSharedPtr last_RGB_image;
     geometry_msgs::msg::PoseStamped::SharedPtr last_pose_synced;
 
-    void execute(const std::shared_ptr<GoalHandleDroneCommand> goal_handle)
+    void execute(const std::shared_ptr<GoalHandleUAVCommand> goal_handle)
     {
         RCLCPP_INFO(get_logger(), "Executing goal...");
-        auto result = std::make_shared<DroneCommand::Result>();
+        auto result = std::make_shared<UAVCommand::Result>();
 
         if (rclcpp::ok())
         {
@@ -212,7 +212,7 @@ private:
 //        {0.0, 0.0, 0.0, 1.0}
 //    };
 //
-//    std::vector<int> last_drone_state;
+//    std::vector<int> last_uav_state;
 //    std::vector<int> last_RGB_image;
 //    std::vector<int> last_pose_synced;
 //
@@ -241,13 +241,13 @@ private:
 //}
 //
 //bool check_if_all_probes_found(){
-//    if(is.empty(last_drone_state) || is.empty(lan))
+//    if(is.empty(last_uav_state) || is.empty(lan))
 //}
 //
 //double estimate_yaw_to_marker(){
 //    // Estimate orientation to look at marker
 //    double yaw;
-//    if (!is.empty(last_drone_state) || !is.empty(landing_marker_pose_estimate)){
+//    if (!is.empty(last_uav_state) || !is.empty(landing_marker_pose_estimate)){
 //        // Process data to estimate yaw
 //        std::cout << "Cannot estimate yaw: missing pose or marker estimate." << std::endl;
 //        return yaw = 0.0;

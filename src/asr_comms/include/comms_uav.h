@@ -23,7 +23,7 @@
 #include <asr_comms/msg/manual_control_input.hpp>
 #include <asr_comms/msg/servo_command.hpp>
 #include <asr_comms/msg/comms_health.hpp>
-#include <asr_comms/action/drone_command.hpp>
+#include <asr_comms/action/uav_command.hpp>
 
 #include "camera_protocol.h"
 #include "common/mavlink.h"
@@ -34,7 +34,7 @@
 
 class SerialPort;
 
-// Runs on the drone. Transport is either UDP or a serial SiK radio.
+// Runs on the UAV. Transport is either UDP or a serial SiK radio.
 // Receives from GCS: heartbeat, RTK corrections, UAVCommand.
 // Sends to GCS:      heartbeat + telemetry + CommandAck.
 class CommsUav : public rclcpp::Node {
@@ -43,8 +43,8 @@ public:
     ~CommsUav();
 
 private:
-    using DroneCommand        = asr_comms::action::DroneCommand;
-    using GoalHandleDroneCmd  = rclcpp_action::ClientGoalHandle<DroneCommand>;
+    using UAVCommand        = asr_comms::action::UAVCommand;
+    using GoalHandleUAVCmd  = rclcpp_action::ClientGoalHandle<UAVCommand>;
 
     // Receive path
     void recv_loop();
@@ -152,7 +152,7 @@ private:
     rclcpp::Subscription<px4_msgs::msg::DistanceSensor>::SharedPtr     distance_sub_;
 
     // Command forwarding: COMMAND_LONG → autopilot action → COMMAND_ACK
-    rclcpp_action::Client<DroneCommand>::SharedPtr action_client_;
+    rclcpp_action::Client<UAVCommand>::SharedPtr action_client_;
 
     // Mission bridge (see handle_mission_v2_extension / send_mission_blob).
     // Reassemblers for blobs arriving from the GCS; each message kind gets

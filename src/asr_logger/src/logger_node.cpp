@@ -84,9 +84,9 @@ LoggerNode::LoggerNode()
         "out/telemetry/status", qos,
         std::bind(&LoggerNode::onStatus, this, _1));
 
-    // DroneScope subscription always active; only written in control_inspection mode
-    drone_scope_sub_ = create_subscription<asr_comms::msg::DroneScope>(
-        "out/drone_scope", qos,
+    // UAVScope subscription always active; only written in control_inspection mode
+    uav_scope_sub_ = create_subscription<asr_comms::msg::UAVScope>(
+        "out/uav_scope", qos,
         std::bind(&LoggerNode::onScope, this, _1));
 
     trajectory_setpoint_sub_ = create_subscription<asr_comms::msg::TrajectorySetpoint>(
@@ -282,7 +282,7 @@ void LoggerNode::onStatus(const asr_comms::msg::TelemetryStatus& msg)
     }
 }
 
-void LoggerNode::onScope(const asr_comms::msg::DroneScope& msg)
+void LoggerNode::onScope(const asr_comms::msg::UAVScope& msg)
 {
     if (!writer_) return;
     if (log_mode_ != "control_inspection") {

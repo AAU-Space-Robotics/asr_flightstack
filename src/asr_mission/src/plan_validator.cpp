@@ -8,6 +8,65 @@ std::string Issue::to_string() const {
     return prefix + path + ": " + message;
 }
 
+// Does a JSON param value match a declared ParamSpec type? "point" is
+// [x,y,z], "polygon" is [[x,y],...] -- see kParamTypes in capabilities.h.
+static bool param_type_matches(const json &value, const std::string &type) {
+    if (type == "float" || type == "int") return value.is_number();
+    if (type == "bool") return value.is_boolean();
+    if (type == "string") return value.is_string();
+    if (type == "point") {
+        return value.is_array() && value.size() == 3 &&
+               std::all_of(value.begin(), value.end(), [](const json &e) { return e.is_number(); });
+    }
+    if (type == "polygon") {
+        if (!value.is_array()) return false;
+        for (const auto &vertex : value) {
+            if (!vertex.is_array() || vertex.size() != 2 ||
+                !vertex[0].is_number() || !vertex[1].is_number()) {
+                return false;
+            }
+        }
+        return true;
+    }
+    return false;  // unknown declared type -- fail closed
+}
+
+// Checks a task's params against its skill's declared ParamSpecs: required,
+// type, and (for scalar float/int) min/max range. Not applied to point/
+// polygon params -- no current skill declares min/max on those, and a
+// per-component range isn't an obviously correct interpretation to guess at.
+static void validate_params(const json &params, const SkillSpec &spec,
+                            const std::string &path, std::vector<Issue> &issues) {
+    for (const auto &[param_name, param_spec] : spec.params) {
+        const std::string param_path = path + ".params." + param_name;
+
+        if (!params.contains(param_name)) {
+            if (param_spec.required) {
+                issues.push_back({Severity::Error, param_path, "missing required param '" + param_name + "'"});
+            }
+            continue;
+        }
+
+        const json &value = params.at(param_name);
+        if (!param_type_matches(value, param_spec.type)) {
+            issues.push_back({Severity::Error, param_path,
+                "param '" + param_name + "' should be type '" + param_spec.type + "'"});
+            continue;
+        }
+
+        if ((param_spec.type == "float" || param_spec.type == "int")) {
+            const double v = value.get<double>();
+            if (param_spec.min.has_value() && v < *param_spec.min) {
+                issues.push_back({Severity::Error, param_path,
+                    "param '" + param_name + "' = " + std::to_string(v) + " below min " + std::to_string(*param_spec.min)});
+            }
+            if (param_spec.max.has_value() && v > *param_spec.max) {
+                issues.push_back({Severity::Error, param_path,
+                    "param '" + param_name + "' = " + std::to_string(v) + " above max " + std::to_string(*param_spec.max)});
+            }
+        }
+    }
+}
 
 static void validate_node(const PlanNode &node, const std::string &path, const VehicleCapabilities *capabilities, std::vector<Issue> &issues) {
     
@@ -63,12 +122,13 @@ static void validate_node(const PlanNode &node, const std::string &path, const V
             if (task_node.skill.empty()) {
                 issues.push_back({Severity::Error, path, "task node has empty skill"});
             }
-            
-            // Check if the skill is supported by the vehicle capabilities.
 
             if (capabilities != nullptr) {
-                if (capabilities->skills.count(task_node.skill) == 0) {
+                auto skill_it = capabilities->skills.find(task_node.skill);
+                if (skill_it == capabilities->skills.end()) {
                     issues.push_back({Severity::Error, path, "task skill '" + task_node.skill + "' not found in vehicle capabilities"});
+                } else {
+                    validate_params(task_node.params, skill_it->second, path, issues);
                 }
             }
 
