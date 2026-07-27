@@ -91,6 +91,19 @@ def generate_launch_description():
             }],
         ),
 
+        # Onboard mission executor -- same namespace as comms_uav/asr_autopilot
+        # so in/mission_upload, in/mission_start, out/mission_validate,
+        # out/mission_status, and the UAVCommand action client all resolve
+        # to /asr/thyra/... and line up with what comms_uav bridges.
+        Node(
+            package='asr_mission',
+            executable='mission_executor',
+            name='mission_executor',
+            namespace='asr/thyra',
+            output='screen',
+            parameters=[{'vehicle': 'thyra'}],
+        ),
+
         # Delay and launch FlightControllerInterface node
         TimerAction(
             period=autopilot_delay,
