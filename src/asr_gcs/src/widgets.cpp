@@ -4,14 +4,67 @@
 typedef void (APIENTRY *PFNGLGENERATEMIPMAPPROC)(unsigned int target);
 static PFNGLGENERATEMIPMAPPROC glGenerateMipmap_ptr = nullptr;
 
-bool Widgets::costum_square_button(const char* id, ImVec2 pos, ImVec2 size, ImFont* font, float font_size, ImU32 color)
+
+bool Widgets::ModeToggle(ImDrawList* draw_list, ImVec2 center, float scale, bool theme, bool& is_manual)
 {
-    ImGui::SetCursorScreenPos(pos);
-    ImGui::PushFont(font);
-    bool clicked = ImGui::Button(id, size);
+    float seg_w = 90.0f * scale;    // half-width of EACH segment
+    float seg_h = 18.0f * scale;
+    float rounding = 6.0f * scale;
+
+    ImVec2 outer_min = ImVec2(center.x - seg_w, center.y - seg_h);
+    ImVec2 outer_max = ImVec2(center.x + seg_w, center.y + seg_h);
+
+    // Background pill (the "unactivated" dark container)
+    draw_list->AddRectFilled(outer_min, outer_max,
+        ImGui::ColorConvertFloat4ToU32(Color::panelColor(theme)), rounding);
+    draw_list->AddRect(outer_min, outer_max,
+        Color::panelBorder(theme), rounding, 0, 1.5f * scale);
+
+    // Each half's bounding box
+    ImVec2 auto_min   = outer_min;
+    ImVec2 auto_max   = ImVec2(center.x, outer_max.y);
+    ImVec2 manual_min = ImVec2(center.x, outer_min.y);
+    ImVec2 manual_max = outer_max;
+
+    // Orange highlight slides to whichever side is active
+    ImU32 highlight_color;
+    if (is_manual) {
+        highlight_color = IM_COL32(77, 130, 219, 255);
+        draw_list->AddRectFilled(manual_min, manual_max, highlight_color, rounding, ImDrawFlags_RoundCornersRight);
+    } else {
+        highlight_color = IM_COL32(230, 126, 34, 255); 
+        draw_list->AddRectFilled(auto_min, auto_max, highlight_color, rounding, ImDrawFlags_RoundCornersLeft);
+    }
+
+    // Independent hover/click zones for each half
+    bool hovered_auto   = ImGui::IsMouseHoveringRect(auto_min, auto_max);
+    bool hovered_manual = ImGui::IsMouseHoveringRect(manual_min, manual_max);
+    bool clicked = false;
+
+    if (hovered_auto && ImGui::IsMouseReleased(0))   { is_manual = false; clicked = true; }
+    if (hovered_manual && ImGui::IsMouseReleased(0)) { is_manual = true;  clicked = true; }
+
+    // Labels — active side gets black text (sits on orange), inactive gets dim white/black
+    ImGui::PushFont(winInit.getFont(181));
+    const char* auto_txt   = "AUTO";
+    const char* manual_txt = "MANUAL";
+
+    ImVec2 auto_text_size   = ImGui::CalcTextSize(auto_txt);
+    ImVec2 manual_text_size = ImGui::CalcTextSize(manual_txt);
+
+    ImU32 auto_color   = is_manual ? Color::dwhite_lblack(theme) : IM_COL32(0, 0, 0, 255);
+    ImU32 manual_color = is_manual ? IM_COL32(0, 0, 0, 255)      : Color::dwhite_lblack(theme);
+
+    ImVec2 auto_center   = ImVec2((auto_min.x + auto_max.x) / 2, (auto_min.y + auto_max.y) / 2);
+    ImVec2 manual_center = ImVec2((manual_min.x + manual_max.x) / 2, (manual_min.y + manual_max.y) / 2);
+
+    draw_list->AddText(ImVec2(auto_center.x - auto_text_size.x / 2, auto_center.y - auto_text_size.y / 2), auto_color, auto_txt);
+    draw_list->AddText(ImVec2(manual_center.x - manual_text_size.x / 2, manual_center.y - manual_text_size.y / 2), manual_color, manual_txt);
     ImGui::PopFont();
+
     return clicked;
 }
+
 
 bool Widgets::costum_round_button(ImVec2 center, float radius, int segments, ImU32 color)
 {
@@ -24,14 +77,16 @@ bool Widgets::costum_round_button(ImVec2 center, float radius, int segments, ImU
     return released;
 }
 
-bool Widgets::CustomButton(ImDrawList* draw_list, ImVec2 center,const char* label,float scale, GLuint tex, bool theme, int but_size, int img_size){
+bool Widgets::CustomButton(ImDrawList* draw_list, ImVec2 center,
+                            const char* label,float scale, 
+                            GLuint tex, bool theme, int but_size, int img_size){
     float size_x = (26 + but_size) * scale;
     float size_y = (26 + but_size) * scale;
     ImVec2 bb_min = ImVec2(center.x - size_x, center.y - size_y);
     ImVec2 bb_max = ImVec2(center.x + size_x, center.y + size_y);
     float rounding = 12.0f;
-    ImVec2 image_bb_min = ImVec2(center.x - (13 + img_size), center.y - (13 + img_size));
-    ImVec2 image_bb_max = ImVec2(center.x + (13 + img_size), center.y + (13 + img_size));
+    ImVec2 image_bb_min = ImVec2(center.x - (13 * scale + img_size), center.y - (13 * scale + img_size));
+    ImVec2 image_bb_max = ImVec2(center.x + (13 * scale + img_size), center.y + (13 * scale + img_size));
     bool hovered = ImGui::IsMouseHoveringRect(bb_min, bb_max);
     bool active = hovered && ImGui::IsMouseDown(0);
     bool released = hovered && ImGui::IsMouseReleased(0);
@@ -171,13 +226,13 @@ bool Widgets::DrawCircleGradientButton(ImDrawList* draw_list, ImFont* font, floa
     return active;
 }
 
-void Widgets::AltitudeTape(int direction, float altitude, float numStep = 1.0f, bool theme = 0)
+void Widgets::AltitudeTape(int direction, float altitude, float numStep, bool theme, float scale)
 {
     switch (direction)
     {
     case 1:
     {
-        ImGui::BeginChild("AltitudeTape_V", ImVec2(50, 120), true,
+        ImGui::BeginChild("AltitudeTape_V", ImVec2(50 * scale, 120 *scale), true,
                             ImGuiWindowFlags_NoScrollbar|
                             ImGuiWindowFlags_NoScrollWithMouse);
 
@@ -212,7 +267,7 @@ void Widgets::AltitudeTape(int direction, float altitude, float numStep = 1.0f, 
 
             draw->AddText(
                 ImGui::GetFont(),
-                10.0f,
+                10.0f * scale,
                 ImVec2(pos.x + size.x * 0.34f + 2, y - textSize.y / 2),
                 Color::white_black(theme),
                 buf
@@ -223,8 +278,8 @@ void Widgets::AltitudeTape(int direction, float altitude, float numStep = 1.0f, 
         snprintf(centerBuf, sizeof(centerBuf), "%.1f", altitude);
         ImVec2 centerTextSize = ImGui::GetFont()->CalcTextSizeA(14.0f, FLT_MAX, 0.0f, centerBuf);
 
-        float boxPadX = 8.0f;
-        float boxPadY = 4.0f;
+        float boxPadX = 8.0f * scale;
+        float boxPadY = 4.0f * scale;
         ImVec2 boxMin = ImVec2(pos.x + size.x * 0.25f, centerY - centerTextSize.y / 2 - boxPadY);
         ImVec2 boxMax = ImVec2(pos.x + size.x, centerY + centerTextSize.y / 2 + boxPadY);
 
@@ -232,7 +287,7 @@ void Widgets::AltitudeTape(int direction, float altitude, float numStep = 1.0f, 
 
         draw->AddText(
             ImGui::GetFont(),
-            14.0f,
+            14.0f * scale,
             ImVec2(boxMin.x + boxPadX, centerY - centerTextSize.y / 2),
             IM_COL32(0, 0, 0, 255),
             centerBuf
@@ -304,9 +359,9 @@ std::vector<ImVec2> Widgets::ArcPoints(float radius, float angleStart, float ang
     return pts;
 }
 
-void Widgets::GyroScopeIndicator(ImDrawList* draw_list,ImVec2 center, EulerAngles orientation, bool theme){
+void Widgets::GyroScopeIndicator(ImDrawList* draw_list,ImVec2 center, EulerAngles orientation, bool theme, float scale){
 
-    const float radius = 50;
+    const float radius = 50 * scale;
     const int segments = 32;
 
     ImU32 sky_color    = IM_COL32(40, 80, 150, 255);
@@ -377,14 +432,14 @@ void Widgets::GyroScopeIndicator(ImDrawList* draw_list,ImVec2 center, EulerAngle
         );
     };
 
-    draw_list->AddLine(rotatePoint(-(radius - 35), -30.0f), rotatePoint(radius - 35, -30.0f), white, 1.5f);
-    draw_list->AddLine(rotatePoint(-(radius - 45), -15.0f), rotatePoint(radius - 45, -15.0f), white, 1.5f);
-    draw_list->AddLine(rotatePoint(-(radius - 35),  30.0f), rotatePoint(radius - 35,  30.0f), white, 1.5f);
-    draw_list->AddLine(rotatePoint(-(radius - 45),  15.0f), rotatePoint(radius - 45,  15.0f), white, 1.5f);
+    draw_list->AddLine(rotatePoint(-(radius - 35 * scale), -30.0f * scale), rotatePoint(radius - 35 * scale, -30.0f * scale), white, 1.5f * scale);
+    draw_list->AddLine(rotatePoint(-(radius - 45 * scale), -15.0f * scale), rotatePoint(radius - 45 * scale, -15.0f * scale), white, 1.5f * scale);
+    draw_list->AddLine(rotatePoint(-(radius - 35 * scale),  30.0f * scale), rotatePoint(radius - 35 * scale,  30.0f * scale), white, 1.5f * scale);
+    draw_list->AddLine(rotatePoint(-(radius - 45 * scale),  15.0f * scale), rotatePoint(radius - 45 * scale,  15.0f * scale), white, 1.5f * scale);
 
     const float tickSpacingDeg = 15.0f;
-    const float shortTick = 5.0f;
-    const float longTick  = 10.0f;
+    const float shortTick = 5.0f * scale;
+    const float longTick  = 10.0f * scale;
 
     for (int i = 1; i <= 4; ++i) {
         float tickLen = (i % 2 == 0) ? longTick : shortTick;
@@ -401,15 +456,14 @@ void Widgets::GyroScopeIndicator(ImDrawList* draw_list,ImVec2 center, EulerAngle
         }
     }
     ImVec2 start_line = toScreenYaw(ImVec2(0.0f, -radius));
-    ImVec2 end_line = toScreenYaw(ImVec2(0.0f, -radius + 10.0f));
+    ImVec2 end_line = toScreenYaw(ImVec2(0.0f, -radius + 10.0f * scale));
     draw_list->AddLine(start_line, end_line, white, 1.5f);
 
-    ImVec2 tip_yaw = ImVec2(center.x, center.y - radius + 2.0f);
-    ImVec2 baseL_yaw = ImVec2(center.x - 6.0f, center.y - radius + 10.0f);
-    ImVec2 baseR_yaw = ImVec2(center.x + 6.0f, center.y - radius + 10.0f);
-    draw_list->AddTriangleFilled(tip_yaw, baseL_yaw, baseR_yaw, pointer_color);
+    ImVec2 tip_yaw = ImVec2(center.x, center.y - radius + 2.0f * scale);
+    ImVec2 baseL_yaw = ImVec2(center.x - 6.0f * scale, center.y - radius + 10.0f * scale);
+    ImVec2 baseR_yaw = ImVec2(center.x + 6.0f * scale, center.y - radius + 10.0f * scale);
 
-    float wing = 30.0f, gap = 6.0f;
+    float wing = 30.0f * scale, gap = 6.0f * scale;
     draw_list->AddLine(ImVec2(center.x - wing, center.y), ImVec2(center.x - gap, center.y), wing_color, 3.5f);
     draw_list->AddLine(ImVec2(center.x + gap, center.y), ImVec2(center.x + wing, center.y), wing_color, 3.5f);
     draw_list->AddCircleFilled(center, 2.0f, wing_color);
@@ -417,9 +471,9 @@ void Widgets::GyroScopeIndicator(ImDrawList* draw_list,ImVec2 center, EulerAngle
     draw_list->AddCircle(center, radius, IM_COL32(0, 0, 0, 255), 64, 3.0f);
 }
 
-void Widgets::Compas(ImDrawList* draw_list,ImVec2 center, EulerAngles orientation, bool theme){
+void Widgets::Compas(ImDrawList* draw_list,ImVec2 center, EulerAngles orientation, bool theme, float scale){
 
-    const float radius = 50;
+    const float radius = 50 * scale;
     float yawTheta = orientation.yaw * (IM_PI / 180.0f);
     ImU32 pointer_color = IM_COL32(255, 130, 30, 255);
 

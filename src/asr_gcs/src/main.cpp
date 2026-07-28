@@ -17,6 +17,7 @@
 #include <rclcpp_action/rclcpp_action.hpp>
 #include <rcutils/logging.h>
 #include <asr_comms/action/uav_command.hpp>
+#include <asr_comms/msg/telemetry_battery.hpp>
 #include "asr_comms/msg/telemetry_position.hpp"
 #include "asr_comms/msg/telemetry_attitude.hpp"
 #include "asr_comms/msg/telemetry_battery.hpp"
@@ -29,6 +30,7 @@
 #include "asr_comms/msg/probe_locations.hpp"
 #include <px4_msgs/msg/vehicle_attitude.hpp>   
 #include <px4_msgs/msg/vehicle_local_position.hpp>
+#include <px4_msgs/msg/distance_sensor.hpp>
          
 
 WindowInitializer winInit;
@@ -40,6 +42,9 @@ InfoPanels info_panels;
 
 using namespace std;
 using namespace px4_msgs::msg;
+
+constexpr size_t BATTERY_MAIN = 0;
+constexpr size_t BATTERY_COMPUTE = 1;
 
 
 class AAUGrouncontrol : public rclcpp::Node
@@ -65,7 +70,7 @@ public:
           << "    * Interface STARTING... *\n"
           << "=============================\n"
           << std::endl;
-
+        //------------------------Subscribtions---------------
         attitude_sub_ = create_subscription<VehicleAttitude>(
             "/fmu/out/vehicle_attitude", qos,
             [this](const VehicleAttitude::SharedPtr msg)
@@ -73,6 +78,16 @@ public:
         local_position_sub_ = create_subscription<VehicleLocalPosition>(
             "/fmu/out/vehicle_local_position", qos,
             [this](const VehicleLocalPosition::SharedPtr msg) { localPositionCallback(msg); });
+        distance_sensor_sub_ = create_subscription<DistanceSensor>(
+            "/fmu/out/distance_sensor", qos,
+            [this](const DistanceSensor::SharedPtr msg) { distanceSensorCallback(msg); });
+        battery_sub_main_ = create_subscription<asr_comms::msg::TelemetryBattery>(
+        "telemetry/battery_main", 10,
+        [this](const asr_comms::msg::TelemetryBattery::SharedPtr msg)
+        { batteryCallbackmain(msg); });
+        battery_sub_compute_ = create_subscription<asr_comms::msg::TelemetryBattery>(
+            "telemetry/battery_compute", 10,
+            [this](const asr_comms::msg::TelemetryBattery::SharedPtr msg) { batteryCallbackcompute(msg); });
     }
     void start()
     {
@@ -90,6 +105,10 @@ private:
     rclcpp::Subscription<VehicleAttitude>::SharedPtr attitude_sub_;
     rclcpp::Subscription<VehicleLocalPosition>::SharedPtr local_position_sub_;
     std::shared_ptr<rclcpp::Clock> clock_;
+    rclcpp::Subscription<DistanceSensor>::SharedPtr distance_sensor_sub_;
+    rclcpp::Subscription<asr_comms::msg::TelemetryBattery>::SharedPtr battery_sub_compute_;
+    rclcpp::Subscription<asr_comms::msg::TelemetryBattery>::SharedPtr battery_sub_main_;
+
 
     void attitudeCallback(const VehicleAttitude::SharedPtr msg)
     {
@@ -136,6 +155,34 @@ private:
             state_manager_.setGlobalAcceleration(Stamped3DVector(get_time(), msg->ax, msg->ay, msg->az));
         }
     }
+    void distanceSensorCallback(const DistanceSensor::SharedPtr msg)
+    {
+        // your logic here — e.g.:
+        // state_manager_.setDistance(msg->current_distance);
+    }
+    void batteryCallbackmain(const asr_comms::msg::TelemetryBattery::SharedPtr msg)
+    {
+        BatteryState battery;
+        battery.timestamp = rclcpp::Time(msg->timestamp);   // see note below re: type conversion
+        battery.voltage = msg->voltage;
+        battery.charge_remaining = msg->percentage;          // using percentage here — see note below
+        battery.average_current = msg->average_current;
+        battery.connected = true;                            // no explicit field — inferred from message arriving at all
+        // battery.cell_count left at default (0) — no matching field in TelemetryBattery
+
+        state_manager_.setBatteryState(battery, BATTERY_MAIN);
+    }
+    void batteryCallbackcompute(const asr_comms::msg::TelemetryBattery::SharedPtr msg)
+    {
+        BatteryState battery;
+        battery.timestamp = rclcpp::Time(msg->timestamp);
+        battery.voltage = msg->voltage;
+        battery.charge_remaining = msg->percentage;
+        battery.average_current = msg->average_current;
+        battery.connected = true;
+
+        state_manager_.setBatteryState(battery, BATTERY_COMPUTE);
+    }
 
 };
 EulerAngles quaternionToEulerForDisplay(const Eigen::Quaterniond& q) //trying to do a fix..........
@@ -172,6 +219,8 @@ int main(int argc, char **argv) {
 
     Planner planner(ground_control.get());
     PlannerPanel planner_panel(planner);
+    DroneInformation Info;
+    Transformations transformations_;
 
     cv::utils::logging::setLogLevel(cv::utils::logging::LOG_LEVEL_SILENT);
     bool armButton = false;
@@ -179,9 +228,10 @@ int main(int argc, char **argv) {
     int map_zoom = 20;
     bool arming_state = false;
     int panel = 0;
+    //bool is_manual = (Info.flight_mode == FlightMode::MANUAL_AIDED); for later:
+    bool is_manual = 0;
     
-    DroneInformation Info;
-    Transformations transformations_;
+   
 
     glfwSetErrorCallback([](int error, const char* description) {
         fprintf(stderr, "GLFW Error %d: %s\n", error, description);
@@ -386,6 +436,9 @@ int main(int argc, char **argv) {
             arming_state = !arming_state;
         }
 
+        if (widgets.ModeToggle(draw_list, ImVec2(160 * scale, 30 * scale), scale, theme, is_manual)) {
+            
+        }
         
         EndFixedPanel(); 
 
@@ -406,17 +459,17 @@ int main(int argc, char **argv) {
         }
         
         ImGui::SetCursorPos(ImVec2(1440 * scale, 670 * scale));
-        widgets.AltitudeTape(1, (-1 * Info.xyz_pos[2]), 0.5f, theme); 
+        widgets.AltitudeTape(1, (-1 * Info.xyz_pos[2]), 0.5f, theme, scale); 
 
         widgets.GyroScopeIndicator(draw_list,
                                 ImVec2(1320 * scale, 810 * scale),
                                 Info.orientation, 
-                                theme);
+                                theme, scale);
 
         widgets.Compas(draw_list,
                                 ImVec2(1440 * scale, 810 * scale),
                                 Info.orientation, 
-                                theme);                   
+                                theme, scale);                   
 
         EndFixedPanel();
 

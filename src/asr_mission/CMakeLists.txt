@@ -80,9 +80,9 @@ install(DIRECTORY include/
 install(DIRECTORY config/
   DESTINATION share/${PROJECT_NAME}/config
 )
-install(DIRECTORY plans/
-  DESTINATION share/${PROJECT_NAME}/plans
-)
+#install(DIRECTORY plans/
+#  DESTINATION share/${PROJECT_NAME}/plans
+#)
 
 ament_export_targets(export_${PROJECT_NAME} HAS_LIBRARY_TARGET)
 ament_export_dependencies(nlohmann_json yaml-cpp)
