@@ -6,6 +6,8 @@
 #include "info_panels.h"
 #include "map.h"
 #include "widgets.h"
+#include "planner.h"
+#include "planner_panel.h"
 #include <algorithm>
 #include <opencv2/core/utils/logger.hpp>
 #include <ament_index_cpp/get_package_share_directory.hpp>
@@ -167,7 +169,10 @@ int main(int argc, char **argv) {
     rclcpp::init(argc, argv);
     auto ground_control = std::make_shared<AAUGrouncontrol>();
     ground_control->start();
- 
+
+    Planner planner(ground_control.get());
+    PlannerPanel planner_panel(planner);
+
     cv::utils::logging::setLogLevel(cv::utils::logging::LOG_LEVEL_SILENT);
     bool armButton = false;
     bool theme = 1;
@@ -227,7 +232,8 @@ int main(int argc, char **argv) {
         {"job",        "job.png"},
         {"job_white",        "job_white.png"},
         {"f_mode",      "f_mode.png"},
-        {"f_mode_white",      "f_mode_white.png"}
+        {"f_mode_white",      "f_mode_white.png"},
+        {"drone",       "droneImage.png"}  // placeholder icon, no light-theme variant yet
     };
     
     GLuint placeholderTile = location.display_map((package_path + "/images/tile_placeholder.png").c_str(), 1.0f);
@@ -319,7 +325,7 @@ int main(int argc, char **argv) {
             panel = 0;
             
         }
-        GLuint Job_Icon = theme ? images.at("job_white") : images.at("job");
+        GLuint MissionPlanner_Icon = theme ? images.at("job_white") : images.at("job");
 
         if (panel == 1) {
             ImVec2 highlight_center = ImVec2(30 * scale, 160 * scale);
@@ -331,9 +337,25 @@ int main(int argc, char **argv) {
                 12.0f
             );
         }
-        if (widgets.CustomButton(draw_list, ImVec2(30 * scale, 160 * scale),"Job",scale, Job_Icon, theme, 0, 2)) {
+        if (widgets.CustomButton(draw_list, ImVec2(30 * scale, 160 * scale),"Mission Planner",scale, MissionPlanner_Icon, theme, 0, 2)) {
             panel = 1;
-            
+
+        }
+        GLuint Placeholder_Icon = images.at("drone");  // no light-theme variant yet -- same icon either way
+
+        if (panel == 2) {
+            ImVec2 highlight_center = ImVec2(30 * scale, 220 * scale);
+            float highlight_size = (26 + 2) * scale;
+            draw_list->AddRectFilled(
+                ImVec2(highlight_center.x - highlight_size, highlight_center.y - highlight_size),
+                ImVec2(highlight_center.x + highlight_size, highlight_center.y + highlight_size),
+                IM_COL32(255, 130, 30, 255),
+                12.0f
+            );
+        }
+        if (widgets.CustomButton(draw_list, ImVec2(30 * scale, 220 * scale),"Placeholder",scale, Placeholder_Icon, theme, 0, 2)) {
+            panel = 2;
+
         }
 
 
@@ -494,14 +516,21 @@ int main(int argc, char **argv) {
         
         
         info_panels.ResetPanelTracking();
-        
-  
 
+
+
+        break;
         }
         case 1:
         {
-            
+            planner_panel.Draw(scale, theme);
         }
+        break;
+        case 2:
+        {
+            // Reserved -- empty for now.
+        }
+        break;
         default:
             break;
         }

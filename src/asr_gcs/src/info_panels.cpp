@@ -76,17 +76,18 @@ void InfoPanels::End_panels(){
 }
 
 void BeginFixedPanel(const char* id, ImVec2 pos, ImVec2 size, float scale, bool theme,
-                      ImGuiWindowFlags extraFlags, ImVec2 padding) {
+                      ImGuiWindowFlags extraFlags, ImVec2 padding, bool allow_scroll) {
     ImGui::SetCursorPos(pos);
     ImGui::PushStyleColor(ImGuiCol_ChildBg, Color::panelColor(theme));
     ImGui::PushStyleColor(ImGuiCol_Border, Color::panelBorder(theme));
     ImGui::PushStyleVar(ImGuiStyleVar_ChildBorderSize, 2.0f * scale);
     ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, 12.0f * scale);
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(padding.x * scale, padding.y * scale));
-    ImGui::BeginChild(id, size, true,
-                       ImGuiWindowFlags_NoScrollbar |
-                       ImGuiWindowFlags_NoScrollWithMouse |
-                       extraFlags);
+    ImGuiWindowFlags flags = extraFlags;
+    if (!allow_scroll) {
+        flags |= ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse;
+    }
+    ImGui::BeginChild(id, size, true, flags);
 }
 
 void EndFixedPanel() {

@@ -51,7 +51,8 @@ class InfoPanels {
 };
 
 void BeginFixedPanel(const char* id, ImVec2 pos, ImVec2 size, float scale, bool theme,
-                      ImGuiWindowFlags extraFlags = 0, ImVec2 padding = ImVec2(8, 8));
+                      ImGuiWindowFlags extraFlags = 0, ImVec2 padding = ImVec2(8, 8),
+                      bool allow_scroll = false);
 void EndFixedPanel();
 
 void BeginOverlayPanel(ImDrawList* draw_list, const char* id, ImVec2 pos, ImVec2 size,

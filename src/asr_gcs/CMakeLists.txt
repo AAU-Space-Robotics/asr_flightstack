@@ -19,6 +19,7 @@ find_package(asr_comms REQUIRED)
 find_package(OpenCV REQUIRED)
 find_package(ament_index_cpp REQUIRED)
 find_package(asr_autopilot REQUIRED)
+find_package(asr_mission REQUIRED)
 find_package(px4_msgs REQUIRED)
 
 # Fetch Dear ImGui, GLFW, ImPlot, and tinyxml2 using FetchContent
@@ -106,6 +107,8 @@ add_executable(interface
   src/info_panels.cpp
   src/map.cpp
   src/widgets.cpp
+  src/planner.cpp
+  src/planner_panel.cpp
   ${imgui_SOURCE_DIR}/imgui.cpp
   ${imgui_SOURCE_DIR}/imgui_demo.cpp
   ${imgui_SOURCE_DIR}/imgui_draw.cpp
@@ -135,7 +138,8 @@ target_link_libraries(interface
   glfw            # Link GLFW
   tinyxml2        # Link tinyxml2 from FetchContent
   ${OpenCV_LIBS}
-  asr_autopilot::asr_autopilot_core 
+  asr_autopilot::asr_autopilot_core
+  asr_mission::asr_mission_lib
 )
 target_include_directories(interface 
   PRIVATE ${OpenCV_INCLUDE_DIRS}
