@@ -182,7 +182,7 @@ void PlannerPanel::DrawTaskList(float scale, bool theme)
     ImGui::PushFont(winInit.getFont(24));  // bold 24
     const float title_h = ImGui::GetFontSize();
     ImGui::PushStyleColor(ImGuiCol_Text, Color::white_black(theme));
-    ImGui::TextUnformatted("FLIGHT PLAN");
+    ImGui::TextUnformatted("MISSION PLAN");
     ImGui::PopStyleColor();
     ImGui::PopFont();
     ImGui::SameLine();
@@ -207,7 +207,10 @@ void PlannerPanel::DrawTaskList(float scale, bool theme)
 
         ImGui::SetCursorPos(ImVec2(clear_x, header_center_y - clear_h * 0.5f));
         ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 12.0f);
-        ImGui::PushStyleColor(ImGuiCol_Text, Color::white_black(theme));
+        // Always white, not theme-toggled -- this button's background is a
+        // fixed dark red regardless of light/dark theme, so black text
+        // (what white_black(theme) gives in light theme) is low-contrast.
+        ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(255, 255, 255, 255));
         ImGui::PushStyleColor(ImGuiCol_Button, IM_COL32(140, 40, 40, 255));
         ImGui::PushStyleColor(ImGuiCol_ButtonHovered, IM_COL32(180, 60, 60, 255));
         ImGui::PushStyleColor(ImGuiCol_ButtonActive, IM_COL32(200, 70, 70, 255));
@@ -230,6 +233,10 @@ void PlannerPanel::DrawTaskList(float scale, bool theme)
                                    ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoTitleBar)) {
             ImGui::Text("Clear the entire flight plan?");
             ImGui::Spacing();
+            // Always white -- overrides the ambient theme-toggled Text
+            // color pushed above, since this button's red background stays
+            // fixed regardless of theme.
+            ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(255, 255, 255, 255));
             ImGui::PushStyleColor(ImGuiCol_Button, IM_COL32(140, 40, 40, 255));
             ImGui::PushStyleColor(ImGuiCol_ButtonHovered, IM_COL32(180, 60, 60, 255));
             ImGui::PushStyleColor(ImGuiCol_ButtonActive, IM_COL32(200, 70, 70, 255));
@@ -239,7 +246,7 @@ void PlannerPanel::DrawTaskList(float scale, bool theme)
                 current_plan_name_.clear();
                 ImGui::CloseCurrentPopup();
             }
-            ImGui::PopStyleColor(3);
+            ImGui::PopStyleColor(4);
             ImGui::SameLine();
             PushThemedButtonStyle(theme, false);
             if (ImGui::Button("Cancel")) {
@@ -400,11 +407,17 @@ void PlannerPanel::DrawTaskList(float scale, bool theme)
             PopThemedButtonStyle();
             ImGui::SameLine();
             ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 12.0f);
-            ImGui::PushStyleColor(ImGuiCol_Text, Color::white_black(theme));
+            // Always white -- this button's background is a fixed dark red
+            // regardless of theme, so theme-toggled text goes low-contrast
+            // (black) in light theme.
+            ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(255, 255, 255, 255));
             ImGui::PushStyleColor(ImGuiCol_Button, IM_COL32(140, 40, 40, 255));
             ImGui::PushStyleColor(ImGuiCol_ButtonHovered, IM_COL32(180, 60, 60, 255));
             ImGui::PushStyleColor(ImGuiCol_ButtonActive, IM_COL32(200, 70, 70, 255));
-            if (ImGui::Button("x", ImVec2(button_size, button_size))) { remove_index = static_cast<int>(i); }
+            // Uppercase -- lowercase "x" has no ascender/descender, so
+            // ImGui centers it within the *font's* full line-height box
+            // rather than its own visible ink, reading as slightly high.
+            if (ImGui::Button("X", ImVec2(button_size, button_size))) { remove_index = static_cast<int>(i); }
             ImGui::PopStyleColor(4);
             ImGui::PopStyleVar();
             ImGui::PopID();

@@ -226,6 +226,7 @@ int main(int argc, char **argv) {
     bool armButton = false;
     bool theme = 1;
     int map_zoom = 20;
+    double testLat = 57.063, testLon = 10.032;  // shared between FlightMode and Mission Planner map views
     bool arming_state = false;
     int panel = 0;
     //bool is_manual = (Info.flight_mode == FlightMode::MANUAL_AIDED); for later:
@@ -448,7 +449,6 @@ int main(int argc, char **argv) {
         case 0:
         {
         //--------------------------MAP--------------------------------------------------------------
-        static double testLat = 57.063f, testLon = 10.032f; //! Remeber to remove
         BeginFixedPanel("MapPanel", ImVec2(70 * scale, 70 * scale), ImVec2(1500 * scale, 800 * scale),
                 scale, theme, 0, ImVec2(0, 0));
         location.MapWidget(testLat, testLon, 1500 * scale, 900 * scale, scale, map_zoom, placeholderTile, theme);
@@ -577,6 +577,41 @@ int main(int argc, char **argv) {
         case 1:
         {
             planner_panel.Draw(scale, theme);
+
+            // Static view for now -- no click-to-set-waypoint or plan
+            // markers yet, that's a separate follow-up.
+            // The left panel's 70*scale gap from the window edge exists to
+            // clear the sidebar -- there's no equivalent on the right, so
+            // mirroring that same 70px here just left dead space. Instead,
+            // reuse the existing 10px rhythm already established between
+            // VehicleAndPalettePanel and MissionPlannerPanel (bottom of the
+            // former at 70+140=210, top of the latter at 220), applied both
+            // between the planner panel and the map, and between the map
+            // and the window's right edge.
+            const float map_gap = 10.0f * scale;
+            const float planner_right_edge = (70.0f + 450.0f) * scale;  // matches DrawTaskList's panel rect
+            const float map_x = planner_right_edge + map_gap;
+            const float map_right_margin = map_gap;
+            const float map_w = std::max(200.0f * scale, static_cast<float>(x_sc) - map_x - map_right_margin);
+            BeginFixedPanel("PlannerMapPanel", ImVec2(map_x, 70 * scale), ImVec2(map_w, 800 * scale),
+                    scale, theme, 0, ImVec2(0, 0));
+            location.MapWidget(testLat, testLon, map_w, 800 * scale, scale, map_zoom, placeholderTile, theme);
+            EndFixedPanel();
+
+            BeginOverlayPanel(draw_list, "PlannerMapUtilsPanel", ImVec2(map_x + map_w - 70.0f * scale, 72 * scale), ImVec2(49 * scale, 150 * scale), scale, theme);
+            GLuint PlannerPlus_Icon = theme ? images.at("plus_white") : images.at("plus");
+            if (widgets.CustomButton(draw_list, ImVec2(map_x + map_w - 46.0f * scale, 97 * scale), "Plus", scale, PlannerPlus_Icon, theme, -5, -3)) {
+                if (map_zoom < 20) {
+                    map_zoom += 1;
+                }
+            }
+            GLuint PlannerMinus_Icon = theme ? images.at("minus_white") : images.at("minus");
+            if (widgets.CustomButton(draw_list, ImVec2(map_x + map_w - 46.0f * scale, 141 * scale), "Minus", scale, PlannerMinus_Icon, theme, -5, -3)) {
+                if (map_zoom > 13) {
+                    map_zoom -= 1;
+                }
+            }
+            EndOverlayPanel();
         }
         break;
         case 2:

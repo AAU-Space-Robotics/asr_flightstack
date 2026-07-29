@@ -163,7 +163,9 @@ void SaveLoadDialog::Draw(float scale, bool theme)
             const bool armed = (armed_delete_index_ == static_cast<int>(idx));
             bool deleted = false;
             if (armed) {
-                ImGui::PushStyleColor(ImGuiCol_Text, Color::white_black(theme));
+                // Always white -- this button's background is a fixed dark
+                // red regardless of theme.
+                ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(255, 255, 255, 255));
                 ImGui::PushStyleColor(ImGuiCol_Button, IM_COL32(140, 40, 40, 255));
                 ImGui::PushStyleColor(ImGuiCol_ButtonHovered, IM_COL32(180, 60, 60, 255));
                 ImGui::PushStyleColor(ImGuiCol_ButtonActive, IM_COL32(200, 70, 70, 255));
