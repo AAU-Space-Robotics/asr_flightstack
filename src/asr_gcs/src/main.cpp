@@ -8,6 +8,8 @@
 #include "widgets.h"
 #include "planner.h"
 #include "planner_panel.h"
+#include "height_chart.h"
+#include <implot.h>
 #include <algorithm>
 #include <opencv2/core/utils/logger.hpp>
 #include <ament_index_cpp/get_package_share_directory.hpp>
@@ -258,6 +260,7 @@ int main(int argc, char **argv) {
     glfwSwapInterval(1); // Enable vsync
     ImGui_ImplGlfw_InitForOpenGL(window, true);
     ImGui_ImplOpenGL3_Init(glsl_version);
+    ImPlot::CreateContext();  // linked since the start of this project, never actually initialized until now
     winInit.loadFonts(); // Load fonts once
     
      // ------ Image for buttons
@@ -612,6 +615,15 @@ int main(int argc, char **argv) {
                 }
             }
             EndOverlayPanel();
+
+            // Altitude profile, same x-span as the map, directly beneath
+            // it. Height fills to the actual window edge (mirroring the
+            // map's own width fix) rather than a fixed 150*scale, which
+            // only used the reference height exactly and otherwise left a
+            // gap before the true bottom edge on any other resolution.
+            const float chart_y = 880.0f * scale;
+            const float chart_h = std::max(80.0f * scale, static_cast<float>(y_sc) - chart_y - map_gap);
+            DrawHeightChart(planner.plan(), ImVec2(map_x, chart_y), ImVec2(map_w, chart_h), scale, theme);
         }
         break;
         case 2:
@@ -639,6 +651,7 @@ int main(int argc, char **argv) {
     // Cleanup
     ImGui_ImplOpenGL3_Shutdown();
     ImGui_ImplGlfw_Shutdown();
+    ImPlot::DestroyContext();
     ImGui::DestroyContext();
 
     glfwDestroyWindow(window);

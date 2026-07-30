@@ -74,6 +74,14 @@ json RunUntilNode::to_json() const {
     return j;
 }
 
+json RepeatNode::to_json() const {
+    json j;
+    j["type"] = "repeat";
+    j["count"] = count;
+    j["child"] = child->to_json();
+    return j;
+}
+
 PlanNodePtr node_from_json(const json &j, const std::string &path) {
     if (!j.contains("type")) {
         throw PlanFormatError(path, "node missing 'type'");
@@ -118,7 +126,18 @@ PlanNodePtr node_from_json(const json &j, const std::string &path) {
         }
         PlanNodePtr child = node_from_json(j.at("child"), path + ".child");
         node->child = std::move(child);
-  
+
+        return node;
+    } else if (type == "repeat") {
+        if (!j.contains("count")) {
+            throw PlanFormatError(path, "repeat missing 'count'");
+        }
+
+        auto node = std::make_unique<RepeatNode>();
+        node->count = j.at("count").get<int>();
+        PlanNodePtr child = node_from_json(j.at("child"), path + ".child");
+        node->child = std::move(child);
+
         return node;
     } else {
         throw PlanFormatError(path, "unknown node type: " + type);

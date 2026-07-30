@@ -17,6 +17,7 @@ namespace asr_mission {
 // Hard cap so no plan can loop unbounded; a supervisor above the executor
 // still owns battery/geofence/link failsafes regardless of what a plan says.
 constexpr int kMaxRetryAttempts = 25;
+constexpr int kMaxRepeatCount = 25;
 
 enum class Severity { Warning, Error };
 

@@ -1,5 +1,7 @@
 #include "asr_mission/plan_validator.h"
 #include <algorithm>
+#include <optional>
+#include <utility>
 
 namespace asr_mission {
 
@@ -113,7 +115,21 @@ static void validate_node(const PlanNode &node, const std::string &path, const V
             }
 
             validate_node(*run_until_node.child, path + ".child", capabilities, issues);
-            
+
+            break;
+        }
+
+        case NodeKind::Repeat: {
+            const auto &repeat_node = static_cast<const RepeatNode&>(node);
+
+            if (repeat_node.count < 1) {
+                issues.push_back({Severity::Error, path, "repeat node should have 1 or more count, not: " + std::to_string(repeat_node.count)});
+            }
+            else if (repeat_node.count > kMaxRepeatCount) {
+                issues.push_back({Severity::Warning, path, "repeat node has more than " + std::to_string(kMaxRepeatCount) + " count, which may be excessive: " + std::to_string(repeat_node.count)});
+            }
+
+            validate_node(*repeat_node.child, path + ".child", capabilities, issues);
             break;
         }
 
@@ -143,6 +159,124 @@ static void validate_node(const PlanNode &node, const std::string &path, const V
 
 } 
 
+// Coarse vehicle-state model for sequencing sanity checks: only tracks
+// grounded vs airborne, since that's precisely the distinction that decides
+// whether a given skill makes sense to run next (only takeoff is valid
+// while grounded; land/rtl back to back makes no sense either).
+enum class VehicleState { Grounded, Airborne };
+
+// Threaded through the whole tree in execution order: `vehicle_state` for
+// the grounded/airborne checks, `last_task` (skill + params of whichever
+// task most recently ran, regardless of how deep it was nested) for
+// flagging an immediate exact repeat -- e.g. two identical `goto`s in a
+// row, or `rth` right after `rth`. That's a no-op, but not something
+// vehicle_state alone would ever catch (both individually valid).
+struct FlowState {
+    VehicleState vehicle_state = VehicleState::Grounded;
+    std::optional<std::pair<std::string, json>> last_task;
+};
+
+static FlowState validate_task_flow(const TaskNode &task, FlowState state,
+                                     const std::string &path, std::vector<Issue> &issues) {
+    if (task.skill == "takeoff") {
+        if (state.vehicle_state == VehicleState::Airborne) {
+            issues.push_back({Severity::Error, path, "takeoff while already airborne -- missing a land/rtl first?"});
+        }
+        state.vehicle_state = VehicleState::Airborne;
+    } else if (task.skill == "land") {
+        if (state.vehicle_state == VehicleState::Grounded) {
+            issues.push_back({Severity::Error, path, "land while already grounded -- missing a takeoff first, or a duplicate land?"});
+        }
+        state.vehicle_state = VehicleState::Grounded;
+    } else if (task.skill == "rtl") {
+        // Same landing pathway as "land" (asr_autopilot's executeRtl flies
+        // home, then lands), just via home first.
+        if (state.vehicle_state == VehicleState::Grounded) {
+            issues.push_back({Severity::Error, path, "rtl while already grounded"});
+        }
+        state.vehicle_state = VehicleState::Grounded;
+    } else if (task.skill == "rth" || task.skill == "goto" || task.skill == "spin") {
+        // rth only transits home and hovers there -- unlike rtl, it never
+        // lands (asr_autopilot's executeRth has no landPositionMode() call).
+        if (state.vehicle_state == VehicleState::Grounded) {
+            issues.push_back({Severity::Error, path,
+                "'" + task.skill + "' requires the vehicle to already be airborne -- only takeoff can run while grounded"});
+        }
+    }
+    // else: unmodeled skill -- no vehicle_state requirement to enforce.
+
+    // A warning, not an error -- unlike the vehicle_state checks above,
+    // repeating a task is physically possible (e.g. two full spins back to
+    // back isn't nonsensical the way land-after-land is), just usually a
+    // copy-paste mistake worth flagging.
+    if (state.last_task && state.last_task->first == task.skill && state.last_task->second == task.params) {
+        issues.push_back({Severity::Warning, path,
+            "identical to the previous task ('" + task.skill + "' with the same params) -- redundant?"});
+    }
+    state.last_task = {task.skill, task.params};
+
+    return state;
+}
+
+// Walks the tree in execution order, threading FlowState through it.
+// run_until/retry propagate their child's exit state as their own -- an
+// early exit from a fired condition is a coarser approximation for
+// vehicle_state, but grounded/airborne is coarse enough that it holds
+// regardless: none of the skills modeled above go airborne->grounded
+// except land/rtl, and those are the terminal step of that child either way.
+static FlowState validate_state_flow(const PlanNode &node, FlowState state,
+                                      const std::string &path, std::vector<Issue> &issues) {
+    switch (node.kind()) {
+        case NodeKind::Task:
+            return validate_task_flow(static_cast<const TaskNode &>(node), state, path, issues);
+
+        case NodeKind::Sequence: {
+            const auto &sequence_node = static_cast<const SequenceNode &>(node);
+            for (size_t i = 0; i < sequence_node.children.size(); ++i) {
+                state = validate_state_flow(*sequence_node.children[i], state,
+                                             path + ".children[" + std::to_string(i) + "]", issues);
+            }
+            return state;
+        }
+
+        case NodeKind::Retry: {
+            const auto &retry_node = static_cast<const RetryNode &>(node);
+            if (retry_node.child) {
+                state = validate_state_flow(*retry_node.child, state, path + ".child", issues);
+            }
+            return state;
+        }
+
+        case NodeKind::RunUntil: {
+            const auto &run_until_node = static_cast<const RunUntilNode &>(node);
+            if (run_until_node.child) {
+                state = validate_state_flow(*run_until_node.child, state, path + ".child", issues);
+            }
+            return state;
+        }
+
+        case NodeKind::Repeat: {
+            const auto &repeat_node = static_cast<const RepeatNode &>(node);
+            if (repeat_node.child) {
+                const VehicleState entry_state = state.vehicle_state;
+                state = validate_state_flow(*repeat_node.child, state, path + ".child", issues);
+                // Only checked once, not simulated count times: if one run
+                // changes the vehicle's state (e.g. takeoff), the *second*
+                // run starts from a different state than the first did --
+                // that's wrong regardless of how large count is, so no need
+                // to re-walk the child count-1 more times to say so.
+                if (repeat_node.count > 1 && state.vehicle_state != entry_state) {
+                    issues.push_back({Severity::Error, path,
+                        "repeats " + std::to_string(repeat_node.count) + " times, but its child leaves the vehicle "
+                        "in a different state each run -- only the first run would make sense"});
+                }
+            }
+            return state;
+        }
+    }
+    return state;
+}
+
 std::vector<Issue> validate(const Plan & plan, const VehicleCapabilities *capabilities) {
     // Validate if the plan structure is well-posed and compatible with the given capabilities. A list of issues is returned if any.
     std::vector<Issue> issues;
@@ -162,6 +296,11 @@ std::vector<Issue> validate(const Plan & plan, const VehicleCapabilities *capabi
 
     // Validate the plan tree recursively, starting from the root node.
     validate_node(*plan.root, "root", capabilities, issues);
+
+    // Separate pass: sequencing sanity (land after land, goto before any
+    // takeoff, an exact repeated task, etc.), starting grounded since
+    // that's how every plan actually begins.
+    validate_state_flow(*plan.root, FlowState{}, "root", issues);
 
     return issues;
 }

@@ -80,7 +80,8 @@ private:
     // started_at is set on this run_until's first tick, so "time_elapsed"
     // measures time since THIS loop began, not since takeoff or plan start.
     struct RunUntilState { std::chrono::steady_clock::time_point started_at; };
-    using NodeState = std::variant<TaskState, SequenceState, RetryState, RunUntilState>;
+    struct RepeatState   { int completed = 0; };
+    using NodeState = std::variant<TaskState, SequenceState, RetryState, RunUntilState, RepeatState>;
 
     std::unordered_map<const PlanNode *, NodeState> state_map_;
     std::string active_path_;

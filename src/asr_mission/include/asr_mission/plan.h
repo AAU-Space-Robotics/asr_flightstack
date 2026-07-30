@@ -12,6 +12,9 @@
 //   retry     - re-runs its child up to max_attempts times on failure
 //   run_until - runs its child, succeeds early if any condition becomes true;
 //               otherwise finishes with the child's own terminal status
+//   repeat    - re-runs its child count times unconditionally, but aborts
+//               (fails) immediately if any run fails -- it never masks a
+//               failure the way retry's "try again" does
 #pragma once
 
 #include <memory>
@@ -39,7 +42,7 @@ public:
 
 // Tags a PlanNode's concrete type so the validator/executor can switch on it
 // instead of chaining dynamic_cast.
-enum class NodeKind { Task, Sequence, Retry, RunUntil };
+enum class NodeKind { Task, Sequence, Retry, RunUntil, Repeat };
 
 class PlanNode {
 public:
@@ -95,6 +98,15 @@ public:
     PlanNodePtr child;
 
     NodeKind kind() const override { return NodeKind::RunUntil; }
+    json to_json() const override;
+};
+
+class RepeatNode : public PlanNode {
+public:
+    int count = 1;
+    PlanNodePtr child;
+
+    NodeKind kind() const override { return NodeKind::Repeat; }
     json to_json() const override;
 };
 

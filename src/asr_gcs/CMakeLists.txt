@@ -110,6 +110,7 @@ add_executable(interface
   src/planner.cpp
   src/planner_panel.cpp
   src/save_load_dialog.cpp
+  src/height_chart.cpp
   ${imgui_SOURCE_DIR}/imgui.cpp
   ${imgui_SOURCE_DIR}/imgui_demo.cpp
   ${imgui_SOURCE_DIR}/imgui_draw.cpp
