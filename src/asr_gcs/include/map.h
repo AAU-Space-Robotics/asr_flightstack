@@ -28,6 +28,7 @@ class Location {
         ImVec2 latLonToTileOffset(double lat, double lon, int zoom);
         GLuint loadTileCached(int zoom, int x, int y);
         void MapWidget(double lat, double lon, float width, float height, float scale, int zoom = 12, GLuint placeholdetTile = 0, bool theme = 0);
+        void NoSatMap(double lat, double lon, float width, float height, float scale, int zoom, GLuint placeholderTile, bool theme);
 
     private:
         struct TileCoord { int x, y; };

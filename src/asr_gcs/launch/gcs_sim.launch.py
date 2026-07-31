@@ -22,8 +22,8 @@ def generate_launch_description():
         # Ground control station GUI
         Node(
             package='asr_gcs',
-            executable='GUI.py',
-            name='gcs_gui',
+            executable='interface',
+            name='aau_groundcontrol_node',
             namespace='asr/gcs',
             output='screen',
             additional_env={
