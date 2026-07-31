@@ -17,15 +17,12 @@ using namespace asr_mission;
 
 namespace {
 
-// Plans always live here -- Save/Load only ever deal in a name within it,
-// never an arbitrary path.
+// Save/Load only ever deal in a name within here, never an arbitrary path.
 std::string PlansDirectory() {
     return ament_index_cpp::get_package_share_directory("asr_mission") + "/plans";
 }
 
-// Matches BeginFixedPanel/CustomButton's own rounding and colors so a plain
-// ImGui::Button blends into the app's theme. `active` uses the sidebar's
-// orange highlight for "this one is currently selected."
+// `active` uses the sidebar's orange highlight for "currently selected."
 void PushThemedButtonStyle(bool theme, bool active) {
     ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 12.0f);
     ImGui::PushStyleColor(ImGuiCol_Text, Color::white_black(theme));
@@ -39,8 +36,7 @@ void PopThemedButtonStyle() {
     ImGui::PopStyleVar();
 }
 
-// Display-only -- callers still pass the real (lowercase) skill/vehicle
-// name to Planner; only the on-screen label gets capitalized.
+// Display-only -- Planner still gets the real lowercase name.
 std::string ToUpper(const std::string &s) {
     std::string result = s;
     std::transform(result.begin(), result.end(), result.begin(),
@@ -69,9 +65,8 @@ std::string FormatNumber(double value) {
     return buf;
 }
 
-// Ellipsizes to fit max_width -- the header's plan name has no fixed
-// length and would otherwise run on underneath the status/item pills
-// floating at a fixed position on the right.
+// Ellipsizes to fit max_width -- plan names can otherwise run on under the
+// fixed-position status/item pills.
 std::string TruncateToWidth(const std::string &text, float max_width) {
     if (ImGui::CalcTextSize(text.c_str()).x <= max_width) {
         return text;
@@ -83,21 +78,14 @@ std::string TruncateToWidth(const std::string &text, float max_width) {
     return truncated.empty() ? "..." : truncated + "...";
 }
 
-// Condition has no declared type the way a skill's ParamSpec does (just a
-// name string), so there's nowhere to read this from -- probes_found is a
-// count and can't be fractional. Belongs in the manifest schema eventually,
-// alongside the same kind of stopgap in planner.cpp's DefaultParamValue.
+// Condition has no declared type (unlike a skill's ParamSpec), so this is a
+// stopgap until the manifest schema carries one.
 bool ConditionValueIsInt(const std::string &cond) {
     return cond == "probes_found";
 }
 
-// The validator reports issues by JSON path (e.g.
-// "root.children[2].child.children[0].params.alt"), which is exactly what
-// you want for debugging but not for reading in the UI -- translate it into
-// the same "Task N" / "Subtask M" language the row numbers already use.
-// A group can currently only wrap plain tasks (not another group), so this
-// only ever needs to handle one level of nesting, not arbitrary depth.
-std::string HumanizeIssuePath(const std::string &path) {
+
+std::string ReadableIssuePath(const std::string &path) {
     static const std::regex kPattern(
         R"(^root\.children\[(\d+)\](?:\.child\.children\[(\d+)\])?(?:\.conditions_any\[(\d+)\]|\.params\.(.+))?$)");
     std::smatch m;
@@ -117,8 +105,7 @@ std::string HumanizeIssuePath(const std::string &path) {
     return result;
 }
 
-// "3 tasks  ·  <detail>" -- shared prefix for any wrapper kind (run_until/
-// repeat/retry), which otherwise only differ in what the detail says.
+// "3 tasks  ·  <detail>" -- shared prefix for any wrapper kind.
 std::string WrapperSubtitle(size_t task_count, const std::string &detail) {
     return std::to_string(task_count) + (task_count == 1 ? " task" : " tasks") + "  \xC2\xB7  " + detail;
 }
@@ -155,10 +142,33 @@ PlannerPanel::PlannerPanel(Planner &planner)
 {
 }
 
-void PlannerPanel::Draw(float scale, bool theme)
+void PlannerPanel::Draw(float scale, bool theme, float window_height)
 {
     DrawVehicleAndPalette(scale, theme);
-    DrawTaskList(scale, theme);
+    DrawTaskList(scale, theme, window_height);
+}
+
+std::pair<int, int> PlannerPanel::highlighted_task() const
+{
+    if (expanded_task_index_ < 0) { return {-1, -1}; }
+
+    const PlanNode *root = planner_.plan().root.get();
+    const SequenceNode *sequence = (root && root->kind() == NodeKind::Sequence)
+        ? static_cast<const SequenceNode *>(root) : nullptr;
+    if (!sequence || static_cast<size_t>(expanded_task_index_) >= sequence->children.size()) {
+        return {-1, -1};
+    }
+
+    const NodeKind kind = sequence->children[expanded_task_index_]->kind();
+    const bool is_group = kind == NodeKind::RunUntil || kind == NodeKind::Repeat || kind == NodeKind::Retry;
+    return {expanded_task_index_, is_group ? expanded_group_task_index_ : -1};
+}
+
+void PlannerPanel::SelectTask(size_t top_level_index, int nested_index)
+{
+    expanded_task_index_ = static_cast<int>(top_level_index);
+    expanded_group_task_index_ = nested_index;
+    scroll_to_expanded_ = true;
 }
 
 void PlannerPanel::DrawVehicleAndPalette(float scale, bool theme)
@@ -170,8 +180,7 @@ void PlannerPanel::DrawVehicleAndPalette(float scale, bool theme)
     const VehicleCapabilities *selected = planner_.selected_capabilities();
     const std::string preview_text = selected ? ToUpper(selected->vehicle) : std::string("SELECT VEHICLE...");
 
-    // BeginCombo's text-preview area (FrameBg/FrameBgHovered) and its arrow
-    // box (Button/ButtonHovered) are separate color slots.
+    // BeginCombo's preview area (FrameBg*) and arrow box (Button*) are separate slots.
     ImGui::PushStyleColor(ImGuiCol_FrameBg, Color::panelBorder(theme));
     ImGui::PushStyleColor(ImGuiCol_FrameBgHovered, Color::panelBorder(theme));
     ImGui::PushStyleColor(ImGuiCol_Button, Color::panelBorder(theme));
@@ -181,7 +190,8 @@ void PlannerPanel::DrawVehicleAndPalette(float scale, bool theme)
     ImGui::PushStyleColor(ImGuiCol_Header, IM_COL32(255, 130, 30, 255));
     ImGui::PushStyleColor(ImGuiCol_HeaderHovered, IM_COL32(255, 130, 30, 180));
     ImGui::PushStyleColor(ImGuiCol_HeaderActive, IM_COL32(255, 130, 30, 255));
-    ImGui::PushFont(winInit.getFont(181));  // bold 18
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(14.0f * scale, 12.0f * scale));
+    ImGui::PushFont(winInit.getFont(24));  // bold 24 -- this is the plan's primary identity control
     ImGui::SetNextItemWidth(-1.0f);
     if (ImGui::BeginCombo("##VehicleSelect", preview_text.c_str())) {
         for (const auto &[name, capabilities] : planner_.available_vehicles()) {
@@ -197,6 +207,7 @@ void PlannerPanel::DrawVehicleAndPalette(float scale, bool theme)
         ImGui::EndCombo();
     }
     ImGui::PopFont();
+    ImGui::PopStyleVar();
     ImGui::PopStyleColor(9);
 
     ImGui::PushStyleColor(ImGuiCol_Separator, Color::panelBorder(theme));
@@ -240,19 +251,23 @@ void PlannerPanel::DrawVehicleAndPalette(float scale, bool theme)
     EndFixedPanel();
 }
 
-void PlannerPanel::DrawTaskList(float scale, bool theme)
+void PlannerPanel::DrawTaskList(float scale, bool theme, float window_height)
 {
     ImGui::PushStyleColor(ImGuiCol_ScrollbarBg, Color::panelColor(theme));
     ImGui::PushStyleColor(ImGuiCol_ScrollbarGrab, Color::panelBorder(theme));
     ImGui::PushStyleColor(ImGuiCol_ScrollbarGrabHovered, IM_COL32(255, 130, 30, 180));
     ImGui::PushStyleColor(ImGuiCol_ScrollbarGrabActive, IM_COL32(255, 130, 30, 255));
-    BeginFixedPanel("MissionPlannerPanel", ImVec2(70 * scale, 220 * scale), ImVec2(450 * scale, 650 * scale),
+    // Height reaches the real window bottom (mirroring the map/height-chart
+    // sizing fix) rather than a fixed 650*scale, which only matched the
+    // reference resolution and otherwise left a gap before the true edge.
+    const float panel_top = 220.0f * scale;
+    const float panel_bottom_margin = 10.0f * scale;
+    const float panel_h = std::max(200.0f * scale, window_height - panel_top - panel_bottom_margin);
+    BeginFixedPanel("MissionPlannerPanel", ImVec2(70 * scale, panel_top), ImVec2(450 * scale, panel_h),
                      scale, theme, 0, ImVec2(8, 8));
 
-    // root/sequence are fetched fresh further down, after the Clear button:
-    // Clear can call planner_.clear() this same frame, which destroys the
-    // old root, so a pointer captured here would dangle by the time the row
-    // loop below reads it.
+    // Fetched fresh further down too -- Clear can destroy the root this same
+    // frame, so a pointer captured here would dangle by the row loop below.
     size_t count = 0;
     {
         const PlanNode *root_for_count = planner_.plan().root.get();
@@ -261,19 +276,13 @@ void PlannerPanel::DrawTaskList(float scale, bool theme)
         }
     }
 
-    // Computed once here (not just inside the row loop below) so the
-    // header's status pill can summarize it even when the list is empty.
+    // Computed here (not just in the row loop) so the status pill can
+    // summarize it even when the list is empty.
     const std::vector<Issue> issues = planner_.local_issues();
 
     // --- Header: title + name, sized to leave room for the pills ---------
-    // header_top_y/title_h capture the title line's own span so every other
-    // element on this row (name, pills) can center itself against that
-    // span, rather than each other's differing heights.
     const float header_top_y = ImGui::GetCursorPosY();
 
-    // Pills are computed (not yet drawn) before the name, so the name knows
-    // how much room is actually left and can truncate to fit it instead of
-    // running on underneath them.
     char count_text[24];
     std::snprintf(count_text, sizeof(count_text), "%zu item%s", count, count == 1 ? "" : "s");
     const ImVec2 count_text_size = ImGui::CalcTextSize(count_text);
@@ -281,8 +290,6 @@ void PlannerPanel::DrawTaskList(float scale, bool theme)
     const float pill_h = count_text_size.y + 6.0f * scale;
     const float pill_x = ImGui::GetWindowContentRegionMax().x - pill_w;
 
-    // Status pill only renders once the plan has at least one item (see
-    // below), so it's only counted as eating into the name's space then.
     size_t error_count = 0, warning_count = 0;
     for (const auto &issue : issues) {
         if (issue.severity == Severity::Error) { ++error_count; } else { ++warning_count; }
@@ -327,9 +334,6 @@ void PlannerPanel::DrawTaskList(float scale, bool theme)
     const float header_center_y = header_top_y + title_h * 0.5f;
 
     // --- Status pill: issue counts, hover for the full list --------------
-    // Skipped entirely on an empty plan -- structural issues like "no root
-    // node" are real, but showing errors before the user has added a
-    // single task reads as the tool complaining for no reason.
     ImDrawList *header_draw_list = ImGui::GetWindowDrawList();
     if (count > 0) {
         ImGui::SetCursorPos(ImVec2(status_x, header_center_y - status_h * 0.5f));
@@ -337,9 +341,6 @@ void PlannerPanel::DrawTaskList(float scale, bool theme)
         header_draw_list->AddRectFilled(status_screen_pos, ImVec2(status_screen_pos.x + status_w, status_screen_pos.y + status_h),
                                         status_bg, status_h * 0.5f);
         ImGui::SetCursorScreenPos(ImVec2(status_screen_pos.x + 10.0f * scale, status_screen_pos.y + 3.0f * scale));
-        // White on the colored (red/amber) backgrounds for contrast, same
-        // reasoning as Clear's always-white text; themed on the neutral
-        // "no issues" background, matching the item-count pill beside it.
         ImGui::PushStyleColor(ImGuiCol_Text, status_has_issues ? IM_COL32(255, 255, 255, 255) : Color::white_black(theme));
         ImGui::TextUnformatted(status_text);
         ImGui::PopStyleColor();
@@ -352,7 +353,7 @@ void PlannerPanel::DrawTaskList(float scale, bool theme)
             for (const auto &issue : issues) {
                 const ImVec4 color = issue.severity == Severity::Error
                     ? ImVec4(1.0f, 0.36f, 0.36f, 1.0f) : ImVec4(0.96f, 0.78f, 0.30f, 1.0f);
-                ImGui::TextColored(color, "%s: %s", HumanizeIssuePath(issue.path).c_str(), issue.message.c_str());
+                ImGui::TextColored(color, "%s: %s", ReadableIssuePath(issue.path).c_str(), issue.message.c_str());
             }
             ImGui::EndTooltip();
         }
@@ -369,11 +370,9 @@ void PlannerPanel::DrawTaskList(float scale, bool theme)
         ImGui::PopStyleColor();
     }
 
-    // Clear/pill are placed via manual SetCursorPos, vertically centered on
-    // the title -- left alone, the next auto-laid-out item (the separator)
-    // would inherit whatever cursor position that manual placement last
-    // left behind rather than clearing the taller title's actual bottom,
-    // making the gap above the separator uneven. Pin it explicitly instead.
+    // Pinned explicitly -- the pills above were placed via manual
+    // SetCursorPos, so the next auto-laid-out item would otherwise inherit
+    // wherever that last left the cursor instead of the title's real bottom.
     ImGui::SetCursorPosY(header_top_y + title_h + 8.0f * scale);
     ImGui::PushStyleColor(ImGuiCol_Separator, Color::panelBorder(theme));
     ImGui::Separator();
@@ -383,11 +382,8 @@ void PlannerPanel::DrawTaskList(float scale, bool theme)
     const SequenceNode *sequence = (root && root->kind() == NodeKind::Sequence)
         ? static_cast<const SequenceNode *>(root) : nullptr;
 
-    // Rows scroll in their own child, sized to leave room for the Save/Load
-    // footer below -- otherwise the footer would sit at the bottom of the
-    // scrollable content and need scrolling to reach once the list grows.
-    // Computed with the footer's own (larger) FramePadding so the reserved
-    // space matches what the footer actually draws at.
+    // Rows scroll in their own child, leaving room below for the Save/Load
+    // footer (computed with its own larger FramePadding to match).
     ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(16.0f * scale, 10.0f * scale));
     const float footer_h = ImGui::GetFrameHeightWithSpacing() + 16.0f * scale;
     ImGui::PopStyleVar();
@@ -403,15 +399,13 @@ void PlannerPanel::DrawTaskList(float scale, bool theme)
         const float row_width = ImGui::GetContentRegionAvail().x;
         const VehicleCapabilities *task_capabilities = planner_.selected_capabilities();
 
-        // Renders one skill's param widgets, generic over where the values
-        // come from and where edits are written back to -- reused for both
-        // a top-level task and a task nested inside a run_until group.
+        // Generic over where values come from/are written to -- reused for
+        // both a top-level task and one nested inside a group.
         auto draw_param_editor = [&](const nlohmann::json &params, const std::map<std::string, ParamSpec> &param_specs,
                                       const std::function<void(const std::string &, const nlohmann::json &)> &set_param) {
             for (const auto &[param_name, param_spec] : param_specs) {
-                // No current skill uses polygon params (only the shelved
-                // search_grid would); needs its own vertex-list editor
-                // eventually.
+                // No current skill uses polygon params; needs its own
+                // vertex-list editor eventually.
                 if (param_spec.type == "polygon") {
                     ImGui::TextDisabled("%s: editing not supported yet", param_name.c_str());
                     continue;
@@ -449,8 +443,6 @@ void PlannerPanel::DrawTaskList(float scale, bool theme)
                         set_param(param_name, value);
                     }
                 } else {
-                    // Typed input, not a slider -- easier to enter an exact
-                    // value than drag one out precisely.
                     float value = static_cast<float>(params.value(param_name, 0.0));
                     ImGui::SetNextItemWidth(140.0f * scale);
                     if (ImGui::InputFloat(param_name.c_str(), &value)) {
@@ -461,9 +453,8 @@ void PlannerPanel::DrawTaskList(float scale, bool theme)
             }
         };
 
-        // remove/move/wrap mutate sequence->children directly, so applying
-        // one mid-loop would invalidate the indices/iterators the rest of
-        // the loop relies on -- deferred until after the loop instead.
+        // Deferred until after the loop -- applying mid-loop would
+        // invalidate the indices the rest of the loop relies on.
         int remove_index = -1;
         int move_up_index = -1;
         int move_down_index = -1;
@@ -527,6 +518,14 @@ void PlannerPanel::DrawTaskList(float scale, bool theme)
             const int display_index = static_cast<int>(i) + 1;
             const std::string node_path = "root.children[" + std::to_string(i) + "]";
 
+            // Must run before any manual SetCursorScreenPos below -- SetScrollHereY
+            // reads the auto-layout cursor position, which is still at this
+            // row's top only until the first manual repositioning happens.
+            if (scroll_to_expanded_ && expanded_task_index_ == static_cast<int>(i)) {
+                ImGui::SetScrollHereY(0.2f);
+                scroll_to_expanded_ = false;
+            }
+
             if (!first_row) {
                 const ImVec2 sep_pos = ImGui::GetCursorScreenPos();
                 ImGui::GetWindowDrawList()->AddLine(
@@ -553,8 +552,6 @@ void PlannerPanel::DrawTaskList(float scale, bool theme)
                 const PlanNode *inner_child = run_until ? run_until->child.get() : repeat ? repeat->child.get() : retry->child.get();
 
                 const char *label = run_until ? "RUN UNTIL" : repeat ? "REPEAT" : "RETRY";
-                // Distinct accent per wrapper kind so they read apart from
-                // each other (and from a plain task's neutral badge).
                 const ImU32 accent = run_until ? IM_COL32(255, 130, 30, 255)    // orange
                                     : repeat   ? IM_COL32(90, 150, 255, 255)    // blue
                                                : IM_COL32(190, 130, 255, 255);  // purple
@@ -568,8 +565,6 @@ void PlannerPanel::DrawTaskList(float scale, bool theme)
                     subtitle = WrapperSubtitle(WrapperChildTaskCount(inner_child), "retry up to " + std::to_string(retry->max_attempts) + "x");
                 }
 
-                // Orange/blue/purple badge/text when otherwise-clean, to
-                // read as visually distinct from a plain task at a glance.
                 const ImU32 status_color = has_error   ? IM_COL32(255, 92, 92, 255)
                                           : has_warning ? IM_COL32(245, 200, 76, 255)
                                                         : accent;
@@ -605,11 +600,8 @@ void PlannerPanel::DrawTaskList(float scale, bool theme)
                 ImGui::EndGroup();
                 const float text_height = ImGui::GetItemRectSize().y;
                 const float row_height = std::max(badge_diameter, text_height);
-                // Buttons align with just the title line, not the full
-                // title+subtitle block -- otherwise they float at the
-                // vertical center of both lines combined, which drifts away
-                // from the title as the subtitle (task count + detail)
-                // grows longer than a task's usually does.
+                // Aligned to the title line only, not the full title+subtitle
+                // block, so buttons don't drift as the subtitle grows longer.
                 const float button_align_h = std::max(badge_diameter, title_line_h);
 
                 const bool content_hovered = ImGui::IsMouseHoveringRect(
@@ -656,10 +648,6 @@ void PlannerPanel::DrawTaskList(float scale, bool theme)
                     ImGui::PushStyleColor(ImGuiCol_FrameBgActive, Color::panelBorder(theme));
 
                     if (run_until) {
-                    // BeginCombo's text-preview area (FrameBg*) and its
-                    // arrow box (Button*) are separate color slots -- easy
-                    // to theme the former and still get a stock-colored
-                    // arrow, same class of bug the vehicle dropdown had.
                     ImGui::PushStyleColor(ImGuiCol_Button, Color::panelBorder(theme));
                     ImGui::PushStyleColor(ImGuiCol_ButtonHovered, Color::panelBorder(theme));
                     ImGui::PushStyleColor(ImGuiCol_Header, IM_COL32(255, 130, 30, 255));
@@ -753,10 +741,7 @@ void PlannerPanel::DrawTaskList(float scale, bool theme)
                     } else if (repeat) {
                         int count = repeat->count;
                         ImGui::SetNextItemWidth(90.0f * scale);
-                        // step=0 disables the +/- buttons -- typing an
-                        // exact value directly, not incrementing, matches
-                        // this file's preference elsewhere (task params use
-                        // plain InputFloat/InputInt over sliders too).
+                        // step=0 disables the +/- buttons.
                         if (ImGui::InputInt("Count", &count, 0, 0)) {
                             planner_.set_repeat_count(i, count);
                         }
@@ -787,10 +772,7 @@ void PlannerPanel::DrawTaskList(float scale, bool theme)
 
                     if (inner_child && inner_child->kind() == NodeKind::Sequence) {
                         const auto &inner = static_cast<const SequenceNode &>(*inner_child);
-                        // Same deferred-mutation reasoning as the top-level
-                        // loop: removing/reordering mid-iteration would
-                        // invalidate inner.children out from under the loop
-                        // still walking it.
+                        // Deferred, same reasoning as the top-level loop.
                         int nested_remove_index = -1;
                         int nested_move_up_index = -1;
                         int nested_move_down_index = -1;
@@ -836,10 +818,10 @@ void PlannerPanel::DrawTaskList(float scale, bool theme)
                             ImGui::EndGroup();
                             const float nested_row_height = ImGui::GetItemRectSize().y;
 
-                            // Whole content block (both lines), not just
-                            // the skill-name line, is the click target --
-                            // matches the top-level row's own click area.
-                            const bool nested_hovered = nested_has_params && ImGui::IsMouseHoveringRect(
+                            // Whole content block is the click target, matching the top-level row.
+                            // Gated on nested_spec existing (a recognized skill), not on it having
+                            // params -- same reasoning as the top-level row's own click gate.
+                            const bool nested_hovered = nested_spec && ImGui::IsMouseHoveringRect(
                                 nested_row_start, ImVec2(nested_row_start.x + nested_content_w, nested_row_start.y + nested_row_height));
                             if (nested_hovered) {
                                 ImGui::GetWindowDrawList()->AddRectFilled(
@@ -892,11 +874,9 @@ void PlannerPanel::DrawTaskList(float scale, bool theme)
                             ImGui::Spacing();
                         }
 
-                        // Removing the last task in a group dissolves the
-                        // whole group (planner_'s job), which would make
-                        // expanded_task_index_ point at whatever now
-                        // occupies this slot -- clear both indices rather
-                        // than risk that.
+                        // Removing the last task dissolves the whole group,
+                        // which would leave expanded_task_index_ pointing at
+                        // whatever now occupies this slot -- clear both.
                         if (nested_remove_index >= 0) {
                             const bool group_will_dissolve = inner.children.size() <= 1;
                             planner_.remove_group_task(i, static_cast<size_t>(nested_remove_index));
@@ -941,7 +921,6 @@ void PlannerPanel::DrawTaskList(float scale, bool theme)
                 auto skill_it = task_capabilities->skills.find(task.skill);
                 if (skill_it != task_capabilities->skills.end()) { spec = &skill_it->second; }
             }
-            const bool has_editable_params = spec && !spec->params.empty();
             const bool is_selected = selected_task_indices_.count(i) > 0;
 
             const ImU32 status_color = has_error   ? IM_COL32(255, 92, 92, 255)
@@ -953,9 +932,7 @@ void PlannerPanel::DrawTaskList(float scale, bool theme)
             const float badge_diameter = badge_radius * 2.0f;
             const ImVec2 badge_center(row_start.x + badge_radius, row_start.y + badge_radius);
 
-            // Hoisted so the hover/click check below can exclude the button
-            // strip -- otherwise clicking a button would also register as a
-            // click on the row content underneath it.
+            // Hoisted so the hover/click check below can exclude the button strip.
             const float button_size = ImGui::GetFrameHeight();
             const float buttons_w = button_size * 3.0f + ImGui::GetStyle().ItemSpacing.x * 2.0f;
             const float content_w = row_width - buttons_w - 8.0f * scale;
@@ -982,10 +959,8 @@ void PlannerPanel::DrawTaskList(float scale, bool theme)
             const float text_height = ImGui::GetItemRectSize().y;
             const float row_height = std::max(badge_diameter, text_height);
 
-            // Manual rect check rather than ImGui's item-hover system,
-            // since a "row" here is a badge + text group + buttons, not one
-            // ImGui item. Scoped to content_w so it doesn't also fire when
-            // clicking the up/down/remove buttons on the same row.
+            // Manual rect check -- a "row" here is badge + text + buttons,
+            // not one ImGui item. Scoped to content_w to exclude the buttons.
             const bool content_hovered = ImGui::IsMouseHoveringRect(
                 row_start, ImVec2(row_start.x + content_w, row_start.y + row_height));
             if (is_selected) {
@@ -999,7 +974,14 @@ void PlannerPanel::DrawTaskList(float scale, bool theme)
                 if (ImGui::GetIO().KeyCtrl) {
                     if (is_selected) { selected_task_indices_.erase(i); }
                     else { selected_task_indices_.insert(i); }
-                } else if (has_editable_params) {
+                } else if (spec) {
+                    // Gated on spec existing (a valid, recognized skill), not on
+                    // it having params -- a param-less task (land/rth/rtl) is
+                    // still selectable, since selecting is also how its map
+                    // marker gets highlighted. spec == nullptr means the skill
+                    // isn't recognized by the vehicle (already flagged red by
+                    // the validator); draw_param_editor below would dereference
+                    // a null spec for that row, so it must stay unselectable.
                     expanded_task_index_ = (expanded_task_index_ == static_cast<int>(i)) ? -1 : static_cast<int>(i);
                 }
             }
@@ -1017,34 +999,29 @@ void PlannerPanel::DrawTaskList(float scale, bool theme)
             PopThemedButtonStyle();
             ImGui::SameLine();
             ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 12.0f);
-            // Always white -- this button's background is a fixed dark red
-            // regardless of theme, so theme-toggled text goes low-contrast
-            // (black) in light theme.
+            // Always white -- this button's background is a fixed dark red regardless of theme.
             ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(255, 255, 255, 255));
             ImGui::PushStyleColor(ImGuiCol_Button, IM_COL32(140, 40, 40, 255));
             ImGui::PushStyleColor(ImGuiCol_ButtonHovered, IM_COL32(180, 60, 60, 255));
             ImGui::PushStyleColor(ImGuiCol_ButtonActive, IM_COL32(200, 70, 70, 255));
-            // Uppercase -- lowercase "x" has no ascender/descender, so
-            // ImGui centers it within the *font's* full line-height box
-            // rather than its own visible ink, reading as slightly high.
             if (ImGui::Button("X", ImVec2(button_size, button_size))) { remove_index = static_cast<int>(i); }
             ImGui::PopStyleColor(4);
             ImGui::PopStyleVar();
             ImGui::PopID();
 
             // Dummy() reserves the row's space as a real item -- a manual
-            // SetCursorScreenPos alone leaves ImGui unable to tell how far
-            // the window's content extends past the last row.
+            // SetCursorScreenPos alone doesn't let ImGui know content extends past the last row.
             ImGui::SetCursorScreenPos(row_start);
             ImGui::Dummy(ImVec2(row_width, row_height + 10.0f * scale));
 
-            // Expanded params render inline, in the normal item flow, so
-            // they push subsequent rows down like any other block rather
-            // than floating over them. PushID(i) keeps widget IDs unique
-            // per row -- without it, two rows with a same-named param
-            // (e.g. two goto tasks' "yaw") would share ImGui's ID and
-            // fight over edit state.
-            if (expanded_task_index_ == static_cast<int>(i)) {
+            // PushID(i) keeps widget IDs unique per row -- without it, two
+            // rows with a same-named param (e.g. two goto tasks' "yaw")
+            // would share ImGui's ID and fight over edit state.
+            // spec is checked again here, not just at the click site above --
+            // SelectTask() (a map-marker click) can set expanded_task_index_
+            // directly, bypassing that gate, and could otherwise land on a
+            // row whose skill isn't recognized (spec == nullptr).
+            if (expanded_task_index_ == static_cast<int>(i) && spec) {
                 ImGui::PushID(static_cast<int>(i));
                 ImGui::Indent(badge_diameter + 12.0f * scale);
                 ImGui::PushStyleColor(ImGuiCol_Text, Color::white_black(theme));
@@ -1053,9 +1030,6 @@ void PlannerPanel::DrawTaskList(float scale, bool theme)
                 ImGui::PushStyleColor(ImGuiCol_FrameBgActive, Color::panelBorder(theme));
                 ImGui::PushStyleColor(ImGuiCol_CheckMark, IM_COL32(255, 130, 30, 255));
 
-                // spec is guaranteed non-null with non-empty params here --
-                // has_editable_params gated the click that set
-                // expanded_task_index_ to this row in the first place.
                 draw_param_editor(task.params, spec->params,
                     [&](const std::string &param_name, const nlohmann::json &value) {
                         planner_.set_task_param(i, param_name, value);
@@ -1068,11 +1042,8 @@ void PlannerPanel::DrawTaskList(float scale, bool theme)
             }
         }
 
-        // Keep expanded_task_index_ pointing at the same row after a
-        // reorder/removal/grouping shifts indices -- otherwise the wrong
-        // row (or an out-of-range one) would appear expanded next frame.
-        // Selection is simpler to just drop than to remap through an
-        // arbitrary structural change.
+        // Remap expanded_task_index_ through the shift so the same row stays
+        // expanded; selection is simpler to just drop than remap.
         if (remove_index >= 0) {
             planner_.remove_task(static_cast<size_t>(remove_index));
             if (remove_index == expanded_task_index_) {
@@ -1116,16 +1087,12 @@ void PlannerPanel::DrawTaskList(float scale, bool theme)
 
     ImGui::EndChild();
 
-    // Footer: always visible below the scrolling rows, not part of the
-    // scrollable content.
+    // Footer: always visible below the scrolling rows.
     ImGui::PushStyleColor(ImGuiCol_Separator, Color::panelBorder(theme));
     ImGui::Separator();
     ImGui::PopStyleColor();
 
-    // Centered within whatever space is left below the divider down to the
-    // panel's bottom edge -- footer_h above reserves generous room, and
-    // just flowing straight after Separator() left the buttons hugging its
-    // top with dead air beneath instead of even margin above and below.
+    // Centered in the space left below the divider, rather than hugging its top.
     const float button_h = ImGui::GetFontSize() + 20.0f * scale;  // matches the FramePadding pushed below
     const float band_remaining = ImGui::GetContentRegionAvail().y;
     ImGui::SetCursorPosY(ImGui::GetCursorPosY() + std::max(0.0f, (band_remaining - button_h) * 0.5f));
@@ -1158,9 +1125,7 @@ void PlannerPanel::DrawTaskList(float scale, bool theme)
     ImGui::SameLine();
     const float clear_w = ImGui::CalcTextSize("Clear").x + ImGui::GetStyle().FramePadding.x * 2.0f;
     ImGui::SetCursorPosX(ImGui::GetWindowContentRegionMax().x - clear_w);
-    // Always white, not theme-toggled -- this button's background is a
-    // fixed dark red regardless of light/dark theme, so black text (what
-    // white_black(theme) gives in light theme) is low-contrast.
+    // Always white -- this button's background is a fixed dark red regardless of theme.
     ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(255, 255, 255, 255));
     ImGui::PushStyleColor(ImGuiCol_Button, IM_COL32(140, 40, 40, 255));
     ImGui::PushStyleColor(ImGuiCol_ButtonHovered, IM_COL32(180, 60, 60, 255));
@@ -1171,21 +1136,17 @@ void PlannerPanel::DrawTaskList(float scale, bool theme)
     ImGui::PopStyleColor(4);
     ImGui::PopStyleVar();
 
-    // NoTitleBar: BeginPopupModal would otherwise render its name argument
-    // ("ConfirmClearPopup", an internal ID) as a literal title-bar caption.
+    // NoTitleBar: BeginPopupModal would otherwise render the internal ID
+    // ("ConfirmClearPopup") as a literal title-bar caption.
     ImGui::PushStyleColor(ImGuiCol_PopupBg, Color::panelColor(theme));
     ImGui::PushStyleColor(ImGuiCol_Border, Color::panelBorder(theme));
     ImGui::PushStyleColor(ImGuiCol_Text, Color::white_black(theme));
-    // Centered on the app window -- this is a blocking confirmation with no
-    // particular anchor point, unlike a row-relative control.
     ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
     if (ImGui::BeginPopupModal("ConfirmClearPopup", nullptr,
                                ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoTitleBar)) {
         ImGui::Text("Clear the entire flight plan?");
         ImGui::Spacing();
-        // Always white -- overrides the ambient theme-toggled Text color
-        // pushed above, since this button's red background stays fixed
-        // regardless of theme.
+        // Always white -- overrides the ambient theme-toggled Text color pushed above.
         ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(255, 255, 255, 255));
         ImGui::PushStyleColor(ImGuiCol_Button, IM_COL32(140, 40, 40, 255));
         ImGui::PushStyleColor(ImGuiCol_ButtonHovered, IM_COL32(180, 60, 60, 255));

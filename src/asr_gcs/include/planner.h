@@ -39,16 +39,14 @@ public:
     void move_task_down(size_t index);
     void set_task_param(size_t index, const std::string &param_name, const nlohmann::json &value);
 
-    // Each splices the top-level tasks at `indices` (which must be
-    // contiguous, ascending, and plain tasks -- not already grouped) into a
-    // new node of the given kind, in their place. No-op if the selection
-    // doesn't qualify.
+    // Splices the top-level tasks at `indices` (contiguous, ascending, plain
+    // tasks only) into a new node of the given kind, in their place. No-op
+    // if the selection doesn't qualify.
     void wrap_in_run_until(const std::vector<size_t> &indices);
     void wrap_in_repeat(const std::vector<size_t> &indices, int count);
     void wrap_in_retry(const std::vector<size_t> &indices, int max_attempts);
-    // Inverse of any of the three: replaces the group at `group_index` with
-    // its child tasks, spliced back into the top level in their original
-    // order. No-op if group_index isn't one of run_until/repeat/retry.
+    // Inverse of any of the three: replaces the group with its child tasks,
+    // spliced back into the top level in order.
     void ungroup(size_t group_index);
 
     // No-ops on an out-of-range group_index or one that isn't a run_until.
@@ -61,10 +59,8 @@ public:
     // Works for a task nested under any of the three wrapper kinds.
     void set_group_task_param(size_t group_index, size_t task_index,
                                const std::string &param_name, const nlohmann::json &value);
-    // If removing task_index would leave the group with no tasks at all,
-    // the whole group is removed too (a run_until/repeat/retry wrapping
-    // nothing doesn't mean anything) -- so group_index may no longer name
-    // anything after this call.
+    // If this empties the group, the whole group is removed too -- so
+    // group_index may no longer name anything after this call.
     void remove_group_task(size_t group_index, size_t task_index);
     void move_group_task_up(size_t group_index, size_t task_index);
     void move_group_task_down(size_t group_index, size_t task_index);
@@ -96,12 +92,11 @@ private:
 
     // nullptr if group_index is out of range or not a run_until node.
     asr_mission::RunUntilNode *group_at(size_t group_index);
-    // nullptr unless group_index names a run_until/repeat/retry node whose
-    // child is itself a Sequence -- true for every such node this class
-    // creates via wrap_in_*, but not guaranteed for a hand-authored plan.
+    // nullptr unless group_index names a wrapper node whose child is itself
+    // a Sequence -- true for every node this class creates via wrap_in_*,
+    // but not guaranteed for a hand-authored plan.
     asr_mission::SequenceNode *wrapper_child_at(size_t group_index);
-    // The plan's root, cast down, or nullptr if it's absent or not a
-    // Sequence (e.g. a loaded plan whose root is some other node kind).
+    // The plan's root, cast down, or nullptr if absent or not a Sequence.
     asr_mission::SequenceNode *sequence_root();
 
     asr_mission::Plan plan_;

@@ -1,6 +1,7 @@
 import os, urllib.request, urllib.error, time, math
 
-TILE_DIR = "/home/dksoren/aau_workspace/asr_flightstack/src/asr_gcs/tiles"
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+TILE_DIR = os.path.normpath(os.path.join(SCRIPT_DIR, "..", "tiles"))
 
 # --- pick your tile source here ---
 # "esri"    - free, no key, but real-world max zoom is often 19 outside the US

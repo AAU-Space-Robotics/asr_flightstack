@@ -148,6 +148,7 @@ json Plan::to_json() const {
     json j;
     j["plan_id"] = plan_id;
     j["schema_version"] = schema_version;
+    j["vehicle"] = vehicle;
     j["root"] = root->to_json();
     return j;
 }
@@ -167,6 +168,9 @@ Plan Plan::from_json(const json &j) {
     }
     if (j.contains("schema_version")) {
         plan.schema_version = j.at("schema_version").get<int>();
+    }
+    if (j.contains("vehicle")) {
+        plan.vehicle = j.at("vehicle").get<std::string>();
     }
     plan.root = node_from_json(j.at("root"), "root");
     return plan;

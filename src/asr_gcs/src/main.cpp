@@ -5,6 +5,7 @@
 #include "app_window.h"
 #include "info_panels.h"
 #include "map.h"
+#include "map_overlay.h"
 #include "widgets.h"
 #include "planner.h"
 #include "planner_panel.h"
@@ -579,10 +580,8 @@ int main(int argc, char **argv) {
         }
         case 1:
         {
-            planner_panel.Draw(scale, theme);
+            planner_panel.Draw(scale, theme, static_cast<float>(y_sc));
 
-            // Static view for now -- no click-to-set-waypoint or plan
-            // markers yet, that's a separate follow-up.
             // The left panel's 70*scale gap from the window edge exists to
             // clear the sidebar -- there's no equivalent on the right, so
             // mirroring that same 70px here just left dead space. Instead,
@@ -598,7 +597,16 @@ int main(int argc, char **argv) {
             const float map_w = std::max(200.0f * scale, static_cast<float>(x_sc) - map_x - map_right_margin);
             BeginFixedPanel("PlannerMapPanel", ImVec2(map_x, 70 * scale), ImVec2(map_w, 800 * scale),
                     scale, theme, 0, ImVec2(0, 0));
-            location.MapWidget(testLat, testLon, map_w, 800 * scale, scale, map_zoom, placeholderTile, theme);
+            ImVec2 planner_map_pos = location.MapWidget(testLat, testLon, map_w, 800 * scale, scale, map_zoom, placeholderTile, theme);
+            // home == center for now -- there's no pan yet, so the widget's
+            // view is always centered on the same fixed point the plan's
+            // local offsets are projected from.
+            const auto [highlighted_top, highlighted_nested] = planner_panel.highlighted_task();
+            MapTaskClick map_click = DrawPlanRouteOverlay(location, planner.plan(), testLat, testLon, testLat, testLon, map_zoom,
+                                 planner_map_pos, map_w, 800 * scale, scale, highlighted_top, highlighted_nested);
+            if (map_click.clicked) {
+                planner_panel.SelectTask(map_click.top_level_index, map_click.nested_index);
+            }
             EndFixedPanel();
 
             BeginOverlayPanel(draw_list, "PlannerMapUtilsPanel", ImVec2(map_x + map_w - 70.0f * scale, 72 * scale), ImVec2(49 * scale, 150 * scale), scale, theme);

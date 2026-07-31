@@ -118,6 +118,10 @@ class Plan {
 public:
     std::string plan_id;
     int schema_version = kSchemaVersion;
+    // Vehicle this plan was authored for (the same name key as
+    // VehicleCapabilities::vehicle), e.g. "gunhild" -- empty if never
+    // assigned (older saves, or a plan not yet targeted at a vehicle).
+    std::string vehicle;
     PlanNodePtr root;
 
     json to_json() const;

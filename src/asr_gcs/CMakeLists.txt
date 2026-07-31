@@ -106,6 +106,7 @@ add_executable(interface
   src/app_window.cpp
   src/info_panels.cpp
   src/map.cpp
+  src/map_overlay.cpp
   src/widgets.cpp
   src/planner.cpp
   src/planner_panel.cpp

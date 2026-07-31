@@ -1,0 +1,36 @@
+vehicle: gunhild
+
+# alt and pos.z are positive-up (metres above the takeoff point) --
+# mission_executor_node negates them internally before sending to
+# asr_autopilot, which works in NED (up is negative Z).
+skills:
+  takeoff:
+    params:
+      alt: {type: float, min: 0.5, max: 10.0}
+
+  land:
+    params: {}
+
+  goto:
+    params:
+      pos: {type: point}
+      yaw: {type: float, required: false, min: -3.1416, max: 3.1416}
+
+  rth:
+    params: {}
+
+  rtl:
+    params: {}
+
+  # arm/disarm are not planner-facing skills -- mission_executor_node arms
+  # automatically before the first takeoff/goto/spin/rth/rtl if the vehicle
+  # isn't already armed (see AutoArmSkillHandle in mission_executor_node.cpp).
+
+  # search_grid not yet implemented in asr_autopilot.
+  # Add here when the corresponding UAVCommand command_type exists.
+
+conditions:
+  - probes_found
+  - grid_exhausted
+  - battery_low
+  - time_elapsed

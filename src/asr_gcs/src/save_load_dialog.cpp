@@ -89,9 +89,8 @@ void SaveLoadDialog::Draw(float scale, bool theme)
 {
     if (!open_) { return; }
 
-    // Full app height minus a top/bottom margin, centered, with a fixed
-    // (narrower than the viewport) width -- the modal's own dim background
-    // covers the rest, reading as "clear" gutters on either side.
+    // Fixed width narrower than the viewport -- the modal's dim background
+    // covers the rest, reading as clear gutters on either side.
     ImGuiViewport *viewport = ImGui::GetMainViewport();
     const float margin_y = 60.0f * scale;
     ImGui::SetNextWindowPos(viewport->GetCenter(), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
@@ -163,8 +162,7 @@ void SaveLoadDialog::Draw(float scale, bool theme)
             const bool armed = (armed_delete_index_ == static_cast<int>(idx));
             bool deleted = false;
             if (armed) {
-                // Always white -- this button's background is a fixed dark
-                // red regardless of theme.
+                // Always white -- this button's background is a fixed dark red regardless of theme.
                 ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(255, 255, 255, 255));
                 ImGui::PushStyleColor(ImGuiCol_Button, IM_COL32(140, 40, 40, 255));
                 ImGui::PushStyleColor(ImGuiCol_ButtonHovered, IM_COL32(180, 60, 60, 255));

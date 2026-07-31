@@ -72,8 +72,6 @@ private:
     ConditionSource &conditions_;
     Status status_ = Status::Running;
 
-    // Per-node runtime state, kept outside the plan tree so the tree stays
-    // a plain inspectable data structure while the executor runs it.
     struct TaskState     { std::unique_ptr<SkillHandle> handle; };
     struct SequenceState { size_t index = 0; };
     struct RetryState    { int attempts = 0; };

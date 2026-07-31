@@ -109,9 +109,8 @@ Status PlanExecutor::tick_node(const PlanNode &node, const std::string &path) {
             auto &state = std::get<RepeatState>(state_map_.at(&node));
 
             Status child_status = tick_node(*repeat.child, path + ".child");
-            // Aborts immediately on failure rather than masking it the way
-            // retry's "try again" does -- repeat is for deliberate
-            // repetition, not resilience.
+            // Aborts on failure rather than masking it -- repeat is for
+            // deliberate repetition, not resilience (that's retry's job).
             if (child_status != Status::Success) { return child_status; }
 
             state.completed++;

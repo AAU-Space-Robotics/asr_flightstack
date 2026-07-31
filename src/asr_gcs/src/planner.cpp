@@ -29,8 +29,7 @@ nlohmann::json DefaultParamValue(const std::string &skill, const std::string &pa
 }
 
 // mission_executor_node.cpp matches start/abort requests against this to
-// confirm they target the currently-staged plan -- without ever assigning
-// one, every plan_id was "", making that check vacuous.
+// confirm they target the currently-staged plan.
 std::string GeneratePlanId() {
     static std::mt19937_64 rng{std::random_device{}()};
     std::uniform_int_distribution<uint64_t> dist;
@@ -39,11 +38,9 @@ std::string GeneratePlanId() {
     return buf;
 }
 
-// Shared by wrap_in_run_until/repeat/retry. Validates `indices` (must be
-// non-empty, contiguous, ascending, in range, and name only plain tasks --
-// not already-grouped ones) and, if they qualify, splices them out of
-// `sequence` into a new SequenceNode. Returns nullptr (sequence left
-// untouched) otherwise.
+// Shared by wrap_in_run_until/repeat/retry. Validates `indices` (non-empty,
+// contiguous, ascending, in range, only plain tasks) and splices them out of
+// `sequence` into a new SequenceNode, or returns nullptr if they don't qualify.
 std::unique_ptr<SequenceNode> ExtractContiguousTasks(SequenceNode &sequence, const std::vector<size_t> &indices,
                                                       size_t &out_insert_at) {
     if (indices.empty()) { return nullptr; }
@@ -132,8 +129,9 @@ void Planner::select_vehicle(const std::string &name)
     }
 
     selected_capabilities_ = it->second;
-    plan_ = Plan{};  // a plan built for one vehicle isn't guaranteed to fit another's skills
-    plan_.plan_id = GeneratePlanId();
+    // Tasks the new vehicle doesn't support surface as validator errors
+    // (red rows) rather than being silently discarded by wiping the plan.
+    plan_.vehicle = name;
 }
 
 const VehicleCapabilities *Planner::selected_capabilities() const
@@ -150,9 +148,8 @@ SequenceNode *Planner::sequence_root()
 void Planner::add_task(const std::string &skill, const nlohmann::json &params)
 {
     // Not just a null check -- a loaded plan can have a non-Sequence root
-    // (e.g. sim_retry_test.json's root is a bare retry node). Casting that
-    // to SequenceNode* below would corrupt memory instead of crashing
-    // cleanly, since the two types don't share a layout.
+    // (e.g. a bare retry node), and casting that to SequenceNode* below
+    // would corrupt memory instead of crashing cleanly.
     if (!plan_.root || plan_.root->kind() != NodeKind::Sequence) {
         plan_.root = std::make_unique<SequenceNode>();
     }
@@ -266,11 +263,8 @@ void Planner::ungroup(size_t group_index)
     }
     if (!*child_slot || (*child_slot)->kind() != NodeKind::Sequence) { return; }
 
-    // Move the child's own children out *before* erasing the wrapper below.
-    // erase() destroys the wrapper -- and, since child is a unique_ptr it
-    // owns, the child along with it -- so a raw pointer into that subtree
-    // would dangle the moment erase() runs; extracting by move first avoids
-    // ever touching freed memory.
+    // Extracted by move *before* erase() below, which destroys the wrapper
+    // (and its owned child) -- a raw pointer into that subtree would dangle.
     auto *inner = static_cast<SequenceNode *>(child_slot->get());
     std::vector<PlanNodePtr> extracted = std::move(inner->children);
 
@@ -389,6 +383,11 @@ void Planner::clear()
 {
     plan_ = Plan{};
     plan_.plan_id = GeneratePlanId();
+    // Cleared plan stays owned by whichever vehicle is currently selected,
+    // rather than reverting to unlabeled.
+    if (selected_capabilities_) {
+        plan_.vehicle = selected_capabilities_->vehicle;
+    }
 }
 
 std::vector<Issue> Planner::local_issues() const
@@ -411,6 +410,9 @@ void Planner::load(const std::string &path)
         plan_ = Plan::from_json(buf.str());
         if (plan_.plan_id.empty()) {  // older save, from before plans got one
             plan_.plan_id = GeneratePlanId();
+        }
+        if (!plan_.vehicle.empty()) {
+            select_vehicle(plan_.vehicle);  // no-op if not found, or already selected
         }
     } catch (const PlanFormatError &) {
     }

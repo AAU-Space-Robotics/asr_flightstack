@@ -42,6 +42,45 @@ static GLuint UploadImageToGL(const cv::Mat& img, const char* path)
     return tex;
 }
 
+void LocalOffsetToLatLon(double home_lat, double home_lon, double north_m, double east_m,
+                          double &out_lat, double &out_lon)
+{
+    const double a = 6378137.0;            // WGS84 semi-major axis, metres
+    const double f = 1.0 / 298.257223563;  // WGS84 flattening
+    const double e2 = 2.0 * f - f * f;     // first eccentricity squared
+
+    const double lat = home_lat * M_PI / 180.0;
+    const double lon = home_lon * M_PI / 180.0;
+
+    // Home, geodetic -> ECEF (height 0 -- only horizontal offsets are projected).
+    const double N = a / std::sqrt(1.0 - e2 * std::sin(lat) * std::sin(lat));
+    const double x0 = N * std::cos(lat) * std::cos(lon);
+    const double y0 = N * std::cos(lat) * std::sin(lon);
+    const double z0 = N * (1.0 - e2) * std::sin(lat);
+
+    // Rotate the local north/east offset into ECEF using home's ENU basis
+    const double dx = -east_m * std::sin(lon) - north_m * std::sin(lat) * std::cos(lon);
+    const double dy =  east_m * std::cos(lon) - north_m * std::sin(lat) * std::sin(lon);
+    const double dz =  north_m * std::cos(lat);
+
+    const double x = x0 + dx;
+    const double y = y0 + dy;
+    const double z = z0 + dz;
+
+    // ECEF -> geodetic
+    const double b = a * (1.0 - f);
+    const double e2_prime = (a * a - b * b) / (b * b);
+    const double p = std::sqrt(x * x + y * y);
+    const double theta = std::atan2(z * a, p * b);
+
+    const double result_lat = std::atan2(z + e2_prime * b * std::pow(std::sin(theta), 3),
+                                          p - e2 * a * std::pow(std::cos(theta), 3));
+    const double result_lon = std::atan2(y, x);
+
+    out_lat = result_lat * 180.0 / M_PI;
+    out_lon = result_lon * 180.0 / M_PI;
+}
+
 GLuint Location::display_map(const char* path, float scale)
 {
     cv::Mat img = cv::imread(path, cv::IMREAD_UNCHANGED);
@@ -65,6 +104,21 @@ ImVec2 Location::latLonToTileOffset(double lat, double lon, int zoom)
     double yFrac = (1.0 - log(tan(latRad) + 1.0 / cos(latRad)) / M_PI) / 2.0 * n;
     return { (float)((xFrac - floor(xFrac)) * 256),
              (float)((yFrac - floor(yFrac)) * 256) };
+}
+
+ImVec2 Location::latLonToScreenPos(double lat, double lon, double centerLat, double centerLon,
+                                    ImVec2 widgetPos, float width, float height, float scale, int zoom)
+{
+    TileCoord pointTile = latLonToTile(lat, lon, zoom);
+    ImVec2 pointOffset = latLonToTileOffset(lat, lon, zoom);
+    TileCoord centerTile = latLonToTile(centerLat, centerLon, zoom);
+    ImVec2 centerOffset = latLonToTileOffset(centerLat, centerLon, zoom);
+
+    float dxPixels = (pointTile.x - centerTile.x) * 256.0f + (pointOffset.x - centerOffset.x);
+    float dyPixels = (pointTile.y - centerTile.y) * 256.0f + (pointOffset.y - centerOffset.y);
+
+    return ImVec2(widgetPos.x + width / 2.0f + dxPixels * scale,
+                   widgetPos.y + height / 2.0f + dyPixels * scale);
 }
 
 GLuint Location::loadTileCached(int zoom, int x, int y)
@@ -98,7 +152,7 @@ GLuint Location::loadTileCached(int zoom, int x, int y)
     return tex;
 }
 
-void Location::MapWidget(double lat, double lon, float width, float height, float scale, int zoom, GLuint placeholderTile, bool theme)
+ImVec2 Location::MapWidget(double lat, double lon, float width, float height, float scale, int zoom, GLuint placeholderTile, bool theme)
 {
     ImGui::BeginChild("MapWidget", ImVec2(width, height), false,
                         ImGuiWindowFlags_NoScrollbar |
@@ -168,4 +222,5 @@ void Location::MapWidget(double lat, double lon, float width, float height, floa
     draw->AddCircle(ImVec2(cx, cy), 6.0f * scale, IM_COL32(255, 255, 255, 255), 12, 1.5f);
 
     ImGui::EndChild();
+    return pos;
 }
