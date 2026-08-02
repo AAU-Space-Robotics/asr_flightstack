@@ -124,8 +124,6 @@ ImU32 Color::panelBorder(bool theme){
     }
 }
 
-// ⚠️ STUB — this was declared in your header but never implemented in the
-// original interfaceutils.cpp. Replace these placeholder colors with real ones.
 ImU32 Color::dBlue_lGrey(bool theme){
     if (theme) {
         return IM_COL32(43, 43, 82, 255);

@@ -51,6 +51,7 @@ Location location;
 Color colors;
 TestFunc test_functions;
 InfoPanels info_panels;
+Logs logs;
 
 using namespace std;
 using namespace px4_msgs::msg;
@@ -277,6 +278,7 @@ int main(int argc, char **argv) {
     //bool is_manual = (Info.flight_mode == FlightMode::MANUAL_AIDED); for later:
     bool is_manual = 0;
     bool sat_map = 0;
+    int map_size_x = 800;
 
     std::atomic<bool> tiles_downloading{false};
     bool tiles_download_triggered = false;
@@ -429,7 +431,7 @@ int main(int argc, char **argv) {
         //string infolat = "Long and Lat: " + to_string(Info.gps_status.latitude) + " " + to_string(Info.gps_status.longitude);
         //std::cout << infolat << std::endl;
         if (tiles_downloading.load()) {
-            ImVec2 loading_pos = ImVec2(x_sc / 2.0f - 100 * scale, 10 * scale);
+            ImVec2 loading_pos = ImVec2(x_sc / 2.0f - 100 * scale, 90 * scale);
             draw_list->AddRectFilled(
                 ImVec2(loading_pos.x - 10 * scale, loading_pos.y - 5 * scale),
                 ImVec2(loading_pos.x + 210 * scale, loading_pos.y + 25 * scale),
@@ -540,9 +542,9 @@ int main(int argc, char **argv) {
 
         //--------------------------MAP--------------------------------------------------------------
         if(sat_map){
-            BeginFixedPanel("MapPanel", ImVec2(70 * scale, 70 * scale), ImVec2(1500 * scale, 800 * scale),
+            BeginFixedPanel("MapPanel", ImVec2(70 * scale, 70 * scale), ImVec2(1500 * scale, map_size_x * scale),
                 scale, theme, 0, ImVec2(0, 0));
-            ImVec2 front_map_pos = location.MapWidget(Info.gps_status.latitude, Info.gps_status.longitude, 1500 * scale, 900 * scale, scale, map_zoom, placeholderTile, theme);
+            ImVec2 front_map_pos = location.MapWidget(Info.gps_status.latitude, Info.gps_status.longitude, 1500 * scale, map_size_x * scale, scale, map_zoom, placeholderTile, theme);
             // No task list here to sync selection with, so no highlight and the click result is unused.
             const float overlay_h = std::max(80.0f * scale, mission_bar_top_y - front_map_pos.y);
             DrawPlanRouteOverlay(location, planner.plan(), Info.gps_status.latitude, Info.gps_status.longitude,
@@ -569,9 +571,9 @@ int main(int argc, char **argv) {
 
             EndFixedPanel();
         } else{
-            BeginFixedPanel("NoSatMapPanel", ImVec2(70 * scale, 70 * scale), ImVec2(1500 * scale, 800 * scale),
+            BeginFixedPanel("NoSatMapPanel", ImVec2(70 * scale, 70 * scale), ImVec2(1500 * scale, map_size_x * scale),
                 scale, theme, 0, ImVec2(0, 0));
-            location.NoSatMap(Info.gps_status.latitude, Info.gps_status.longitude, 1500 * scale, 900 * scale, scale, map_zoom, placeholderTile, theme);
+            location.NoSatMap(Info, 1500 * scale, map_size_x * scale, scale, map_zoom, theme);
              if (widgets.DrawCircleGradientButton(draw_list, winInit.getFont(24), 1.0f, ImVec2(130 * scale, 125 * scale), 50.0f * scale, "ESTOP", 40.0f * scale)) {
                 std::cout << "ESTOP Button Clicked!" << std::endl;
             }
@@ -694,6 +696,9 @@ int main(int argc, char **argv) {
         
         info_panels.ResetPanelTracking();
 
+    
+        logs.outputlog(ImVec2(500, 880), scale, theme);
+
 
 
         break;
@@ -709,9 +714,9 @@ int main(int argc, char **argv) {
             const float map_right_margin = map_gap;
             const float map_w = std::max(200.0f * scale, static_cast<float>(x_sc) - map_x - map_right_margin);
             if(sat_map){
-                BeginFixedPanel("PlannerMapPanel", ImVec2(map_x, 70 * scale), ImVec2(map_w, 800 * scale),
+                BeginFixedPanel("PlannerMapPanel", ImVec2(map_x, 70 * scale), ImVec2(map_w, map_size_x * scale),
                         scale, theme, 0, ImVec2(0, 0));
-                ImVec2 planner_map_pos = location.MapWidget(Info.gps_status.latitude, Info.gps_status.longitude, map_w, 800 * scale, scale, map_zoom, placeholderTile, theme);
+                ImVec2 planner_map_pos = location.MapWidget(Info.gps_status.latitude, Info.gps_status.longitude, map_w, map_size_x * scale, scale, map_zoom, placeholderTile, theme);
                 const auto [highlighted_top, highlighted_nested] = planner_panel.highlighted_task();
                 MapTaskClick map_click = DrawPlanRouteOverlay(location, planner.plan(), Info.gps_status.latitude, Info.gps_status.longitude,
                                      Info.gps_status.latitude, Info.gps_status.longitude, map_zoom,
@@ -738,9 +743,9 @@ int main(int argc, char **argv) {
 
             }
             else{
-                BeginFixedPanel("PlannerSatMapPanel", ImVec2(map_x, 70 * scale), ImVec2(map_w, 800 * scale),
+                BeginFixedPanel("PlannerSatMapPanel", ImVec2(map_x, 70 * scale), ImVec2(map_w, map_size_x * scale),
                         scale, theme, 0, ImVec2(0, 0));
-               location.NoSatMap(Info.gps_status.latitude, Info.gps_status.longitude, map_w, 800 * scale, scale, map_zoom, placeholderTile, theme);
+               location.NoSatMap(Info, map_w, map_size_x * scale, scale, map_zoom, theme); 
                EndFixedPanel();
 
             }
