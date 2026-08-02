@@ -555,19 +555,18 @@ int main(int argc, char **argv) {
         if(sat_map){
             BeginFixedPanel("MapPanel", ImVec2(70 * scale, 70 * scale), ImVec2(1500 * scale, map_size_x * scale),
                 scale, theme, 0, ImVec2(0, 0));
-<<<<<<< HEAD
             ImVec2 front_map_pos = location.MapWidget(origin_gps.x(), origin_gps.y(), 1500 * scale, 900 * scale, scale, map_zoom, placeholderTile, theme);
-=======
-            ImVec2 front_map_pos = location.MapWidget(Info.gps_status.latitude, Info.gps_status.longitude, 1500 * scale, map_size_x * scale, scale, map_zoom, placeholderTile, theme);
->>>>>>> 36e1c9549cb518784cb0360440c5d06e0b491e6c
             // No task list here to sync selection with, so no highlight and the click result is unused.
             const float overlay_h = std::max(80.0f * scale, mission_bar_top_y - front_map_pos.y);
-            DrawPlanRouteOverlay(location, planner.plan(), origin_gps.x(), origin_gps.y(),
-                                 origin_gps.x(), origin_gps.y(), map_zoom,
-                                 front_map_pos, 1500 * scale, 900 * scale, overlay_h, scale, -1, -1);
-            DrawUavPositionMarker(location, Info.gps_status.latitude, Info.gps_status.longitude,
-                                  origin_gps.x(), origin_gps.y(), map_zoom,
-                                  front_map_pos, 1500 * scale, 900 * scale, overlay_h, scale);
+            // Foreground-drawn, so it renders above modals too -- skip while Load/Save is up, or it bleeds through.
+            if (!mission_control_bar.IsDialogOpen()) {
+                DrawPlanRouteOverlay(location, planner.plan(), origin_gps.x(), origin_gps.y(),
+                                     origin_gps.x(), origin_gps.y(), map_zoom,
+                                     front_map_pos, 1500 * scale, 900 * scale, overlay_h, scale, -1, -1);
+                DrawUavPositionMarker(location, Info.gps_status.latitude, Info.gps_status.longitude,
+                                      origin_gps.x(), origin_gps.y(), map_zoom,
+                                      front_map_pos, 1500 * scale, 900 * scale, overlay_h, scale);
+            }
 
 
             if (widgets.DrawCircleGradientButton(draw_list, winInit.getFont(24), 1.0f, ImVec2(130 * scale, 125 * scale), 50.0f * scale, "ESTOP", 40.0f * scale)) {
@@ -672,10 +671,11 @@ int main(int argc, char **argv) {
 
         // ---------For testing — replace with ROS later //!!!!!
         ImGui::SetCursorPos(ImVec2(900 * scale, 500 * scale));
-        ImGui::BeginChild("TestPanel", ImVec2(600 * scale, 600 * scale), 
+        // Sized to the live slider below, not 600x600 -- that footprint used to eat Execute/Abort's clicks.
+        ImGui::BeginChild("TestPanel", ImVec2(260 * scale, 40 * scale),
                        false,  // border
                        ImGuiWindowFlags_NoBackground |
-                       ImGuiWindowFlags_NoScrollWithMouse | 
+                       ImGuiWindowFlags_NoScrollWithMouse |
                        ImGuiWindowFlags_NoScrollbar);
     
         
@@ -734,18 +734,18 @@ int main(int argc, char **argv) {
             if(sat_map){
                 BeginFixedPanel("PlannerMapPanel", ImVec2(map_x, 70 * scale), ImVec2(map_w, map_size_x * scale),
                         scale, theme, 0, ImVec2(0, 0));
-<<<<<<< HEAD
                 ImVec2 planner_map_pos = location.MapWidget(origin_gps.x(), origin_gps.y(), map_w, 800 * scale, scale, map_zoom, placeholderTile, theme);
-=======
-                ImVec2 planner_map_pos = location.MapWidget(Info.gps_status.latitude, Info.gps_status.longitude, map_w, map_size_x * scale, scale, map_zoom, placeholderTile, theme);
->>>>>>> 36e1c9549cb518784cb0360440c5d06e0b491e6c
                 const auto [highlighted_top, highlighted_nested] = planner_panel.highlighted_task();
-                MapTaskClick map_click = DrawPlanRouteOverlay(location, planner.plan(), origin_gps.x(), origin_gps.y(),
-                                     origin_gps.x(), origin_gps.y(), map_zoom,
-                                     planner_map_pos, map_w, 800 * scale, 800 * scale, scale, highlighted_top, highlighted_nested);
-                DrawUavPositionMarker(location, Info.gps_status.latitude, Info.gps_status.longitude,
-                                      origin_gps.x(), origin_gps.y(), map_zoom,
-                                      planner_map_pos, map_w, 800 * scale, 800 * scale, scale);
+                // Foreground-drawn, so it renders above modals too -- skip while Load/Save is up, or it bleeds through.
+                MapTaskClick map_click;
+                if (!mission_control_bar.IsDialogOpen()) {
+                    map_click = DrawPlanRouteOverlay(location, planner.plan(), origin_gps.x(), origin_gps.y(),
+                                         origin_gps.x(), origin_gps.y(), map_zoom,
+                                         planner_map_pos, map_w, 800 * scale, 800 * scale, scale, highlighted_top, highlighted_nested);
+                    DrawUavPositionMarker(location, Info.gps_status.latitude, Info.gps_status.longitude,
+                                          origin_gps.x(), origin_gps.y(), map_zoom,
+                                          planner_map_pos, map_w, 800 * scale, 800 * scale, scale);
+                }
                 if (map_click.clicked) {
                     planner_panel.SelectTask(map_click.top_level_index, map_click.nested_index);
                 }

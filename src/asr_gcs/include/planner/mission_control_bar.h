@@ -16,8 +16,9 @@ public:
     // Same top-Y as Draw() would return, but without opening the window -- safe to call before the map.
     float PanelTopY(float scale, float map_y, float map_h) const;
 
+    // Whether the Load/Save dialog is currently up -- callers should skip the foreground-drawn map overlay while true, since it renders above modals too.
+    bool IsDialogOpen() const { return save_load_dialog_.IsOpen(); }
+
 private:
     SaveLoadDialog save_load_dialog_;
-    // Actual rendered content width, measured after drawing -- used to size/center next frame.
-    float measured_content_w_{0.0f};
 };

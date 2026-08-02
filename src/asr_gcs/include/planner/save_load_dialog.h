@@ -19,6 +19,8 @@ public:
     // No-op if not currently open. Call every frame.
     void Draw(float scale, bool theme);
 
+    bool IsOpen() const { return open_; }
+
 private:
     struct Entry {
         std::string name;
