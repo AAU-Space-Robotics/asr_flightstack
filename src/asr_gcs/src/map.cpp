@@ -1,7 +1,9 @@
 #include "map.h"
-#include "app_window.h"
 #include <ament_index_cpp/get_package_share_directory.hpp>
 
+float map_value(float value, float in_min, float in_max, float out_min, float out_max) {
+    return out_min + (value - in_min) * (out_max - out_min) / (in_max - in_min);
+}
 static GLuint UploadImageToGL(const cv::Mat& img, const char* path)
 {
     if (img.empty()) {
@@ -220,18 +222,24 @@ ImVec2 Location::MapWidget(double lat, double lon, float width, float height, fl
     return pos;
 }
 
-void Location::NoSatMap(double lat, double lon, float width, float height, float scale, int zoom, GLuint placeholderTile, bool theme){
+void Location::NoSatMap(DroneInformation Info, float width, float height, float scale, int zoom, bool theme){
     ImGui::BeginChild("NoSatMapWidget", ImVec2(width, height), false,
                         ImGuiWindowFlags_NoScrollbar |
                         ImGuiWindowFlags_NoScrollWithMouse);
     ImDrawList* draw = ImGui::GetWindowDrawList();
     ImVec2 pos = ImGui::GetWindowPos();
     ImVec2 center = ImVec2(pos.x + width * 0.5f, pos.y + height * 0.5f);
-    float radius = std::min(width, height) * 0.25f; // tweak size to taste
-    ImU32 color = IM_COL32(255, 0, 0, 255); // solid red
-    int segments = 0; // 0 = let ImGui auto-pick smoothness
     
-    draw->AddCircleFilled(center, radius, color, segments);
+    ImVec2 dot_pos;
+    dot_pos.x = map_value(Info.xyz_pos[0], -50.0f, 50.0f, pos.x, pos.x + width);
+    dot_pos.y = map_value(Info.xyz_pos[1], -50.0f, 50.0f, pos.y, pos.y + height);
+
+    draw->AddCircleFilled(dot_pos, 6.0f * scale, IM_COL32(255, 50, 50, 255));
+
+
+
+
+
 
     float roundRadius = 12.0f * scale;
     ImU32 maskColor = ImGui::ColorConvertFloat4ToU32(Color::panelColor(theme));
@@ -266,10 +274,6 @@ void Location::NoSatMap(double lat, double lon, float width, float height, float
     draw->PathArcTo(ImVec2(p_max.x - roundRadius, p_max.y - roundRadius), roundRadius, 0.0f, IM_PI * 0.5f, 8);
     draw->PathFillConvex(maskColor);
 
-    float cx = pos.x + width  / 2.0f;
-    float cy = pos.y + height / 2.0f;
-    draw->AddCircleFilled(ImVec2(cx, cy), 6.0f * scale, IM_COL32(255, 50, 50, 255));
-    draw->AddCircle(ImVec2(cx, cy), 6.0f * scale, IM_COL32(255, 255, 255, 255), 12, 1.5f);
 
     ImGui::EndChild();
 }

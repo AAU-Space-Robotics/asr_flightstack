@@ -103,7 +103,6 @@ install(DIRECTORY config DESTINATION share/${PROJECT_NAME}/)
 add_executable(interface
   src/main.cpp
   src/interfaceutils.cpp
-  src/statemanager.cpp
   src/app_window.cpp
   src/info_panels.cpp
   src/map.cpp

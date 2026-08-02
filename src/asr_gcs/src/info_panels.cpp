@@ -248,13 +248,8 @@ void InfoPanels::Battery_Info(float scale, bool theme, float battery_percentage[
         }
     }
 
+    
     float motors_section_y = pos.y + row_start_y + (row_height * 2);
-
-    draw->AddLine(
-        ImVec2(pos.x + 14 * scale, motors_section_y),
-        ImVec2(pos.x + 296 * scale, motors_section_y),
-        Color::panelBorder(theme), 3.0f);
-
     InfoPanels::CollapseButton(draw, ImVec2(pos.x + 290 * scale, pos.y + 10 * scale), scale, Motor_panel_open, theme);
 
     if (Motor_panel_open) {
@@ -293,6 +288,12 @@ void InfoPanels::Battery_Info(float scale, bool theme, float battery_percentage[
             draw->AddText(ImVec2(pos.x + bar_x_start + bar_width + 50 * scale, row_y),
                           Color::dwhite_lblack(theme), motor_text);
         }
+        
+
+        draw->AddLine(
+            ImVec2(pos.x + 14 * scale, motors_section_y),
+            ImVec2(pos.x + 296 * scale, motors_section_y),
+            Color::panelBorder(theme), 3.0f);
     }
 
     InfoPanels::End_panels();
@@ -360,4 +361,27 @@ void InfoPanels::Probe_Info(float scale, bool theme){
     draw->AddText(ImVec2((pos.x + 10), (pos.y + 10)), Color::white_black(theme), "Probe Info");
 
     InfoPanels::End_panels();
+}
+
+void Logs::outputlog(ImVec2 pos, float scale, bool theme){ //!!! Doesent scale correct............
+    ImVec2 size =ImVec2(1070 * scale, 170 * scale);
+    ImGui::SetCursorPos(ImVec2(pos.x * scale, pos.y * scale)); 
+    ImGui::PushStyleColor(ImGuiCol_ChildBg, Color::panelColor(theme));
+    ImGui::PushStyleColor(ImGuiCol_Border, Color::panelBorder(theme));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(8 * scale, 8 * scale));
+    ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, 12.0f * scale);
+    ImGui::PushStyleVar(ImGuiStyleVar_ChildBorderSize, 2.0f * scale);
+    ImGui::BeginChild("ConsoleLogger", size, true,
+                        ImGuiWindowFlags_NoScrollbar |
+                        ImGuiWindowFlags_NoScrollWithMouse);
+    ImDrawList* draw = ImGui::GetWindowDrawList();
+    ImVec2 windowPos = ImGui::GetWindowPos();
+
+
+
+    ImGui::EndChild();
+    ImGui::PopStyleVar(3);
+    ImGui::PopStyleColor(2);
+   
+
 }

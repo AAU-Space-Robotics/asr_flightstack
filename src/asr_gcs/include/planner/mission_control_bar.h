@@ -18,7 +18,6 @@ public:
 
 private:
     SaveLoadDialog save_load_dialog_;
-    // Actual rendered content width, measured after drawing -- used to size/center next frame instead
-    // of a hand-computed duplicate of the button layout, which drifted enough to clip Execute/Abort.
+    // Actual rendered content width, measured after drawing -- used to size/center next frame.
     float measured_content_w_{0.0f};
 };

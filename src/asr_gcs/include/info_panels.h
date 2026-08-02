@@ -14,7 +14,7 @@
 #include <list>  
 #include <vector>
 
-#include "statemanager.h"
+#include "state_manager.h"
 #include "app_window.h"
 
 extern WindowInitializer winInit;
@@ -25,7 +25,7 @@ struct panelInfo {
     int id;
 };
 
-float map_value(float value, float in_min, float in_max, float out_min, float out_max);
+
 
 
 struct Graphs {
@@ -33,7 +33,7 @@ struct Graphs {
                                                     float x1b, float y1b, float x2b, float y2b,
                             float scale);
 };
-
+static float map_value(float value, float in_min, float in_max, float out_min, float out_max);
 
 class InfoPanels {
     public:
@@ -48,6 +48,7 @@ class InfoPanels {
         ImVec2 Begin_panels(const char* id, int y_size, float scale, bool theme);
         void End_panels();
         bool CollapseButton(ImDrawList* draw_list, ImVec2 pos, float scale, bool& isOpen, bool theme);
+        
 };
 
 void BeginFixedPanel(const char* id, ImVec2 pos, ImVec2 size, float scale, bool theme,
@@ -65,3 +66,7 @@ void DrawPanelBackground(ImDrawList* draw_list, ImVec2 pos, ImVec2 size,
                           float rounding, float border_thickness);
 
 void framebuffer_size_callback(GLFWwindow* window, int width, int height);
+
+struct Logs {
+    void outputlog(ImVec2 pos, float scale, bool theme);
+};
