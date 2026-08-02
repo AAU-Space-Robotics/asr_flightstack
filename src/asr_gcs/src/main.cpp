@@ -5,11 +5,12 @@
 #include "app_window.h"
 #include "info_panels.h"
 #include "map.h"
-#include "map_overlay.h"
+#include "planner/map_overlay.h"
 #include "widgets.h"
-#include "planner.h"
-#include "planner_panel.h"
-#include "height_chart.h"
+#include "planner/planner.h"
+#include "planner/planner_panel.h"
+#include "planner/mission_control_bar.h"
+#include "planner/height_chart.h"
 #include <implot.h>
 #include <algorithm>
 #include <opencv2/core/utils/logger.hpp>
@@ -222,6 +223,7 @@ int main(int argc, char **argv) {
 
     Planner planner(ground_control.get());
     PlannerPanel planner_panel(planner);
+    MissionControlBar mission_control_bar;
     DroneInformation Info;
     Transformations transformations_;
 
@@ -452,10 +454,16 @@ int main(int argc, char **argv) {
 
         case 0:
         {
+        const float mission_bar_top_y = mission_control_bar.PanelTopY(scale, 70 * scale, 800 * scale);
+
         //--------------------------MAP--------------------------------------------------------------
         BeginFixedPanel("MapPanel", ImVec2(70 * scale, 70 * scale), ImVec2(1500 * scale, 800 * scale),
                 scale, theme, 0, ImVec2(0, 0));
-        location.MapWidget(testLat, testLon, 1500 * scale, 900 * scale, scale, map_zoom, placeholderTile, theme);
+        ImVec2 front_map_pos = location.MapWidget(testLat, testLon, 1500 * scale, 900 * scale, scale, map_zoom, placeholderTile, theme);
+        // No task list here to sync selection with, so no highlight and the click result is unused.
+        const float overlay_h = std::max(80.0f * scale, mission_bar_top_y - front_map_pos.y);
+        DrawPlanRouteOverlay(location, planner.plan(), testLat, testLon, testLat, testLon, map_zoom,
+                             front_map_pos, 1500 * scale, 900 * scale, overlay_h, scale, -1, -1);
 
 
         if (widgets.DrawCircleGradientButton(draw_list, winInit.getFont(24), 1.0f, ImVec2(130 * scale, 125 * scale), 50.0f * scale, "ESTOP", 40.0f * scale)) {
@@ -495,6 +503,9 @@ int main(int argc, char **argv) {
         }
 
         EndOverlayPanel();
+
+        mission_control_bar.Draw(planner, scale, theme,
+                                 70 * scale, 70 * scale, 1500 * scale, 800 * scale);
 
          // -----------------------------------Control Panel-----------------------------
 
@@ -582,14 +593,7 @@ int main(int argc, char **argv) {
         {
             planner_panel.Draw(scale, theme, static_cast<float>(y_sc));
 
-            // The left panel's 70*scale gap from the window edge exists to
-            // clear the sidebar -- there's no equivalent on the right, so
-            // mirroring that same 70px here just left dead space. Instead,
-            // reuse the existing 10px rhythm already established between
-            // VehicleAndPalettePanel and MissionPlannerPanel (bottom of the
-            // former at 70+140=210, top of the latter at 220), applied both
-            // between the planner panel and the map, and between the map
-            // and the window's right edge.
+            // Reuses the 10px rhythm already established between VehicleAndPalettePanel and MissionPlannerPanel.
             const float map_gap = 10.0f * scale;
             const float planner_right_edge = (70.0f + 450.0f) * scale;  // matches DrawTaskList's panel rect
             const float map_x = planner_right_edge + map_gap;
@@ -598,12 +602,10 @@ int main(int argc, char **argv) {
             BeginFixedPanel("PlannerMapPanel", ImVec2(map_x, 70 * scale), ImVec2(map_w, 800 * scale),
                     scale, theme, 0, ImVec2(0, 0));
             ImVec2 planner_map_pos = location.MapWidget(testLat, testLon, map_w, 800 * scale, scale, map_zoom, placeholderTile, theme);
-            // home == center for now -- there's no pan yet, so the widget's
-            // view is always centered on the same fixed point the plan's
-            // local offsets are projected from.
+            // home == center for now -- there's no pan yet.
             const auto [highlighted_top, highlighted_nested] = planner_panel.highlighted_task();
             MapTaskClick map_click = DrawPlanRouteOverlay(location, planner.plan(), testLat, testLon, testLat, testLon, map_zoom,
-                                 planner_map_pos, map_w, 800 * scale, scale, highlighted_top, highlighted_nested);
+                                 planner_map_pos, map_w, 800 * scale, 800 * scale, scale, highlighted_top, highlighted_nested);
             if (map_click.clicked) {
                 planner_panel.SelectTask(map_click.top_level_index, map_click.nested_index);
             }
@@ -624,11 +626,7 @@ int main(int argc, char **argv) {
             }
             EndOverlayPanel();
 
-            // Altitude profile, same x-span as the map, directly beneath
-            // it. Height fills to the actual window edge (mirroring the
-            // map's own width fix) rather than a fixed 150*scale, which
-            // only used the reference height exactly and otherwise left a
-            // gap before the true bottom edge on any other resolution.
+            // Height fills to the real window edge rather than a fixed 150*scale.
             const float chart_y = 880.0f * scale;
             const float chart_h = std::max(80.0f * scale, static_cast<float>(y_sc) - chart_y - map_gap);
             DrawHeightChart(planner.plan(), ImVec2(map_x, chart_y), ImVec2(map_w, chart_h), scale, theme);

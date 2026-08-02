@@ -145,6 +145,9 @@ PlanNodePtr node_from_json(const json &j, const std::string &path) {
 }
 
 json Plan::to_json() const {
+    if (!root) {
+        throw std::runtime_error("Plan::to_json: plan has no root -- add at least one task first");
+    }
     json j;
     j["plan_id"] = plan_id;
     j["schema_version"] = schema_version;

@@ -1,10 +1,6 @@
 #pragma once
 
-// Full-screen modal file browser for save/load workflows: lists files in a
-// directory with modified date + size, supports delete, and (in Save mode)
-// a name field for a new or overwritten entry. Deals only in filesystem
-// paths -- has no knowledge of what the files contain, so it's reusable
-// wherever a "pick or name a file in one directory" flow is needed.
+// Full-screen modal file browser for save/load workflows -- deals only in filesystem paths, reusable anywhere.
 
 #include <cstdint>
 #include <filesystem>
@@ -16,8 +12,7 @@ class SaveLoadDialog {
 public:
     enum class Mode { Save, Load };
 
-    // `on_confirm` fires once, the frame the user confirms a Save (typed
-    // name + Save button) or picks an entry to Load.
+    // `on_confirm` fires once, the frame the user confirms a Save or picks an entry to Load.
     void Open(Mode mode, std::string directory, std::string extension,
               std::function<void(const std::string &path)> on_confirm);
 
@@ -41,8 +36,7 @@ private:
     std::vector<Entry> entries_;
     char name_buffer_[128] = "";
 
-    // Delete is two-stage: first click arms it (button turns into a
-    // "Confirm?" prompt), second click on the same entry deletes it.
+    // Delete is two-stage: first click arms it, second click on the same entry deletes it.
     int armed_delete_index_ = -1;
 
     void Refresh();

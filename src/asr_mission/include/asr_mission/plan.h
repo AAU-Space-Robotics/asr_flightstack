@@ -1,20 +1,4 @@
-// Mission plan data model.
-//
-// Imported verbatim by the GCS (plan authoring/validation) and the onboard
-// executor -- both link this library so the two sides can never drift. The
-// wire format is the JSON produced by Plan::dump_canonical(); transports
-// treat it as an opaque blob, so the encoding could later be swapped without
-// touching transport framing.
-//
-// Node types:
-//   task      - leaf, runs one skill from the vehicle's capabilities
-//   sequence  - runs children in order, fails on first failure
-//   retry     - re-runs its child up to max_attempts times on failure
-//   run_until - runs its child, succeeds early if any condition becomes true;
-//               otherwise finishes with the child's own terminal status
-//   repeat    - re-runs its child count times unconditionally, but aborts
-//               (fails) immediately if any run fails -- it never masks a
-//               failure the way retry's "try again" does
+// Mission plan data model, shared verbatim by the GCS and the onboard executor.
 #pragma once
 
 #include <memory>
@@ -40,8 +24,7 @@ public:
     std::string path;
 };
 
-// Tags a PlanNode's concrete type so the validator/executor can switch on it
-// instead of chaining dynamic_cast.
+// Tags a PlanNode's concrete type so callers can switch instead of dynamic_cast.
 enum class NodeKind { Task, Sequence, Retry, RunUntil, Repeat };
 
 class PlanNode {
@@ -56,9 +39,7 @@ using PlanNodePtr = std::unique_ptr<PlanNode>;
 class TaskNode : public PlanNode {
 public:
     std::string skill;
-    // Params kept as a raw JSON object rather than a bespoke variant type --
-    // simplest way to hold a small dynamic value; the validator does runtime
-    // type checks against it the same way it checks against a ParamSpec.
+    // Raw JSON object rather than a bespoke variant type -- simplest way to hold a small dynamic value.
     json params = json::object();
 
     NodeKind kind() const override { return NodeKind::Task; }
@@ -82,8 +63,7 @@ public:
     json to_json() const override;
 };
 
-// A named predicate evaluated onboard, e.g. probes_found >= 3.
-// Boolean predicates (grid_exhausted) carry no op/value.
+// A named predicate evaluated onboard, e.g. probes_found >= 3 -- boolean predicates carry no op/value.
 struct Condition {std::string cond; 
                   std::optional<std::string> op; 
                   std::optional<double> value;
@@ -110,17 +90,14 @@ public:
     json to_json() const override;
 };
 
-// Recursively parses one node (and its children). `path` is a breadcrumb
-// used in PlanFormatError messages, e.g. "root.children[2].child".
+// Recursively parses one node and its children; `path` is a breadcrumb for PlanFormatError messages.
 PlanNodePtr node_from_json(const json &j, const std::string &path = "root");
 
 class Plan {
 public:
     std::string plan_id;
     int schema_version = kSchemaVersion;
-    // Vehicle this plan was authored for (the same name key as
-    // VehicleCapabilities::vehicle), e.g. "gunhild" -- empty if never
-    // assigned (older saves, or a plan not yet targeted at a vehicle).
+    // Vehicle this plan was authored for -- empty if never assigned.
     std::string vehicle;
     PlanNodePtr root;
 

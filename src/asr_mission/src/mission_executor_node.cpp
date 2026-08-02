@@ -15,17 +15,7 @@ namespace asr_mission {
 using UAVCommand           = asr_comms::action::UAVCommand;
 using GoalHandleUAVCommand = rclcpp_action::ClientGoalHandle<UAVCommand>;
 
-// One in-flight UAVCommand goal. Mirrors the goal_response/result_callback
-// pattern comms_uav.cpp already uses to bridge this same action to mavlink.
-//
-// cancel() only *requests* an async cancel -- the actual result_callback
-// fires later, whenever the server responds. reset_node() (plan_executor.cpp)
-// calls cancel() and then immediately destroys this handle (erasing it from
-// PlanExecutor's state map), so by the time that later callback fires, `this`
-// would already be freed. The callback-facing fields live in a separate
-// heap-allocated CallbackState, captured by shared_ptr (not raw `this`) in
-// the lambdas, so they stay valid until the last owner -- this handle or the
-// still-pending callback, whichever outlives the other -- lets go of it.
+// One in-flight UAVCommand goal; callback-facing state lives in a separate shared_ptr CallbackState since this handle can be destroyed (by reset_node()) before cancel()'s async result_callback fires.
 class UAVCommandSkillHandle : public SkillHandle {
 public:
     UAVCommandSkillHandle(rclcpp_action::Client<UAVCommand>::SharedPtr client,
@@ -57,9 +47,7 @@ public:
             if (!state->succeeded) {
                 const char *message = result.result ? result.result->message.c_str() : "no result";
                 if (result.code == rclcpp_action::ResultCode::CANCELED) {
-                    // Expected outcome when a run_until or mission abort
-                    // cancels an in-flight skill on purpose -- not a real
-                    // failure, so don't log it as one.
+                    // Expected when a run_until/abort cancels an in-flight skill on purpose -- not a real failure.
                     RCLCPP_INFO(logger, "UAVCommand cancelled: %s", message);
                 } else {
                     RCLCPP_ERROR(logger, "UAVCommand failed: %s", message);
@@ -94,12 +82,7 @@ private:
     bool succeeded_ = false;
 };
 
-// Evaluates conditions against live telemetry, published locally by
-// asr_autopilot on this same vehicle-side ROS graph -- no comms bridge
-// needed, mission_executor_node just subscribes directly like comms_uav
-// does for the same topics. Also tracks arming_state, since
-// UAVCommandSkillRunner needs it to decide whether a skill must arm the
-// vehicle before it can run (see AutoArmSkillHandle).
+// Evaluates conditions against live telemetry; also tracks arming_state for UAVCommandSkillRunner.
 class TelemetryConditionSource : public ConditionSource {
 public:
     explicit TelemetryConditionSource(rclcpp::Node *node) {
@@ -116,9 +99,7 @@ public:
             });
     }
 
-    // "time_elapsed" never reaches here -- PlanExecutor handles it itself
-    // (see RunUntilState), since it means time since the enclosing
-    // run_until started, not anything telemetry could answer.
+    // "time_elapsed" never reaches here -- PlanExecutor handles it itself (see RunUntilState).
     bool evaluate(const Condition &condition) override {
         if (condition.cond == "probes_found") {
             return has_op_value(condition) &&
@@ -128,13 +109,11 @@ public:
             return has_op_value(condition) &&
                    compare(*condition.op, static_cast<double>(battery_percent_), *condition.value);
         }
-        // No search_grid skill exists yet (see thyra's skills.yaml), so
-        // nothing produces this signal -- never fire rather than guess.
+        // No search_grid skill exists yet, so nothing produces this signal -- never fire rather than guess.
         return false;
     }
 
-    // Mirrors asr_autopilot's ArmingState::ARMED (state_manager.h) --
-    // TelemetryStatus.msg just forwards the raw uint8 cast of that enum.
+    // Mirrors asr_autopilot's ArmingState::ARMED (state_manager.h).
     bool is_armed() const { return arming_state_ == kArmingStateArmed; }
 
 private:
@@ -149,13 +128,7 @@ private:
     uint8_t arming_state_{0};          // 0 = DISARMED, matches ArmingState::DISARMED
 };
 
-// Arms the vehicle first, then runs the real command. asr_autopilot's
-// handleUAVCommand rejects takeoff/goto/spin goals outright unless the
-// vehicle is already ARMED, so this lets a plan skip an explicit "arm" step
-// -- the operator writes "takeoff" or "goto" and arming happens implicitly.
-// Only constructed when the vehicle isn't already armed (see
-// UAVCommandSkillRunner::start()); an already-armed vehicle just gets a
-// plain UAVCommandSkillHandle for the real command.
+// Arms the vehicle first, then runs the real command, so a plan can skip an explicit "arm" step.
 class AutoArmSkillHandle : public SkillHandle {
 public:
     AutoArmSkillHandle(rclcpp_action::Client<UAVCommand>::SharedPtr client,
@@ -190,9 +163,7 @@ private:
     std::unique_ptr<UAVCommandSkillHandle> command_;
 };
 
-// Translates a skill+params pair (as declared in skills.yaml) into a
-// UAVCommand goal. The mapping lives here rather than in PlanExecutor so
-// the executor itself stays free of any UAVCommand-specific knowledge.
+// Translates a skill+params pair into a UAVCommand goal, kept out of PlanExecutor itself.
 class UAVCommandSkillRunner : public SkillRunner {
 public:
     UAVCommandSkillRunner(rclcpp::Node *node, rclcpp::Logger logger,
@@ -209,8 +180,7 @@ public:
         bool needs_armed = false;
 
         if (skill == "takeoff") {
-            // Plans express altitude as positive-up (skills.yaml: "alt");
-            // asr_autopilot works in NED, where up is negative Z.
+            // Plans express altitude as positive-up; asr_autopilot works in NED, where up is negative Z.
             goal.target_pose = {-params.at("alt").get<double>()};
             needs_armed = true;
         } else if (skill == "goto") {
@@ -222,8 +192,7 @@ public:
             }
             needs_armed = true;
         } else if (skill == "spin") {
-            // target_pose = [target_yaw, num_rotations, use_longest_path] --
-            // see executeSpin() in asr_autopilot/src/main.cpp.
+            // target_pose = [target_yaw, num_rotations, use_longest_path] -- see executeSpin().
             const bool longest = params.contains("longest_path") &&
                                  params.at("longest_path").get<bool>();
             goal.target_pose = {
@@ -308,7 +277,8 @@ private:
         } catch (const PlanFormatError &e) {
             json result = json::array();
             result.push_back({{"severity", "error"}, {"path", "plan"}, {"message", e.what()}});
-            publish_validate(result);
+            // No plan_id -- the blob didn't even parse, so there's nothing to echo.
+            publish_validate("", result);
             RCLCPP_ERROR(get_logger(), "Plan parse error: %s", e.what());
             return;
         }
@@ -328,7 +298,7 @@ private:
                 RCLCPP_WARN(get_logger(), "Plan validation: %s", issue.to_string().c_str());
             }
         }
-        publish_validate(result);
+        publish_validate(plan.plan_id, result);
 
         if (has_errors(issues)) {
             RCLCPP_ERROR(get_logger(), "Plan '%s' has errors — not staged for start", plan.plan_id.c_str());
@@ -391,9 +361,12 @@ private:
         }
     }
 
-    void publish_validate(const json &issues) {
+    void publish_validate(const std::string &plan_id, const json &issues) {
         std_msgs::msg::String out;
-        out.data = issues.dump();
+        json envelope;
+        envelope["plan_id"] = plan_id;
+        envelope["issues"] = issues;
+        out.data = envelope.dump();
         mission_validate_pub_->publish(out);
     }
 

@@ -1,4 +1,4 @@
-#include "planner.h"
+#include "planner/planner.h"
 
 #include <algorithm>
 #include <cstdio>
@@ -28,8 +28,7 @@ nlohmann::json DefaultParamValue(const std::string &skill, const std::string &pa
     return spec.type == "int" ? nlohmann::json(static_cast<int>(value)) : nlohmann::json(value);
 }
 
-// mission_executor_node.cpp matches start/abort requests against this to
-// confirm they target the currently-staged plan.
+// mission_executor_node.cpp matches start/abort requests against this.
 std::string GeneratePlanId() {
     static std::mt19937_64 rng{std::random_device{}()};
     std::uniform_int_distribution<uint64_t> dist;
@@ -38,9 +37,7 @@ std::string GeneratePlanId() {
     return buf;
 }
 
-// Shared by wrap_in_run_until/repeat/retry. Validates `indices` (non-empty,
-// contiguous, ascending, in range, only plain tasks) and splices them out of
-// `sequence` into a new SequenceNode, or returns nullptr if they don't qualify.
+// Shared by wrap_in_run_until/repeat/retry -- splices valid `indices` out of `sequence` into a new SequenceNode.
 std::unique_ptr<SequenceNode> ExtractContiguousTasks(SequenceNode &sequence, const std::vector<size_t> &indices,
                                                       size_t &out_insert_at) {
     if (indices.empty()) { return nullptr; }
@@ -84,31 +81,39 @@ Planner::Planner(rclcpp::Node *node)
 }
 
 void Planner::on_validate(const std::string &data) {
-    json issues = json::parse(data);
-    bool has_error = false;
-    if (issues.empty()) {
-        std::cout << "Vehicle validation: OK, no issues\n";
-    }
-    for (const auto &issue : issues) {
-        std::cout << "  [" << issue.at("severity").get<std::string>() << "] "
-                  << issue.at("path").get<std::string>() << ": "
-                  << issue.at("message").get<std::string>() << "\n";
-        if (issue.at("severity") == "error") has_error = true;
-    }
-    if (has_error) {
-        std::cout << "Plan has errors -- not starting\n";
+    json parsed = json::parse(data);
+    std::string plan_id = parsed.value("plan_id", std::string());
+    json issues = parsed.value("issues", json::array());
+
+    std::lock_guard<std::mutex> lock(state_mutex_);
+    // Empty plan_id means an unparseable blob, accept it; non-empty and mismatched means a stale response.
+    if (!plan_id.empty() && plan_id != pending_upload_plan_id_) {
         return;
     }
-    start();
+    if (upload_timeout_timer_) { upload_timeout_timer_->cancel(); }
+
+    upload_issues_.clear();
+    for (const auto &issue : issues) {
+        Severity severity = issue.at("severity") == "error" ? Severity::Error : Severity::Warning;
+        upload_issues_.push_back({severity, issue.at("path").get<std::string>(), issue.at("message").get<std::string>()});
+    }
+    upload_status_ = UploadStatus::Validated;
 }
 
 void Planner::on_status(const std::string &data) {
     json status = json::parse(data);
     std::string state = status.at("state").get<std::string>();
-    std::cout << "  [" << state << "] " << status.at("active_path").get<std::string>() << "\n";
-    if (state == "success" || state == "failure") {
-        std::cout << "Plan finished: " << state << "\n";
-    }
+
+    std::lock_guard<std::mutex> lock(state_mutex_);
+    if (state == "running") { mission_status_ = MissionStatus::Running; }
+    else if (state == "success") { mission_status_ = MissionStatus::Success; }
+    else if (state == "failure") { mission_status_ = MissionStatus::Failure; }
+}
+
+MissionStatus Planner::mission_status() const
+{
+    std::lock_guard<std::mutex> lock(state_mutex_);
+    return mission_status_;
 }
 
 std::map<std::string, VehicleCapabilities> Planner::available_vehicles() const
@@ -129,8 +134,7 @@ void Planner::select_vehicle(const std::string &name)
     }
 
     selected_capabilities_ = it->second;
-    // Tasks the new vehicle doesn't support surface as validator errors
-    // (red rows) rather than being silently discarded by wiping the plan.
+    // Unsupported tasks surface as validator errors rather than being silently wiped.
     plan_.vehicle = name;
 }
 
@@ -147,9 +151,7 @@ SequenceNode *Planner::sequence_root()
 
 void Planner::add_task(const std::string &skill, const nlohmann::json &params)
 {
-    // Not just a null check -- a loaded plan can have a non-Sequence root
-    // (e.g. a bare retry node), and casting that to SequenceNode* below
-    // would corrupt memory instead of crashing cleanly.
+    // Not just a null check -- a loaded plan's root could be a non-Sequence node, which would corrupt memory if cast below.
     if (!plan_.root || plan_.root->kind() != NodeKind::Sequence) {
         plan_.root = std::make_unique<SequenceNode>();
     }
@@ -263,8 +265,7 @@ void Planner::ungroup(size_t group_index)
     }
     if (!*child_slot || (*child_slot)->kind() != NodeKind::Sequence) { return; }
 
-    // Extracted by move *before* erase() below, which destroys the wrapper
-    // (and its owned child) -- a raw pointer into that subtree would dangle.
+    // Extracted by move before erase() below destroys the wrapper (and its owned child).
     auto *inner = static_cast<SequenceNode *>(child_slot->get());
     std::vector<PlanNodePtr> extracted = std::move(inner->children);
 
@@ -383,11 +384,20 @@ void Planner::clear()
 {
     plan_ = Plan{};
     plan_.plan_id = GeneratePlanId();
-    // Cleared plan stays owned by whichever vehicle is currently selected,
-    // rather than reverting to unlabeled.
+    // Cleared plan stays owned by whichever vehicle is currently selected.
     if (selected_capabilities_) {
         plan_.vehicle = selected_capabilities_->vehicle;
     }
+    reset_upload_status();
+}
+
+void Planner::reset_upload_status()
+{
+    std::lock_guard<std::mutex> lock(state_mutex_);
+    if (upload_timeout_timer_) { upload_timeout_timer_->cancel(); }
+    upload_status_ = UploadStatus::Idle;
+    upload_issues_.clear();
+    pending_upload_plan_id_.clear();
 }
 
 std::vector<Issue> Planner::local_issues() const
@@ -395,8 +405,16 @@ std::vector<Issue> Planner::local_issues() const
     return validate(plan_, selected_capabilities());
 }
 
+bool Planner::has_tasks() const
+{
+    const PlanNode *root = plan_.root.get();
+    if (!root || root->kind() != NodeKind::Sequence) { return false; }
+    return !static_cast<const SequenceNode *>(root)->children.empty();
+}
+
 void Planner::save(const std::string &path) const
 {
+    if (!has_tasks()) { return; }
     std::ofstream f(path);
     f << plan_.to_json().dump(2);
 }
@@ -414,27 +432,61 @@ void Planner::load(const std::string &path)
         if (!plan_.vehicle.empty()) {
             select_vehicle(plan_.vehicle);  // no-op if not found, or already selected
         }
+        reset_upload_status();
     } catch (const PlanFormatError &) {
     }
 }
 
 void Planner::upload()
 {
+    if (!has_tasks()) { return; }
+
     std_msgs::msg::String msg;
     msg.data = plan_.dump_canonical();
     upload_pub_->publish(msg);
+
+    // Plan isn't copyable, so the snapshot is a round-trip through the exact bytes just sent.
+    uploaded_plan_ = Plan::from_json(msg.data);
+
+    std::lock_guard<std::mutex> lock(state_mutex_);
+    if (upload_timeout_timer_) { upload_timeout_timer_->cancel(); }
+    pending_upload_plan_id_ = plan_.plan_id;
+    upload_status_ = UploadStatus::Uploading;
+    upload_issues_.clear();
+
+    // One-shot: cancels itself the moment it fires, whether or not it actually flips the status.
+    upload_timeout_timer_ = node_->create_wall_timer(kUploadTimeout, [this]() {
+        std::lock_guard<std::mutex> timer_lock(state_mutex_);
+        upload_timeout_timer_->cancel();
+        if (upload_status_ == UploadStatus::Uploading) {
+            upload_status_ = UploadStatus::TimedOut;
+        }
+    });
+}
+
+UploadStatus Planner::upload_status() const
+{
+    std::lock_guard<std::mutex> lock(state_mutex_);
+    return upload_status_;
+}
+
+std::vector<Issue> Planner::upload_issues() const
+{
+    std::lock_guard<std::mutex> lock(state_mutex_);
+    return upload_issues_;
 }
 
 void Planner::start()
 {
+    // Targets uploaded_plan_'s id, not plan_'s, since plan_ may have moved on since the last upload().
     std_msgs::msg::String msg;
-    msg.data = plan_.plan_id;
+    msg.data = uploaded_plan_.plan_id;
     start_pub_->publish(msg);
 }
 
 void Planner::abort()
 {
     std_msgs::msg::String msg;
-    msg.data = plan_.plan_id;
+    msg.data = uploaded_plan_.plan_id;
     abort_pub_->publish(msg);
 }

@@ -1,9 +1,4 @@
-// Static plan validation.
-//
-// Used twice with the same code: on the GCS before upload (UX) and on the
-// vehicle after upload (authority -- the vehicle never trusts GCS-side
-// checks). Structural checks always run; skill/param/condition checks only
-// run when `capabilities` is non-null.
+// Static plan validation, used identically on the GCS (UX) and the vehicle (authority).
 #pragma once
 
 #include <string>
@@ -14,8 +9,7 @@
 
 namespace asr_mission {
 
-// Hard cap so no plan can loop unbounded; a supervisor above the executor
-// still owns battery/geofence/link failsafes regardless of what a plan says.
+// Hard cap so no plan can loop unbounded.
 constexpr int kMaxRetryAttempts = 25;
 constexpr int kMaxRepeatCount = 25;
 

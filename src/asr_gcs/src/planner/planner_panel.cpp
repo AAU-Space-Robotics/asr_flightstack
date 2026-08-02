@@ -1,4 +1,4 @@
-#include "planner_panel.h"
+#include "planner/planner_panel.h"
 
 #include <algorithm>
 #include <cctype>
@@ -65,8 +65,7 @@ std::string FormatNumber(double value) {
     return buf;
 }
 
-// Ellipsizes to fit max_width -- plan names can otherwise run on under the
-// fixed-position status/item pills.
+// Ellipsizes to fit max_width -- plan names can otherwise run on under the fixed-position status pills.
 std::string TruncateToWidth(const std::string &text, float max_width) {
     if (ImGui::CalcTextSize(text.c_str()).x <= max_width) {
         return text;
@@ -78,8 +77,7 @@ std::string TruncateToWidth(const std::string &text, float max_width) {
     return truncated.empty() ? "..." : truncated + "...";
 }
 
-// Condition has no declared type (unlike a skill's ParamSpec), so this is a
-// stopgap until the manifest schema carries one.
+// Condition has no declared type (unlike a skill's ParamSpec), so this is a stopgap until the manifest schema carries one.
 bool ConditionValueIsInt(const std::string &cond) {
     return cond == "probes_found";
 }
@@ -133,6 +131,22 @@ size_t WrapperChildTaskCount(const PlanNode *child) {
         return static_cast<const SequenceNode &>(*child).children.size();
     }
     return 0;
+}
+
+// Hand-drawn rather than a Unicode glyph -- the loaded font atlas doesn't cover check/cross codepoints.
+void DrawCheckmark(ImDrawList *draw_list, ImVec2 center, float size, ImU32 color, float thickness) {
+    const ImVec2 p1(center.x - size * 0.5f, center.y);
+    const ImVec2 p2(center.x - size * 0.1f, center.y + size * 0.4f);
+    const ImVec2 p3(center.x + size * 0.5f, center.y - size * 0.4f);
+    draw_list->AddLine(p1, p2, color, thickness);
+    draw_list->AddLine(p2, p3, color, thickness);
+}
+
+void DrawCross(ImDrawList *draw_list, ImVec2 center, float size, ImU32 color, float thickness) {
+    draw_list->AddLine(ImVec2(center.x - size * 0.5f, center.y - size * 0.5f),
+                       ImVec2(center.x + size * 0.5f, center.y + size * 0.5f), color, thickness);
+    draw_list->AddLine(ImVec2(center.x - size * 0.5f, center.y + size * 0.5f),
+                       ImVec2(center.x + size * 0.5f, center.y - size * 0.5f), color, thickness);
 }
 
 } // namespace
@@ -257,17 +271,14 @@ void PlannerPanel::DrawTaskList(float scale, bool theme, float window_height)
     ImGui::PushStyleColor(ImGuiCol_ScrollbarGrab, Color::panelBorder(theme));
     ImGui::PushStyleColor(ImGuiCol_ScrollbarGrabHovered, IM_COL32(255, 130, 30, 180));
     ImGui::PushStyleColor(ImGuiCol_ScrollbarGrabActive, IM_COL32(255, 130, 30, 255));
-    // Height reaches the real window bottom (mirroring the map/height-chart
-    // sizing fix) rather than a fixed 650*scale, which only matched the
-    // reference resolution and otherwise left a gap before the true edge.
+    // Height reaches the real window bottom rather than a fixed 650*scale.
     const float panel_top = 220.0f * scale;
     const float panel_bottom_margin = 10.0f * scale;
     const float panel_h = std::max(200.0f * scale, window_height - panel_top - panel_bottom_margin);
     BeginFixedPanel("MissionPlannerPanel", ImVec2(70 * scale, panel_top), ImVec2(450 * scale, panel_h),
                      scale, theme, 0, ImVec2(8, 8));
 
-    // Fetched fresh further down too -- Clear can destroy the root this same
-    // frame, so a pointer captured here would dangle by the row loop below.
+    // Fetched fresh further down too -- Clear can destroy the root this same frame.
     size_t count = 0;
     {
         const PlanNode *root_for_count = planner_.plan().root.get();
@@ -276,8 +287,7 @@ void PlannerPanel::DrawTaskList(float scale, bool theme, float window_height)
         }
     }
 
-    // Computed here (not just in the row loop) so the status pill can
-    // summarize it even when the list is empty.
+    // Computed here so the status pill can summarize it even when the list is empty.
     const std::vector<Issue> issues = planner_.local_issues();
 
     // --- Header: title + name, sized to leave room for the pills ---------
@@ -370,9 +380,7 @@ void PlannerPanel::DrawTaskList(float scale, bool theme, float window_height)
         ImGui::PopStyleColor();
     }
 
-    // Pinned explicitly -- the pills above were placed via manual
-    // SetCursorPos, so the next auto-laid-out item would otherwise inherit
-    // wherever that last left the cursor instead of the title's real bottom.
+    // Pinned explicitly -- the pills above were placed via manual SetCursorPos.
     ImGui::SetCursorPosY(header_top_y + title_h + 8.0f * scale);
     ImGui::PushStyleColor(ImGuiCol_Separator, Color::panelBorder(theme));
     ImGui::Separator();
@@ -382,8 +390,7 @@ void PlannerPanel::DrawTaskList(float scale, bool theme, float window_height)
     const SequenceNode *sequence = (root && root->kind() == NodeKind::Sequence)
         ? static_cast<const SequenceNode *>(root) : nullptr;
 
-    // Rows scroll in their own child, leaving room below for the Save/Load
-    // footer (computed with its own larger FramePadding to match).
+    // Rows scroll in their own child, leaving room below for the footer.
     ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(16.0f * scale, 10.0f * scale));
     const float footer_h = ImGui::GetFrameHeightWithSpacing() + 16.0f * scale;
     ImGui::PopStyleVar();
@@ -399,13 +406,11 @@ void PlannerPanel::DrawTaskList(float scale, bool theme, float window_height)
         const float row_width = ImGui::GetContentRegionAvail().x;
         const VehicleCapabilities *task_capabilities = planner_.selected_capabilities();
 
-        // Generic over where values come from/are written to -- reused for
-        // both a top-level task and one nested inside a group.
+        // Generic over where values come from/are written to -- reused for top-level and nested tasks.
         auto draw_param_editor = [&](const nlohmann::json &params, const std::map<std::string, ParamSpec> &param_specs,
                                       const std::function<void(const std::string &, const nlohmann::json &)> &set_param) {
             for (const auto &[param_name, param_spec] : param_specs) {
-                // No current skill uses polygon params; needs its own
-                // vertex-list editor eventually.
+                // No current skill uses polygon params; needs its own vertex-list editor eventually.
                 if (param_spec.type == "polygon") {
                     ImGui::TextDisabled("%s: editing not supported yet", param_name.c_str());
                     continue;
@@ -453,8 +458,7 @@ void PlannerPanel::DrawTaskList(float scale, bool theme, float window_height)
             }
         };
 
-        // Deferred until after the loop -- applying mid-loop would
-        // invalidate the indices the rest of the loop relies on.
+        // Deferred until after the loop -- applying mid-loop would invalidate the indices below.
         int remove_index = -1;
         int move_up_index = -1;
         int move_down_index = -1;
@@ -518,9 +522,7 @@ void PlannerPanel::DrawTaskList(float scale, bool theme, float window_height)
             const int display_index = static_cast<int>(i) + 1;
             const std::string node_path = "root.children[" + std::to_string(i) + "]";
 
-            // Must run before any manual SetCursorScreenPos below -- SetScrollHereY
-            // reads the auto-layout cursor position, which is still at this
-            // row's top only until the first manual repositioning happens.
+            // Must run before any manual SetCursorScreenPos below -- SetScrollHereY reads the auto-layout cursor.
             if (scroll_to_expanded_ && expanded_task_index_ == static_cast<int>(i)) {
                 ImGui::SetScrollHereY(0.2f);
                 scroll_to_expanded_ = false;
@@ -600,8 +602,7 @@ void PlannerPanel::DrawTaskList(float scale, bool theme, float window_height)
                 ImGui::EndGroup();
                 const float text_height = ImGui::GetItemRectSize().y;
                 const float row_height = std::max(badge_diameter, text_height);
-                // Aligned to the title line only, not the full title+subtitle
-                // block, so buttons don't drift as the subtitle grows longer.
+                // Aligned to the title line only, so buttons don't drift as the subtitle grows longer.
                 const float button_align_h = std::max(badge_diameter, title_line_h);
 
                 const bool content_hovered = ImGui::IsMouseHoveringRect(
@@ -818,9 +819,7 @@ void PlannerPanel::DrawTaskList(float scale, bool theme, float window_height)
                             ImGui::EndGroup();
                             const float nested_row_height = ImGui::GetItemRectSize().y;
 
-                            // Whole content block is the click target, matching the top-level row.
-                            // Gated on nested_spec existing (a recognized skill), not on it having
-                            // params -- same reasoning as the top-level row's own click gate.
+                            // Gated on nested_spec existing (recognized skill), not on it having params.
                             const bool nested_hovered = nested_spec && ImGui::IsMouseHoveringRect(
                                 nested_row_start, ImVec2(nested_row_start.x + nested_content_w, nested_row_start.y + nested_row_height));
                             if (nested_hovered) {
@@ -874,9 +873,7 @@ void PlannerPanel::DrawTaskList(float scale, bool theme, float window_height)
                             ImGui::Spacing();
                         }
 
-                        // Removing the last task dissolves the whole group,
-                        // which would leave expanded_task_index_ pointing at
-                        // whatever now occupies this slot -- clear both.
+                        // Removing the last task dissolves the whole group -- clear both indices.
                         if (nested_remove_index >= 0) {
                             const bool group_will_dissolve = inner.children.size() <= 1;
                             planner_.remove_group_task(i, static_cast<size_t>(nested_remove_index));
@@ -959,8 +956,7 @@ void PlannerPanel::DrawTaskList(float scale, bool theme, float window_height)
             const float text_height = ImGui::GetItemRectSize().y;
             const float row_height = std::max(badge_diameter, text_height);
 
-            // Manual rect check -- a "row" here is badge + text + buttons,
-            // not one ImGui item. Scoped to content_w to exclude the buttons.
+            // Manual rect check -- a "row" here is badge + text + buttons, not one ImGui item.
             const bool content_hovered = ImGui::IsMouseHoveringRect(
                 row_start, ImVec2(row_start.x + content_w, row_start.y + row_height));
             if (is_selected) {
@@ -975,13 +971,7 @@ void PlannerPanel::DrawTaskList(float scale, bool theme, float window_height)
                     if (is_selected) { selected_task_indices_.erase(i); }
                     else { selected_task_indices_.insert(i); }
                 } else if (spec) {
-                    // Gated on spec existing (a valid, recognized skill), not on
-                    // it having params -- a param-less task (land/rth/rtl) is
-                    // still selectable, since selecting is also how its map
-                    // marker gets highlighted. spec == nullptr means the skill
-                    // isn't recognized by the vehicle (already flagged red by
-                    // the validator); draw_param_editor below would dereference
-                    // a null spec for that row, so it must stay unselectable.
+                    // Gated on spec existing, not on it having params -- a param-less task must stay selectable too.
                     expanded_task_index_ = (expanded_task_index_ == static_cast<int>(i)) ? -1 : static_cast<int>(i);
                 }
             }
@@ -1009,18 +999,11 @@ void PlannerPanel::DrawTaskList(float scale, bool theme, float window_height)
             ImGui::PopStyleVar();
             ImGui::PopID();
 
-            // Dummy() reserves the row's space as a real item -- a manual
-            // SetCursorScreenPos alone doesn't let ImGui know content extends past the last row.
+            // Dummy() reserves the row's space -- a manual SetCursorScreenPos alone doesn't extend the content region.
             ImGui::SetCursorScreenPos(row_start);
             ImGui::Dummy(ImVec2(row_width, row_height + 10.0f * scale));
 
-            // PushID(i) keeps widget IDs unique per row -- without it, two
-            // rows with a same-named param (e.g. two goto tasks' "yaw")
-            // would share ImGui's ID and fight over edit state.
-            // spec is checked again here, not just at the click site above --
-            // SelectTask() (a map-marker click) can set expanded_task_index_
-            // directly, bypassing that gate, and could otherwise land on a
-            // row whose skill isn't recognized (spec == nullptr).
+            // spec re-checked here too -- SelectTask() (a map-marker click) can bypass the click-site gate above.
             if (expanded_task_index_ == static_cast<int>(i) && spec) {
                 ImGui::PushID(static_cast<int>(i));
                 ImGui::Indent(badge_diameter + 12.0f * scale);
@@ -1042,8 +1025,7 @@ void PlannerPanel::DrawTaskList(float scale, bool theme, float window_height)
             }
         }
 
-        // Remap expanded_task_index_ through the shift so the same row stays
-        // expanded; selection is simpler to just drop than remap.
+        // Remap expanded_task_index_ through the shift; selection is simpler to just drop than remap.
         if (remove_index >= 0) {
             planner_.remove_task(static_cast<size_t>(remove_index));
             if (remove_index == expanded_task_index_) {
@@ -1098,6 +1080,106 @@ void PlannerPanel::DrawTaskList(float scale, bool theme, float window_height)
     ImGui::SetCursorPosY(ImGui::GetCursorPosY() + std::max(0.0f, (band_remaining - button_h) * 0.5f));
 
     ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(16.0f * scale, 10.0f * scale));
+
+    // --- Upload: publish the plan, track the vehicle's validation of it --
+    {
+        const bool has_tasks = planner_.has_tasks();
+        // Button itself previews local plan validity -- red/yellow before you even click.
+        ImGui::BeginDisabled(!has_tasks);
+        if (!has_tasks) {
+            PushThemedButtonStyle(theme, false);
+        } else if (error_count > 0) {
+            ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 12.0f);
+            ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(255, 255, 255, 255));
+            ImGui::PushStyleColor(ImGuiCol_Button, IM_COL32(140, 40, 40, 255));
+            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, IM_COL32(180, 60, 60, 255));
+            ImGui::PushStyleColor(ImGuiCol_ButtonActive, IM_COL32(200, 70, 70, 255));
+        } else if (warning_count > 0) {
+            ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 12.0f);
+            ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(0, 0, 0, 255));
+            ImGui::PushStyleColor(ImGuiCol_Button, IM_COL32(150, 110, 20, 255));
+            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, IM_COL32(178, 130, 25, 255));
+            ImGui::PushStyleColor(ImGuiCol_ButtonActive, IM_COL32(198, 145, 30, 255));
+        } else {
+            PushThemedButtonStyle(theme, false);
+        }
+        if (ImGui::Button("Upload")) {
+            planner_.upload();
+        }
+        if (!has_tasks) {
+            PopThemedButtonStyle();
+        } else if (error_count > 0 || warning_count > 0) {
+            ImGui::PopStyleColor(4);
+            ImGui::PopStyleVar();
+        } else {
+            PopThemedButtonStyle();
+        }
+        ImGui::EndDisabled();
+        ImGui::SameLine();
+
+        // Compact result indicator: check for clean, cross for errors/timeout, hollow ring while waiting.
+        const UploadStatus upload_status = planner_.upload_status();
+        const float icon_span = ImGui::GetFrameHeight();
+        ImGui::Dummy(ImVec2(icon_span, icon_span));
+        const ImVec2 icon_min = ImGui::GetItemRectMin();
+        const ImVec2 icon_max = ImGui::GetItemRectMax();
+        const ImVec2 icon_center((icon_min.x + icon_max.x) * 0.5f, (icon_min.y + icon_max.y) * 0.5f);
+        const float icon_size = icon_span * 0.55f;
+        ImDrawList *footer_draw_list = ImGui::GetWindowDrawList();
+        // Boxed like the buttons it sits next to, or it reads as oddly spaced.
+        footer_draw_list->AddRectFilled(icon_min, icon_max, Color::panelBorder(theme), 12.0f);
+
+        std::string tooltip_header;
+        std::vector<Issue> upload_issues;
+        switch (upload_status) {
+            case UploadStatus::Idle:
+                // Dim dash rather than an empty box -- reads as "nothing yet", not a glitch.
+                footer_draw_list->AddLine(ImVec2(icon_center.x - icon_size * 0.3f, icon_center.y),
+                                          ImVec2(icon_center.x + icon_size * 0.3f, icon_center.y),
+                                          Color::dwhite_lblack(theme), 2.5f * scale);
+                tooltip_header = "Not uploaded yet";
+                break;
+            case UploadStatus::Uploading:
+                footer_draw_list->AddCircle(icon_center, icon_size * 0.5f, IM_COL32(245, 200, 76, 255), 0, 2.0f * scale);
+                tooltip_header = "Uploading -- waiting for vehicle...";
+                break;
+            case UploadStatus::TimedOut:
+                DrawCross(footer_draw_list, icon_center, icon_size, IM_COL32(255, 92, 92, 255), 2.5f * scale);
+                tooltip_header = "No response from vehicle -- click Upload to retry";
+                break;
+            case UploadStatus::Validated: {
+                upload_issues = planner_.upload_issues();
+                size_t up_errors = 0, up_warnings = 0;
+                for (const auto &issue : upload_issues) {
+                    if (issue.severity == Severity::Error) { ++up_errors; } else { ++up_warnings; }
+                }
+                if (up_errors > 0) {
+                    DrawCross(footer_draw_list, icon_center, icon_size, IM_COL32(255, 92, 92, 255), 2.5f * scale);
+                    tooltip_header = std::to_string(up_errors) + (up_errors == 1 ? " error" : " errors") + " on vehicle";
+                } else if (up_warnings > 0) {
+                    DrawCheckmark(footer_draw_list, icon_center, icon_size, IM_COL32(245, 200, 76, 255), 2.5f * scale);
+                    tooltip_header = std::to_string(up_warnings) + (up_warnings == 1 ? " warning" : " warnings") + " on vehicle";
+                } else {
+                    DrawCheckmark(footer_draw_list, icon_center, icon_size, IM_COL32(100, 220, 100, 255), 2.5f * scale);
+                    tooltip_header = "Validated on vehicle -- no issues";
+                }
+                break;
+            }
+        }
+
+        if (ImGui::IsItemHovered()) {
+            ImGui::BeginTooltip();
+            ImGui::TextUnformatted(tooltip_header.c_str());
+            for (const auto &issue : upload_issues) {
+                const ImVec4 color = issue.severity == Severity::Error
+                    ? ImVec4(1.0f, 0.36f, 0.36f, 1.0f) : ImVec4(0.96f, 0.78f, 0.30f, 1.0f);
+                ImGui::TextColored(color, "%s: %s", ReadableIssuePath(issue.path).c_str(), issue.message.c_str());
+            }
+            ImGui::EndTooltip();
+        }
+    }
+
+    ImGui::SameLine();
     PushThemedButtonStyle(theme, false);
     if (ImGui::Button("Save")) {
         save_load_dialog_.Open(SaveLoadDialog::Mode::Save, PlansDirectory(), ".json",
@@ -1136,8 +1218,7 @@ void PlannerPanel::DrawTaskList(float scale, bool theme, float window_height)
     ImGui::PopStyleColor(4);
     ImGui::PopStyleVar();
 
-    // NoTitleBar: BeginPopupModal would otherwise render the internal ID
-    // ("ConfirmClearPopup") as a literal title-bar caption.
+    // NoTitleBar: BeginPopupModal would otherwise render the internal ID as a literal title-bar caption.
     ImGui::PushStyleColor(ImGuiCol_PopupBg, Color::panelColor(theme));
     ImGui::PushStyleColor(ImGuiCol_Border, Color::panelBorder(theme));
     ImGui::PushStyleColor(ImGuiCol_Text, Color::white_black(theme));

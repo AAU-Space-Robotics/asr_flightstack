@@ -1,4 +1,4 @@
-#include "height_chart.h"
+#include "planner/height_chart.h"
 
 #include <algorithm>
 #include <cstdio>
@@ -15,18 +15,14 @@ using namespace asr_mission;
 
 namespace {
 
-// A repeat node's span within the flattened `altitudes` list -- lets the
-// chart mark it as one bounded region instead of expanding its points
-// `count` times.
+// A repeat node's span within the flattened `altitudes` list -- one bounded region, not `count` expanded points.
 struct RepeatBand {
     size_t start_index;
     size_t end_index;
     int count;
 };
 
-// Walks the plan in execution order, appending one altitude per task.
-// `carry` holds flat across tasks that don't set it (spin/rth/unmodeled
-// skills) so the line reads as continuous.
+// Walks the plan in execution order, appending one altitude per task; `carry` holds flat where a task doesn't set it.
 void CollectAltitudes(const PlanNode &node, std::optional<double> &carry, std::vector<double> &altitudes,
                        std::vector<RepeatBand> &bands) {
     switch (node.kind()) {
@@ -93,8 +89,7 @@ void DrawHeightChart(const Plan &plan, ImVec2 pos, ImVec2 size, float scale, boo
     ImPlot::PushStyleColor(ImPlotCol_AxisGrid, Color::panelBorder(theme));
     ImPlot::PushStyleColor(ImPlotCol_AxisTick, Color::panelBorder(theme));
 
-    // Y is inverted to match the vehicle's native NED frame (up = negative),
-    // even though plans themselves author alt/pos.z as positive-up.
+    // Y is inverted to match the vehicle's native NED frame (up = negative), though plans author it positive-up.
     if (ImPlot::BeginPlot("##HeightChart", ImVec2(-1, -1), ImPlotFlags_NoTitle | ImPlotFlags_NoLegend | ImPlotFlags_NoMouseText)) {
         ImPlot::SetupAxis(ImAxis_X1, "Task");
         ImPlot::SetupAxis(ImAxis_Y1, "Altitude (m)", ImPlotAxisFlags_Invert);
@@ -104,16 +99,14 @@ void DrawHeightChart(const Plan &plan, ImVec2 pos, ImVec2 size, float scale, boo
             ImPlot::SetupAxisLimits(ImAxis_X1, 0, 1, ImPlotCond_Always);
             ImPlot::SetupAxisLimits(ImAxis_Y1, -1, 0, ImPlotCond_Always);
         } else {
-            // Explicit limits, not ImPlotAxisFlags_AutoFit, so a plateau
-            // still gets at least 1m (or 10%) of headroom instead of hugging the border.
+            // Explicit limits, not AutoFit, so a plateau still gets headroom instead of hugging the border.
             const double min_alt = *std::min_element(altitudes.begin(), altitudes.end());
             const double max_alt = *std::max_element(altitudes.begin(), altitudes.end());
             const double padding = std::max(1.0, (max_alt - min_alt) * 0.1);
             ImPlot::SetupAxisLimits(ImAxis_Y1, min_alt - padding, max_alt + padding, ImPlotCond_Always);
 
             std::vector<double> xs(altitudes.size());
-            // One tick per task, explicit -- ImPlot's automatic spacing
-            // would otherwise subdivide this discrete axis (e.g. "2.2").
+            // One tick per task, explicit -- ImPlot's automatic spacing would otherwise show e.g. "2.2".
             std::vector<std::string> tick_label_strings(altitudes.size());
             std::vector<const char *> tick_labels(altitudes.size());
             for (size_t k = 0; k < xs.size(); ++k) {
@@ -124,11 +117,7 @@ void DrawHeightChart(const Plan &plan, ImVec2 pos, ImVec2 size, float scale, boo
             ImPlot::SetupAxisTicks(ImAxis_X1, xs.data(), static_cast<int>(xs.size()), tick_labels.data());
             ImPlot::SetupAxisLimits(ImAxis_X1, 1, static_cast<double>(altitudes.size()), ImPlotCond_Always);
 
-            // Repeat bands drawn before the line so it renders on top.
-            // Pixel-space top/bottom are resolved via min/max of the two
-            // converted Y-limit points rather than assumed from the data's
-            // own min/max, since ImPlotAxisFlags_Invert flips which one
-            // lands at the top of the screen.
+            // Drawn before the line (on top) -- top/bottom via min/max of both Y-limits, since Invert flips which is which.
             if (!bands.empty()) {
                 const ImPlotRect limits = ImPlot::GetPlotLimits();
                 const float y_top = std::min(ImPlot::PlotToPixels(0, limits.Y.Min).y, ImPlot::PlotToPixels(0, limits.Y.Max).y);

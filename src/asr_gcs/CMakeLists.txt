@@ -106,12 +106,13 @@ add_executable(interface
   src/app_window.cpp
   src/info_panels.cpp
   src/map.cpp
-  src/map_overlay.cpp
+  src/planner/map_overlay.cpp
   src/widgets.cpp
-  src/planner.cpp
-  src/planner_panel.cpp
-  src/save_load_dialog.cpp
-  src/height_chart.cpp
+  src/planner/planner.cpp
+  src/planner/planner_panel.cpp
+  src/planner/save_load_dialog.cpp
+  src/planner/height_chart.cpp
+  src/planner/mission_control_bar.cpp
   ${imgui_SOURCE_DIR}/imgui.cpp
   ${imgui_SOURCE_DIR}/imgui_demo.cpp
   ${imgui_SOURCE_DIR}/imgui_draw.cpp

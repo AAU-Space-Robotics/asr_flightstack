@@ -1,4 +1,4 @@
-#include "map_overlay.h"
+#include "planner/map_overlay.h"
 
 #include <cstdio>
 #include <vector>
@@ -26,10 +26,7 @@ const PlanNode *WrapperChild(const PlanNode &node) {
     }
 }
 
-// Mirrors the task list's own two-level addressing (top-level row index,
-// and a nested task index within it if that row is a group) instead of a
-// fully generic tree walk, so map markers and list rows can reference the
-// same task -- needed to sync selection between the two.
+// Mirrors the task list's own two-level addressing instead of a generic tree walk, so markers can reference rows.
 void CollectPositions(const Plan &plan, std::vector<RoutePoint> &points) {
     if (!plan.root || plan.root->kind() != NodeKind::Sequence) { return; }
     const auto &sequence = static_cast<const SequenceNode &>(*plan.root);
@@ -40,8 +37,7 @@ void CollectPositions(const Plan &plan, std::vector<RoutePoint> &points) {
             const auto pos = task.params.value("pos", std::vector<double>{});
             if (pos.size() == 3) { carry.north_m = pos[0]; carry.east_m = pos[1]; }
         } else if (task.skill == "rth" || task.skill == "rtl") {
-            // Both fly to (0, 0, current altitude) -- asr_autopilot's
-            // flyToHome -- before rtl additionally lands there.
+            // Both fly to (0, 0, current altitude) via asr_autopilot's flyToHome.
             carry.north_m = 0.0;
             carry.east_m = 0.0;
         }
@@ -71,7 +67,7 @@ void CollectPositions(const Plan &plan, std::vector<RoutePoint> &points) {
 MapTaskClick DrawPlanRouteOverlay(Location &location, const Plan &plan,
                                   double home_lat, double home_lon,
                                   double center_lat, double center_lon, int zoom,
-                                  ImVec2 widget_pos, float width, float height, float scale,
+                                  ImVec2 widget_pos, float width, float height, float visible_h, float scale,
                                   int highlighted_top_level, int highlighted_nested)
 {
     MapTaskClick click;
@@ -88,13 +84,9 @@ MapTaskClick DrawPlanRouteOverlay(Location &location, const Plan &plan,
                                                        widget_pos, width, height, scale, zoom);
     }
 
-    // Foreground, not GetWindowDrawList() -- MapWidget's tiles live on a
-    // *child* window's own draw list, and ImGui always composites a child
-    // on top of its parent's entire list as one unit regardless of call
-    // order within the frame, so anything drawn on the parent here would
-    // render underneath the (opaque) tiles instead of over them.
+    // Foreground, not GetWindowDrawList() -- MapWidget's tiles live on a child window's own draw list, which always composites on top of the parent regardless of call order.
     ImDrawList *draw_list = ImGui::GetForegroundDrawList();
-    draw_list->PushClipRect(widget_pos, ImVec2(widget_pos.x + width, widget_pos.y + height), true);
+    draw_list->PushClipRect(widget_pos, ImVec2(widget_pos.x + width, widget_pos.y + visible_h), true);
 
     if (screen_points.size() > 1) {
         draw_list->AddPolyline(screen_points.data(), static_cast<int>(screen_points.size()),
@@ -102,7 +94,7 @@ MapTaskClick DrawPlanRouteOverlay(Location &location, const Plan &plan,
     }
 
     const ImVec2 widget_min = widget_pos;
-    const ImVec2 widget_max(widget_pos.x + width, widget_pos.y + height);
+    const ImVec2 widget_max(widget_pos.x + width, widget_pos.y + visible_h);
     const bool mouse_clicked = ImGui::IsMouseClicked(ImGuiMouseButton_Left);
 
     std::vector<bool> highlighted(points.size());
@@ -113,8 +105,7 @@ MapTaskClick DrawPlanRouteOverlay(Location &location, const Plan &plan,
     }
 
     auto draw_marker = [&](size_t i) {
-        // Off the visible widget -- not drawn (PushClipRect would hide it
-        // anyway), and skipped here too so it isn't an invisible click target.
+        // Off the visible widget -- skipped so it isn't an invisible click target.
         if (screen_points[i].x < widget_min.x || screen_points[i].x > widget_max.x ||
             screen_points[i].y < widget_min.y || screen_points[i].y > widget_max.y) {
             return;
@@ -142,9 +133,7 @@ MapTaskClick DrawPlanRouteOverlay(Location &location, const Plan &plan,
         }
     };
 
-    // Two passes so a highlighted marker (and its hit-test) always wins over
-    // any plain markers stacked at the same spot, instead of whichever one
-    // happens to be later in task order painting over it.
+    // Two passes so a highlighted marker (and its hit-test) always wins over plain ones stacked at the same spot.
     for (size_t i = 0; i < screen_points.size(); ++i) {
         if (!highlighted[i]) { draw_marker(i); }
     }

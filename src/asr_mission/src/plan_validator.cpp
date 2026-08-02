@@ -10,8 +10,7 @@ std::string Issue::to_string() const {
     return prefix + path + ": " + message;
 }
 
-// Does a JSON param value match a declared ParamSpec type? "point" is
-// [x,y,z], "polygon" is [[x,y],...] -- see kParamTypes in capabilities.h.
+// Does a JSON param value match a declared ParamSpec type?
 static bool param_type_matches(const json &value, const std::string &type) {
     if (type == "float" || type == "int") return value.is_number();
     if (type == "bool") return value.is_boolean();
@@ -33,10 +32,7 @@ static bool param_type_matches(const json &value, const std::string &type) {
     return false;  // unknown declared type -- fail closed
 }
 
-// Checks a task's params against its skill's declared ParamSpecs: required,
-// type, and (for scalar float/int) min/max range. Not applied to point/
-// polygon params -- no current skill declares min/max on those, and a
-// per-component range isn't an obviously correct interpretation to guess at.
+// Checks a task's params against its skill's declared ParamSpecs: required, type, and min/max range.
 static void validate_params(const json &params, const SkillSpec &spec,
                             const std::string &path, std::vector<Issue> &issues) {
     for (const auto &[param_name, param_spec] : spec.params) {
@@ -159,15 +155,10 @@ static void validate_node(const PlanNode &node, const std::string &path, const V
 
 } 
 
-// Coarse model for sequencing sanity: grounded vs airborne decides whether a
-// given skill makes sense to run next (only takeoff while grounded; no
-// land/rtl back to back).
+// Coarse model for sequencing sanity: grounded vs airborne decides whether a given skill makes sense next.
 enum class VehicleState { Grounded, Airborne };
 
-// Threaded through the tree in execution order. `last_task` (skill + params
-// of whichever task most recently ran, regardless of nesting depth) flags an
-// immediate exact repeat -- e.g. `rth` right after `rth` -- which
-// vehicle_state alone wouldn't catch since both are individually valid.
+// Threaded through the tree in execution order; last_task flags an immediate exact repeat.
 struct FlowState {
     VehicleState vehicle_state = VehicleState::Grounded;
     std::optional<std::pair<std::string, json>> last_task;
@@ -200,8 +191,7 @@ static FlowState validate_task_flow(const TaskNode &task, FlowState state,
     }
     // else: unmodeled skill -- no vehicle_state requirement to enforce.
 
-    // Warning, not error -- repeating a task is physically possible, just
-    // usually a copy-paste mistake worth flagging.
+    // Warning, not error -- repeating a task is physically possible, just usually a mistake.
     if (state.last_task && state.last_task->first == task.skill && state.last_task->second == task.params) {
         issues.push_back({Severity::Warning, path,
             "identical to the previous task ('" + task.skill + "' with the same params) -- redundant?"});
@@ -212,9 +202,6 @@ static FlowState validate_task_flow(const TaskNode &task, FlowState state,
 }
 
 // Walks the tree in execution order, threading FlowState through it.
-// run_until/retry propagate their child's exit state as their own -- coarse,
-// but holds regardless since only land/rtl (always a child's terminal step)
-// flip airborne->grounded.
 static FlowState validate_state_flow(const PlanNode &node, FlowState state,
                                       const std::string &path, std::vector<Issue> &issues) {
     switch (node.kind()) {
@@ -251,8 +238,7 @@ static FlowState validate_state_flow(const PlanNode &node, FlowState state,
             if (repeat_node.child) {
                 const VehicleState entry_state = state.vehicle_state;
                 state = validate_state_flow(*repeat_node.child, state, path + ".child", issues);
-                // Checked once, not simulated count times -- if one run
-                // changes vehicle state, that's wrong regardless of count.
+                // Checked once, not simulated count times -- wrong regardless of count either way.
                 if (repeat_node.count > 1 && state.vehicle_state != entry_state) {
                     issues.push_back({Severity::Error, path,
                         "repeats " + std::to_string(repeat_node.count) + " times, but its child leaves the vehicle "

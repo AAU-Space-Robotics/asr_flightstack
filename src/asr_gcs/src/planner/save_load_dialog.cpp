@@ -1,4 +1,4 @@
-#include "save_load_dialog.h"
+#include "planner/save_load_dialog.h"
 
 #include <algorithm>
 #include <chrono>
@@ -89,8 +89,7 @@ void SaveLoadDialog::Draw(float scale, bool theme)
 {
     if (!open_) { return; }
 
-    // Fixed width narrower than the viewport -- the modal's dim background
-    // covers the rest, reading as clear gutters on either side.
+    // Fixed width narrower than the viewport -- the modal's dim background reads as clear gutters either side.
     ImGuiViewport *viewport = ImGui::GetMainViewport();
     const float margin_y = 60.0f * scale;
     ImGui::SetNextWindowPos(viewport->GetCenter(), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
