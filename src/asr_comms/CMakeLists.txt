@@ -49,6 +49,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "ros/msg/telemetry/TelemetryAttitude.msg"
   "ros/msg/telemetry/TelemetryBattery.msg"
   "ros/msg/telemetry/TelemetryGPS.msg"
+  "ros/msg/telemetry/TelemetryOriginGPS.msg"
   "ros/msg/telemetry/TelemetryStatus.msg"
   "ros/action/UAVCommand.action"
   "ros/action/MissionComand.action"

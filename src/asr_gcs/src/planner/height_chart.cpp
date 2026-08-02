@@ -89,7 +89,7 @@ void DrawHeightChart(const Plan &plan, ImVec2 pos, ImVec2 size, float scale, boo
     ImPlot::PushStyleColor(ImPlotCol_AxisGrid, Color::panelBorder(theme));
     ImPlot::PushStyleColor(ImPlotCol_AxisTick, Color::panelBorder(theme));
 
-    // Y is inverted to match the vehicle's native NED frame (up = negative), though plans author it positive-up.
+    // Y is inverted -- NED altitude is negative-up, so this keeps "higher" plotting higher.
     if (ImPlot::BeginPlot("##HeightChart", ImVec2(-1, -1), ImPlotFlags_NoTitle | ImPlotFlags_NoLegend | ImPlotFlags_NoMouseText)) {
         ImPlot::SetupAxis(ImAxis_X1, "Task");
         ImPlot::SetupAxis(ImAxis_Y1, "Altitude (m)", ImPlotAxisFlags_Invert);

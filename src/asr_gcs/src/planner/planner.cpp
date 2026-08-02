@@ -15,7 +15,7 @@ namespace {
 nlohmann::json DefaultParamValue(const std::string &skill, const std::string &param_name,
                                  const ParamSpec &spec) {
     if (skill == "takeoff" && param_name == "alt") {
-        return 1.5;  // metres, positive-up
+        return -1.5;  // metres, NED (up is negative)
     }
     if (spec.type == "bool") { return false; }
     if (spec.type == "string") { return std::string(); }

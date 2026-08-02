@@ -18,6 +18,7 @@
 #include <asr_comms/msg/telemetry_attitude.hpp>
 #include <asr_comms/msg/telemetry_battery.hpp>
 #include <asr_comms/msg/telemetry_gps.hpp>
+#include <asr_comms/msg/telemetry_origin_gps.hpp>
 #include <asr_comms/msg/telemetry_status.hpp>
 #include <asr_comms/msg/gcs_heartbeat.hpp>
 #include <asr_comms/msg/manual_control_input.hpp>
@@ -73,6 +74,7 @@ private:
     void on_attitude(const asr_comms::msg::TelemetryAttitude::SharedPtr msg);
     void on_battery(const asr_comms::msg::TelemetryBattery::SharedPtr msg);
     void on_gps(const asr_comms::msg::TelemetryGPS::SharedPtr msg);
+    void on_origin_gps(const asr_comms::msg::TelemetryOriginGPS::SharedPtr msg);
     void on_status(const asr_comms::msg::TelemetryStatus::SharedPtr msg);
     void on_distance(const px4_msgs::msg::DistanceSensor::SharedPtr msg);
 
@@ -148,6 +150,7 @@ private:
     rclcpp::Subscription<asr_comms::msg::TelemetryBattery>::SharedPtr  battery_sub_;
     rclcpp::Subscription<asr_comms::msg::TelemetryBattery>::SharedPtr  battery2_sub_;
     rclcpp::Subscription<asr_comms::msg::TelemetryGPS>::SharedPtr      gps_sub_;
+    rclcpp::Subscription<asr_comms::msg::TelemetryOriginGPS>::SharedPtr origin_gps_sub_;
     rclcpp::Subscription<asr_comms::msg::TelemetryStatus>::SharedPtr   status_sub_;
     rclcpp::Subscription<px4_msgs::msg::DistanceSensor>::SharedPtr     distance_sub_;
 
@@ -177,6 +180,7 @@ private:
     static constexpr uint16_t ASR_MSG_MISSION_START    = 0x9006u;  // GCS -> UAV, plan_id confirmation
     static constexpr uint16_t ASR_MSG_MISSION_STATUS   = 0x9007u;  // UAV -> GCS, plan_id + active_path JSON
     static constexpr uint16_t ASR_MSG_MISSION_ABORT    = 0x9008u;  // GCS -> UAV, plan_id confirmation
+    static constexpr uint16_t ASR_MSG_TELEMETRY_ORIGIN_GPS = 0x9009u;
 
     // ASR custom MAVLink command IDs (local experiment range ≥ 32768)
     static constexpr uint16_t ASR_CMD_GOTO              = 32768u;

@@ -144,3 +144,19 @@ MapTaskClick DrawPlanRouteOverlay(Location &location, const Plan &plan,
     draw_list->PopClipRect();
     return click;
 }
+
+void DrawUavPositionMarker(Location &location, double uav_lat, double uav_lon,
+                           double center_lat, double center_lon, int zoom,
+                           ImVec2 widget_pos, float width, float height, float visible_h, float scale)
+{
+    ImVec2 screen_pos = location.latLonToScreenPos(uav_lat, uav_lon, center_lat, center_lon,
+                                                    widget_pos, width, height, scale, zoom);
+    if (screen_pos.x < widget_pos.x || screen_pos.x > widget_pos.x + width ||
+        screen_pos.y < widget_pos.y || screen_pos.y > widget_pos.y + visible_h) {
+        return;
+    }
+
+    ImDrawList *draw_list = ImGui::GetForegroundDrawList();
+    draw_list->AddCircleFilled(screen_pos, 6.0f * scale, IM_COL32(255, 50, 50, 255));
+    draw_list->AddCircle(screen_pos, 6.0f * scale, IM_COL32(255, 255, 255, 255), 12, 1.5f * scale);
+}

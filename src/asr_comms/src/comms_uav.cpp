@@ -159,6 +159,10 @@ CommsUav::CommsUav()
         "out/telemetry/gps", qos_rt,
         std::bind(&CommsUav::on_gps, this, std::placeholders::_1));
 
+    origin_gps_sub_ = create_subscription<asr_comms::msg::TelemetryOriginGPS>(
+        "out/origin_gps", qos_rt,
+        std::bind(&CommsUav::on_origin_gps, this, std::placeholders::_1));
+
     status_sub_ = create_subscription<asr_comms::msg::TelemetryStatus>(
         "out/telemetry/status", qos_rt,
         std::bind(&CommsUav::on_status, this, std::placeholders::_1));
@@ -746,6 +750,33 @@ void CommsUav::on_gps(const asr_comms::msg::TelemetryGPS::SharedPtr msg)
         UINT32_MAX,  // vel_acc (unknown)
         UINT32_MAX,  // hdg_acc (unknown)
         0);          // yaw (unknown)
+    send_mavlink(mav);
+}
+
+void CommsUav::on_origin_gps(const asr_comms::msg::TelemetryOriginGPS::SharedPtr msg)
+{
+#pragma pack(push, 1)
+    struct OriginGpsPod {
+        double timestamp;
+        double latitude;
+        double longitude;
+        double altitude;
+    };
+#pragma pack(pop)
+    static_assert(sizeof(OriginGpsPod) <= 249);
+
+    OriginGpsPod pod{};
+    pod.timestamp = msg->timestamp;
+    pod.latitude  = msg->latitude;
+    pod.longitude = msg->longitude;
+    pod.altitude  = msg->altitude;
+
+    uint8_t payload[249]{};
+    std::memcpy(payload, &pod, sizeof(pod));
+
+    mavlink_message_t mav{};
+    mavlink_msg_v2_extension_pack(system_id_, component_id_, &mav,
+        0, 0, 0, ASR_MSG_TELEMETRY_ORIGIN_GPS, payload);
     send_mavlink(mav);
 }
 

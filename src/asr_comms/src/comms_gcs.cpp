@@ -120,6 +120,7 @@ CommsGcs::CommsGcs() : Node("comms_gcs")
     battery_pub_  = create_publisher<asr_comms::msg::TelemetryBattery>( "telemetry/battery_main",  10);
     battery2_pub_ = create_publisher<asr_comms::msg::TelemetryBattery>( "telemetry/battery_compute", 10);
     gps_pub_      = create_publisher<asr_comms::msg::TelemetryGPS>(     "telemetry/gps",      10);
+    origin_gps_pub_ = create_publisher<asr_comms::msg::TelemetryOriginGPS>("telemetry/origin_gps", 10);
     status_pub_   = create_publisher<asr_comms::msg::TelemetryStatus>(  "telemetry/status",   10);
     // Same topic + QoS profile the GUI already subscribes with (best-effort, transient-local)
     distance_pub_ = create_publisher<px4_msgs::msg::DistanceSensor>("/fmu/out/distance_sensor",
@@ -411,6 +412,27 @@ void CommsGcs::handle_message(const mavlink_message_t& msg)
         if (ext.message_type == ASR_MSG_MISSION_VALIDATE ||
             ext.message_type == ASR_MSG_MISSION_STATUS) {
             handle_mission_v2_extension(ext);
+            break;
+        }
+        if (ext.message_type == ASR_MSG_TELEMETRY_ORIGIN_GPS) {
+#pragma pack(push, 1)
+            struct OriginGpsPod {
+                double timestamp;
+                double latitude;
+                double longitude;
+                double altitude;
+            };
+#pragma pack(pop)
+
+            OriginGpsPod pod{};
+            std::memcpy(&pod, ext.payload, sizeof(pod));
+
+            asr_comms::msg::TelemetryOriginGPS out{};
+            out.timestamp = pod.timestamp;
+            out.latitude  = pod.latitude;
+            out.longitude = pod.longitude;
+            out.altitude  = pod.altitude;
+            origin_gps_pub_->publish(out);
             break;
         }
         if (ext.message_type != ASR_MSG_TELEMETRY_STATUS) break;

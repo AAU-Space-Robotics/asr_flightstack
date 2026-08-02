@@ -27,6 +27,7 @@
 #include <asr_comms/msg/telemetry_attitude.hpp>
 #include <asr_comms/msg/telemetry_battery.hpp>
 #include <asr_comms/msg/telemetry_gps.hpp>
+#include <asr_comms/msg/telemetry_origin_gps.hpp>
 #include <asr_comms/msg/telemetry_status.hpp>
 #include <asr_comms/msg/uav_scope.hpp>
 #include <asr_comms/msg/trajectory_setpoint.hpp>
@@ -352,6 +353,7 @@ public:
         telemetry_gps_pub_      = create_publisher<asr_comms::msg::TelemetryGPS>(     "out/telemetry/gps",      10);
         telemetry_status_pub_   = create_publisher<asr_comms::msg::TelemetryStatus>(  "out/telemetry/status",   10);
         origin_offset_pub_ = create_publisher<geometry_msgs::msg::PoseStamped>("out/origin_offset", 10);
+        origin_gps_pub_ = create_publisher<asr_comms::msg::TelemetryOriginGPS>("out/origin_gps", 10);
         actuator_servos_pub_ = create_publisher<px4_msgs::msg::ActuatorServos>("/fmu/in/actuator_servos", servo_qos);
         actuator_test_pub_ = create_publisher<px4_msgs::msg::ActuatorTest>("/fmu/in/actuator_test", servo_qos);
         control_scope_pub_ = create_publisher<asr_comms::msg::UAVScope>("out/uav_scope", 10);
@@ -410,10 +412,14 @@ public:
         //     "/probe_detector/locations", qos,
         //     [this](const asr_comms::msg::ProbeLocations::SharedPtr msg)
         //     { GlobalProbeLocationsCallback(msg); });
-        gps_sub_ = create_subscription<SensorGps>(
+        gps_sensor_sub_ = create_subscription<SensorGps>(
             "/fmu/out/vehicle_gps_position", qos,
             [this](const SensorGps::SharedPtr msg)
-            { gpsCallback(msg); });
+            { gpsSensorCallback(msg); });
+        gps_filtered_sub_ = create_subscription<VehicleGlobalPosition>(
+            "/fmu/out/vehicle_global_position", qos,
+            [this](const VehicleGlobalPosition::SharedPtr msg)
+            { gpsFilteredCallback(msg); });
         servo_command_sub_ = create_subscription<asr_comms::msg::ServoCommand>("in/servo_command", servo_qos,
             [this](const asr_comms::msg::ServoCommand::SharedPtr msg) 
             {setServo(msg->aux_index, msg->id, msg->value);});
@@ -439,6 +445,7 @@ public:
         uav_state_timer = create_wall_timer(100ms, [this](){ publish_uav_state(); });
         safety_timer_ = create_wall_timer(200ms, [this]() { safetyCheckCallback(); });
         offset_timer = create_wall_timer(1000ms, [this]() { publish_origin_offset(); });
+        origin_gps_timer_ = create_wall_timer(5000ms, [this]() { publish_origin_gps(); });
         servo_hold_timer_ = create_wall_timer(100ms, [this]() { publishHeldDisarmedServoCommand(); });
         gimbal_timeout_timer_ = this->create_wall_timer(2000ms, [this]() {RCLCPP_WARN(get_logger(),
              "Gimbal manual control timeout - switching to auto");
@@ -857,14 +864,32 @@ private:
         while (yaw < -M_PI) yaw += 2.0 * M_PI;
         return yaw;
     }
-    void gpsCallback(const SensorGps::SharedPtr msg)
+    void gpsSensorCallback(const SensorGps::SharedPtr msg)
     {
-        GPSState gps_state;
-        gps_state.latitude = msg->latitude_deg;
-        gps_state.longitude = msg->longitude_deg;
+        // Satellite count only -- lat/lon come from the fused gpsFilteredCallback instead.
+        GPSState gps_state = state_manager_.getGPSState();
         gps_state.satellites_used = msg->satellites_used;
         state_manager_.setGPSState(gps_state);
 
+    }
+
+    void gpsFilteredCallback(const VehicleGlobalPosition::SharedPtr msg)
+    {
+        Stamped3DVector gps_position(get_time(), msg->lat, msg->lon, msg->alt);
+        state_manager_.setGPSPosition(gps_position);
+
+        GPSState gps_state = state_manager_.getGPSState();
+        gps_state.latitude = msg->lat;
+        gps_state.longitude = msg->lon;
+        state_manager_.setGPSState(gps_state);
+
+        // Display-only default so the GCS overlay has a real anchor before anyone
+        // presses "Set Origin" -- does not touch origin_ (the flight-critical local frame).
+        if (!origin_gps_initialized_) {
+            origin_gps_initialized_ = true;
+            state_manager_.setOriginGPS(gps_position);
+            publish_origin_gps();
+        }
     }
 
     // Publish the origin offset
@@ -879,7 +904,19 @@ private:
         msg.pose.position.z = Current_origin.z();
         origin_offset_pub_->publish(msg);
     }
-    
+
+    // Origin GPS -- own timer plus a direct call from executeSetOrigin, same shape as publish_origin_offset.
+    void publish_origin_gps()
+    {
+        Stamped3DVector origin_gps = state_manager_.getOriginGPS();
+        asr_comms::msg::TelemetryOriginGPS msg{};
+        msg.timestamp = get_time().seconds();
+        msg.latitude  = origin_gps.x();
+        msg.longitude = origin_gps.y();
+        msg.altitude  = origin_gps.z();
+        origin_gps_pub_->publish(msg);
+    }
+
     inline double wrapToPi(double angle) {
         angle = std::fmod(angle + M_PI, 2.0 * M_PI);
         if (angle < 0)
@@ -2060,13 +2097,16 @@ private:
 
     void executeSetOrigin(std::shared_ptr<UAVCommand::Result> result) {
         Stamped3DVector global_position = state_manager_.getGlobalPosition();
+        Stamped3DVector gps_position = state_manager_.getGPSPosition();
         Stamped3DVector Current_origin = state_manager_.getOrigin();
         global_position.vector().x() = global_position.vector().x() + Current_origin.vector().x();
         global_position.vector().y() = global_position.vector().y() + Current_origin.vector().y();
         global_position.vector().z() = global_position.vector().z() + Current_origin.vector().z();
 
         state_manager_.setOrigin(global_position);
-        RCLCPP_INFO(get_logger(), "Origin set to current position: (%.2f, %.2f, %.2f)", 
+        state_manager_.setOriginGPS(gps_position);
+        publish_origin_gps();
+        RCLCPP_INFO(get_logger(), "Origin set to current position: (%.2f, %.2f, %.2f)",
                    global_position.x(), global_position.y(), global_position.z());
         result->success = true;
         result->message = "Origin set to current position.";
@@ -2187,6 +2227,7 @@ private:
     rclcpp::Publisher<asr_comms::msg::TelemetryGPS>::SharedPtr      telemetry_gps_pub_;
     rclcpp::Publisher<asr_comms::msg::TelemetryStatus>::SharedPtr   telemetry_status_pub_;
     rclcpp::Publisher<geometry_msgs::msg::PoseStamped>::SharedPtr origin_offset_pub_;
+    rclcpp::Publisher<asr_comms::msg::TelemetryOriginGPS>::SharedPtr origin_gps_pub_;
     rclcpp::Publisher<px4_msgs::msg::ActuatorServos>::SharedPtr actuator_servos_pub_;
     rclcpp::Publisher<px4_msgs::msg::ActuatorTest>::SharedPtr actuator_test_pub_;
     rclcpp::Publisher<asr_comms::msg::UAVScope>::SharedPtr control_scope_pub_;
@@ -2204,7 +2245,8 @@ private:
     rclcpp::Subscription<DistanceSensor>::SharedPtr ground_distance_sub_;
     rclcpp::Subscription<ActuatorOutputs>::SharedPtr actuator_output_sub_;
     //rclcpp::Subscription<asr_comms::msg::ProbeLocations>::SharedPtr probe_global_locations_sub_;
-    rclcpp::Subscription<SensorGps>::SharedPtr gps_sub_;
+    rclcpp::Subscription<SensorGps>::SharedPtr gps_sensor_sub_;
+    rclcpp::Subscription<VehicleGlobalPosition>::SharedPtr gps_filtered_sub_;
     rclcpp::Subscription<asr_comms::msg::ServoCommand>::SharedPtr servo_command_sub_;
 
     rclcpp::TimerBase::SharedPtr control_timer_;
@@ -2213,6 +2255,8 @@ private:
     uint8_t telemetry_tick_{0};
     rclcpp::TimerBase::SharedPtr safety_timer_;
     rclcpp::TimerBase::SharedPtr offset_timer;
+    rclcpp::TimerBase::SharedPtr origin_gps_timer_;
+    bool origin_gps_initialized_{false};
     rclcpp::TimerBase::SharedPtr servo_hold_timer_;
     rclcpp_action::Server<UAVCommand>::SharedPtr uav_command_server_;
     rclcpp::TimerBase::SharedPtr gimbal_timeout_timer_;

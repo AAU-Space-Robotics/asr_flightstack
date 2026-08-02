@@ -31,6 +31,7 @@
 #include "asr_comms/msg/telemetry_attitude.hpp"
 #include "asr_comms/msg/telemetry_battery.hpp"
 #include "asr_comms/msg/telemetry_gps.hpp"
+#include "asr_comms/msg/telemetry_origin_gps.hpp"
 #include "asr_comms/msg/telemetry_status.hpp"
 #include "asr_comms/msg/gcs_heartbeat.hpp"
 #include "asr_comms/msg/uav_command.hpp"
@@ -105,7 +106,10 @@ public:
             "/fmu/out/vehicle_gps_position", qos,
             [this](const SensorGps::SharedPtr msg)
             { gpsCallback(msg); });
-            
+        origin_gps_sub_ = create_subscription<asr_comms::msg::TelemetryOriginGPS>(
+            "telemetry/origin_gps", 10,
+            [this](const asr_comms::msg::TelemetryOriginGPS::SharedPtr msg) { originGpsCallback(msg); });
+
         heartbeat_pub_ = create_publisher<GcsHeartbeat>("in/gcs_heartbeat", qos);
         heartbeat_timer_ = create_wall_timer(
             std::chrono::milliseconds(500),
@@ -132,6 +136,7 @@ private:
     rclcpp::Subscription<asr_comms::msg::TelemetryBattery>::SharedPtr battery_sub_compute_;
     rclcpp::Subscription<asr_comms::msg::TelemetryBattery>::SharedPtr battery_sub_main_;
     rclcpp::Subscription<SensorGps>::SharedPtr gps_sub_;
+    rclcpp::Subscription<asr_comms::msg::TelemetryOriginGPS>::SharedPtr origin_gps_sub_;
     rclcpp::Publisher<GcsHeartbeat>::SharedPtr heartbeat_pub_;
     rclcpp::TimerBase::SharedPtr heartbeat_timer_;
 
@@ -217,6 +222,10 @@ private:
         gps_state.satellites_used = msg->satellites_used;
         state_manager_.setGPSState(gps_state);
 
+    }
+    void originGpsCallback(const asr_comms::msg::TelemetryOriginGPS::SharedPtr msg)
+    {
+        state_manager_.setOriginGPS(Stamped3DVector(get_time(), msg->latitude, msg->longitude, msg->altitude));
     }
     void heartbeat()
     {
@@ -408,6 +417,8 @@ int main(int argc, char **argv) {
         Info.xyz_pos[1] = static_cast<float>(position.y());
         Info.xyz_pos[2] = static_cast<float>(position.z());
         Info.gps_status = ground_control->getStateManager().getGPSState();
+        // Fixed until the next "set origin" -- plan overlay home, not the live map center.
+        const Stamped3DVector origin_gps = ground_control->getStateManager().getOriginGPS();
 
         bool gps_looks_valid = (Info.gps_status.satellites_used >= 4) &&
                        (Info.gps_status.latitude != 0.0) &&
@@ -542,12 +553,15 @@ int main(int argc, char **argv) {
         if(sat_map){
             BeginFixedPanel("MapPanel", ImVec2(70 * scale, 70 * scale), ImVec2(1500 * scale, 800 * scale),
                 scale, theme, 0, ImVec2(0, 0));
-            ImVec2 front_map_pos = location.MapWidget(Info.gps_status.latitude, Info.gps_status.longitude, 1500 * scale, 900 * scale, scale, map_zoom, placeholderTile, theme);
+            ImVec2 front_map_pos = location.MapWidget(origin_gps.x(), origin_gps.y(), 1500 * scale, 900 * scale, scale, map_zoom, placeholderTile, theme);
             // No task list here to sync selection with, so no highlight and the click result is unused.
             const float overlay_h = std::max(80.0f * scale, mission_bar_top_y - front_map_pos.y);
-            DrawPlanRouteOverlay(location, planner.plan(), Info.gps_status.latitude, Info.gps_status.longitude,
-                                 Info.gps_status.latitude, Info.gps_status.longitude, map_zoom,
+            DrawPlanRouteOverlay(location, planner.plan(), origin_gps.x(), origin_gps.y(),
+                                 origin_gps.x(), origin_gps.y(), map_zoom,
                                  front_map_pos, 1500 * scale, 900 * scale, overlay_h, scale, -1, -1);
+            DrawUavPositionMarker(location, Info.gps_status.latitude, Info.gps_status.longitude,
+                                  origin_gps.x(), origin_gps.y(), map_zoom,
+                                  front_map_pos, 1500 * scale, 900 * scale, overlay_h, scale);
 
 
             if (widgets.DrawCircleGradientButton(draw_list, winInit.getFont(24), 1.0f, ImVec2(130 * scale, 125 * scale), 50.0f * scale, "ESTOP", 40.0f * scale)) {
@@ -711,11 +725,14 @@ int main(int argc, char **argv) {
             if(sat_map){
                 BeginFixedPanel("PlannerMapPanel", ImVec2(map_x, 70 * scale), ImVec2(map_w, 800 * scale),
                         scale, theme, 0, ImVec2(0, 0));
-                ImVec2 planner_map_pos = location.MapWidget(Info.gps_status.latitude, Info.gps_status.longitude, map_w, 800 * scale, scale, map_zoom, placeholderTile, theme);
+                ImVec2 planner_map_pos = location.MapWidget(origin_gps.x(), origin_gps.y(), map_w, 800 * scale, scale, map_zoom, placeholderTile, theme);
                 const auto [highlighted_top, highlighted_nested] = planner_panel.highlighted_task();
-                MapTaskClick map_click = DrawPlanRouteOverlay(location, planner.plan(), Info.gps_status.latitude, Info.gps_status.longitude,
-                                     Info.gps_status.latitude, Info.gps_status.longitude, map_zoom,
+                MapTaskClick map_click = DrawPlanRouteOverlay(location, planner.plan(), origin_gps.x(), origin_gps.y(),
+                                     origin_gps.x(), origin_gps.y(), map_zoom,
                                      planner_map_pos, map_w, 800 * scale, 800 * scale, scale, highlighted_top, highlighted_nested);
+                DrawUavPositionMarker(location, Info.gps_status.latitude, Info.gps_status.longitude,
+                                      origin_gps.x(), origin_gps.y(), map_zoom,
+                                      planner_map_pos, map_w, 800 * scale, 800 * scale, scale);
                 if (map_click.clicked) {
                     planner_panel.SelectTask(map_click.top_level_index, map_click.nested_index);
                 }

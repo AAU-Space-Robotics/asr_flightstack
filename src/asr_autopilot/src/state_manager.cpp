@@ -12,6 +12,17 @@ Stamped3DVector StateManager::getGlobalPosition() {
     return position_global_;   
 }
 
+void StateManager::setGPSPosition(const Stamped3DVector& new_data) {
+    std::lock_guard<std::mutex> lock(position_gps_mutex_);
+    position_gps_ = new_data;   
+}
+
+Stamped3DVector StateManager::getGPSPosition() {
+    std::lock_guard<std::mutex> lock(position_gps_mutex_);
+    return position_gps_;   
+}
+
+
 // ---
 
 void StateManager::setOrigin(const Stamped3DVector& new_data) {
@@ -22,6 +33,16 @@ void StateManager::setOrigin(const Stamped3DVector& new_data) {
 Stamped3DVector StateManager::getOrigin() {
     std::lock_guard<std::mutex> lock(origin_mutex_);
     return origin_;   
+}
+
+void StateManager::setOriginGPS(const Stamped3DVector& new_data) {
+    std::lock_guard<std::mutex> lock(origin_gps_mutex_);
+    origin_gps_ = new_data;   
+}
+
+Stamped3DVector StateManager::getOriginGPS() {
+    std::lock_guard<std::mutex> lock(origin_gps_mutex_);
+    return origin_gps_;   
 }
 
 // ---

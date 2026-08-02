@@ -312,8 +312,14 @@ public:
     void setGlobalPosition(const Stamped3DVector& new_data);
     Stamped3DVector getGlobalPosition();
 
+    void setGPSPosition(const Stamped3DVector& new_data);
+    Stamped3DVector getGPSPosition();
+
     void setOrigin(const Stamped3DVector& new_data);
     Stamped3DVector getOrigin();
+
+    void setOriginGPS(const Stamped3DVector& new_data);
+    Stamped3DVector getOriginGPS();
 
     void setGlobalVelocity(const Stamped3DVector& new_data);
     Stamped3DVector getGlobalVelocity();
@@ -388,6 +394,8 @@ private:
     std::mutex heartbeat_mutex_;
 
     std::mutex position_global_mutex_;
+    std::mutex position_gps_mutex_;
+    std::mutex origin_gps_mutex_;
     std::mutex origin_mutex_;
     std::mutex velocity_global_mutex_;
     std::mutex acceleration_global_mutex_;
@@ -416,7 +424,9 @@ private:
     GCSHeartbeat gcs_heartbeat_;
 
     Stamped3DVector position_global_;
+    Stamped3DVector position_gps_;
     Stamped3DVector origin_;
+    Stamped3DVector origin_gps_;
     Stamped3DVector velocity_global_;
     Stamped3DVector acceleration_global_;
     

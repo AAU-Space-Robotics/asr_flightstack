@@ -1,12 +1,10 @@
 vehicle: thyra
 
-# alt and pos.z are positive-up (metres above the takeoff point) --
-# mission_executor_node negates them internally before sending to
-# asr_autopilot, which works in NED (up is negative Z).
+# alt and pos.z are NED (metres, up is negative) -- same frame asr_autopilot uses natively, no sign conversion anywhere.
 skills:
   takeoff:
     params:
-      alt: {type: float, min: 0.5, max: 10.0}
+      alt: {type: float, min: -10.0, max: -0.5}
 
   land:
     params: {}

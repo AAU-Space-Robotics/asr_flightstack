@@ -216,11 +216,6 @@ ImVec2 Location::MapWidget(double lat, double lon, float width, float height, fl
     draw->PathArcTo(ImVec2(p_max.x - roundRadius, p_max.y - roundRadius), roundRadius, 0.0f, IM_PI * 0.5f, 8);
     draw->PathFillConvex(maskColor);
 
-    float cx = pos.x + width  / 2.0f;
-    float cy = pos.y + height / 2.0f;
-    draw->AddCircleFilled(ImVec2(cx, cy), 6.0f * scale, IM_COL32(255, 50, 50, 255));
-    draw->AddCircle(ImVec2(cx, cy), 6.0f * scale, IM_COL32(255, 255, 255, 255), 12, 1.5f);
-
     ImGui::EndChild();
     return pos;
 }

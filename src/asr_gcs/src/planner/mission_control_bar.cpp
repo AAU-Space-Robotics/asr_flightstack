@@ -73,21 +73,22 @@ float MissionControlBar::Draw(Planner &planner, float scale, bool theme,
     const bool can_execute = upload_clean && mission_status != MissionStatus::Running;
     const bool can_abort = mission_status == MissionStatus::Running;
 
-    // --- Sizing: total width from the actual label sizes, then center on the map --
+    // --- Sizing: last frame's actual measured width, not a hand-duplicated estimate that drifted enough to clip clicks --
     ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(16.0f * scale, 10.0f * scale));
-    const float frame_pad_x = ImGui::GetStyle().FramePadding.x;
-    const float item_spacing = ImGui::GetStyle().ItemSpacing.x;
-    static const char *kLabels[] = {"Load", "Clear", "Upload", "Execute", "Abort"};
-    float content_w = 0.0f;
-    for (const char *label : kLabels) {
-        content_w += ImGui::CalcTextSize(label).x + frame_pad_x * 2.0f;
-    }
     const float bar_h = ImGui::GetFontSize() + 20.0f * scale;
     const float separator_w = 8.0f * scale;
-    content_w += bar_h;          // result icon, next to Upload -- icon_span == bar_h (same GetFrameHeight())
-    content_w += separator_w;    // divider between the plan-staging group and Execute/Abort
-    content_w += item_spacing * 6.0f;  // 6 gaps: Load|Clear|Upload|icon|separator|Execute|Abort
-    const float panel_w = content_w + 16.0f * scale;
+    float content_w = measured_content_w_;
+    if (content_w <= 0.0f) {
+        // No measurement yet (first frame ever) -- rough estimate, self-corrects from next frame on.
+        const float frame_pad_x = ImGui::GetStyle().FramePadding.x;
+        const float item_spacing = ImGui::GetStyle().ItemSpacing.x;
+        static const char *kLabels[] = {"Load", "Clear", "Upload", "Execute", "Abort"};
+        for (const char *label : kLabels) {
+            content_w += ImGui::CalcTextSize(label).x + frame_pad_x * 2.0f;
+        }
+        content_w += bar_h + separator_w + item_spacing * 6.0f;
+    }
+    const float panel_w = content_w + 16.0f * scale + 24.0f * scale;  // window padding + safety margin
     const float panel_h = bar_h + 16.0f * scale;
     ImGui::PopStyleVar();
 
@@ -244,6 +245,9 @@ float MissionControlBar::Draw(Planner &planner, float scale, bool theme,
     ImGui::PopStyleColor(4);
     ImGui::PopStyleVar();
     ImGui::EndDisabled();
+
+    // Actual right edge of the last button (Abort) -- feeds next frame's sizing/centering.
+    measured_content_w_ = ImGui::GetItemRectMax().x - (panel_x + 8.0f * scale);
 
     ImGui::PopStyleVar();  // FramePadding
 

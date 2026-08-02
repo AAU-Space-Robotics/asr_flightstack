@@ -180,12 +180,11 @@ public:
         bool needs_armed = false;
 
         if (skill == "takeoff") {
-            // Plans express altitude as positive-up; asr_autopilot works in NED, where up is negative Z.
-            goal.target_pose = {-params.at("alt").get<double>()};
+            // Plans express alt in NED (up is negative), same frame asr_autopilot uses -- no conversion needed.
+            goal.target_pose = {params.at("alt").get<double>()};
             needs_armed = true;
         } else if (skill == "goto") {
             auto pos = params.at("pos").get<std::vector<double>>();
-            if (pos.size() == 3) pos[2] = -pos[2];  // same positive-up -> NED conversion
             goal.target_pose = pos;
             if (params.contains("yaw")) {
                 goal.yaw = params.at("yaw").get<double>();
