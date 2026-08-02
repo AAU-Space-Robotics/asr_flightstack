@@ -27,6 +27,7 @@ struct DroneInformation {
     float velocity[3] = {0.0, 0.0, 0.0};
     EulerAngles orientation;
     FlightMode flight_mode = FlightMode::STANDBY;
+    GPSState gps_status;
 
 };
 

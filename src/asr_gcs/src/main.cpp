@@ -12,16 +12,21 @@
 #include "planner/mission_control_bar.h"
 #include "planner/height_chart.h"
 #include <implot.h>
+
+
 #include <algorithm>
 #include <opencv2/core/utils/logger.hpp>
 #include <ament_index_cpp/get_package_share_directory.hpp>
 #include <thread>
+#include <cstdlib>
+#include <atomic>
 
 #include <rclcpp/rclcpp.hpp>
 #include <rclcpp_action/rclcpp_action.hpp>
 #include <rcutils/logging.h>
 #include <asr_comms/action/uav_command.hpp>
 #include <asr_comms/msg/telemetry_battery.hpp>
+#include <asr_comms/msg/telemetry_gps.hpp>
 #include "asr_comms/msg/telemetry_position.hpp"
 #include "asr_comms/msg/telemetry_attitude.hpp"
 #include "asr_comms/msg/telemetry_battery.hpp"
@@ -32,9 +37,12 @@
 #include "asr_comms/msg/command_ack.hpp"
 #include "asr_comms/msg/servo_command.hpp"
 #include "asr_comms/msg/probe_locations.hpp"
+#include "asr_comms/msg/gcs_heartbeat.hpp"
+#include "px4_msgs/msg/sensor_gps.hpp"
 #include <px4_msgs/msg/vehicle_attitude.hpp>   
 #include <px4_msgs/msg/vehicle_local_position.hpp>
 #include <px4_msgs/msg/distance_sensor.hpp>
+
          
 
 WindowInitializer winInit;
@@ -50,6 +58,7 @@ using namespace px4_msgs::msg;
 constexpr size_t BATTERY_MAIN = 0;
 constexpr size_t BATTERY_COMPUTE = 1;
 
+using GcsHeartbeat = asr_comms::msg::GcsHeartbeat_<std::allocator<void>>;
 
 class AAUGrouncontrol : public rclcpp::Node
 {
@@ -92,6 +101,16 @@ public:
         battery_sub_compute_ = create_subscription<asr_comms::msg::TelemetryBattery>(
             "telemetry/battery_compute", 10,
             [this](const asr_comms::msg::TelemetryBattery::SharedPtr msg) { batteryCallbackcompute(msg); });
+        gps_sub_ = create_subscription<SensorGps>(
+            "/fmu/out/vehicle_gps_position", qos,
+            [this](const SensorGps::SharedPtr msg)
+            { gpsCallback(msg); });
+            
+        heartbeat_pub_ = create_publisher<GcsHeartbeat>("in/gcs_heartbeat", qos);
+        heartbeat_timer_ = create_wall_timer(
+            std::chrono::milliseconds(500),
+            [this]() { heartbeat(); }
+        );
     }
     void start()
     {
@@ -112,6 +131,9 @@ private:
     rclcpp::Subscription<DistanceSensor>::SharedPtr distance_sensor_sub_;
     rclcpp::Subscription<asr_comms::msg::TelemetryBattery>::SharedPtr battery_sub_compute_;
     rclcpp::Subscription<asr_comms::msg::TelemetryBattery>::SharedPtr battery_sub_main_;
+    rclcpp::Subscription<SensorGps>::SharedPtr gps_sub_;
+    rclcpp::Publisher<GcsHeartbeat>::SharedPtr heartbeat_pub_;
+    rclcpp::TimerBase::SharedPtr heartbeat_timer_;
 
 
     void attitudeCallback(const VehicleAttitude::SharedPtr msg)
@@ -187,6 +209,23 @@ private:
 
         state_manager_.setBatteryState(battery, BATTERY_COMPUTE);
     }
+    void gpsCallback(const SensorGps::SharedPtr msg)
+    {
+        GPSState gps_state;
+        gps_state.latitude = msg->latitude_deg;
+        gps_state.longitude = msg->longitude_deg;
+        gps_state.satellites_used = msg->satellites_used;
+        state_manager_.setGPSState(gps_state);
+
+    }
+    void heartbeat()
+    {
+        auto msg = GcsHeartbeat();
+        msg.timestamp = static_cast<double>(get_time().nanoseconds()) / 1e9;
+        msg.gcs_nominal = 1;
+
+        heartbeat_pub_->publish(msg);
+    }
 
 };
 EulerAngles quaternionToEulerForDisplay(const Eigen::Quaterniond& q) //trying to do a fix..........
@@ -231,13 +270,20 @@ int main(int argc, char **argv) {
     bool armButton = false;
     bool theme = 1;
     int map_zoom = 20;
-    double testLat = 57.063, testLon = 10.032;  // shared between FlightMode and Mission Planner map views
+    double Latitude = 57.063, Longitude = 10.032;
+      // shared between FlightMode and Mission Planner map views
     bool arming_state = false;
     int panel = 0;
     //bool is_manual = (Info.flight_mode == FlightMode::MANUAL_AIDED); for later:
     bool is_manual = 0;
+    bool sat_map = 0;
+
+    std::atomic<bool> tiles_downloading{false};
+    bool tiles_download_triggered = false;
     
-   
+    //std::thread([]() {
+    //    std::system("ros2 run asr_gcs download_tiles.py");
+    //}).detach();
 
     glfwSetErrorCallback([](int error, const char* description) {
         fprintf(stderr, "GLFW Error %d: %s\n", error, description);
@@ -260,6 +306,7 @@ int main(int argc, char **argv) {
     if (window == nullptr)
         return 1;
     glfwMakeContextCurrent(window);
+    glfwSetWindowSizeLimits(window, 700, 500, GLFW_DONT_CARE, GLFW_DONT_CARE);
     glfwSwapInterval(1); // Enable vsync
     ImGui_ImplGlfw_InitForOpenGL(window, true);
     ImGui_ImplOpenGL3_Init(glsl_version);
@@ -323,9 +370,13 @@ int main(int argc, char **argv) {
         const int screen_height = 1080; // Reference screen height
         int x_sc, y_sc;
         glfwGetWindowSize(window, &x_sc, &y_sc);
-        float scale = std::max(static_cast<float>(x_sc) / screen_width, 
+        if (x_sc == 0 || y_sc == 0) {
+            continue;
+        }
+
+        float scale = max(static_cast<float>(x_sc) / screen_width, 
                                static_cast<float>(y_sc) / screen_height);
-        
+        scale = max(scale, 0.01f); 
         ImGui::GetIO().FontGlobalScale = scale;
         // Set the GLFW window size
         //winInit.UpdateWindowSize(scale);
@@ -356,6 +407,37 @@ int main(int argc, char **argv) {
         Info.xyz_pos[0] = static_cast<float>(position.x());
         Info.xyz_pos[1] = static_cast<float>(position.y());
         Info.xyz_pos[2] = static_cast<float>(position.z());
+        Info.gps_status = ground_control->getStateManager().getGPSState();
+
+        bool gps_looks_valid = (Info.gps_status.satellites_used >= 4) &&
+                       (Info.gps_status.latitude != 0.0) &&
+                       (Info.gps_status.longitude != 0.0);
+        
+        if (gps_looks_valid && !tiles_download_triggered) {
+            tiles_download_triggered = true;
+            double lat = Info.gps_status.latitude;
+            double lon = Info.gps_status.longitude;
+
+            thread([lat, lon, &tiles_downloading]() {
+                tiles_downloading = true;
+                string cmd = "ros2 run asr_gcs download_tiles.py " +
+                    to_string(lat) + " " + to_string(lon);
+                system(cmd.c_str());
+                tiles_downloading = false;
+            }).detach();
+        }
+        //string infolat = "Long and Lat: " + to_string(Info.gps_status.latitude) + " " + to_string(Info.gps_status.longitude);
+        //std::cout << infolat << std::endl;
+        if (tiles_downloading.load()) {
+            ImVec2 loading_pos = ImVec2(x_sc / 2.0f - 100 * scale, 10 * scale);
+            draw_list->AddRectFilled(
+                ImVec2(loading_pos.x - 10 * scale, loading_pos.y - 5 * scale),
+                ImVec2(loading_pos.x + 210 * scale, loading_pos.y + 25 * scale),
+                IM_COL32(230, 126, 34, 220), 8.0f * scale
+            );
+            draw_list->AddText(loading_pos, IM_COL32(0, 0, 0, 255), "Downloading map tiles...");
+        }
+
          // --- ------------------------------------Side panel--------------------------------------------
 
         BeginFixedPanel("SidePanel", ImVec2(-20 * scale, -80 * scale), ImVec2(80 * scale, y_sc + 1000 * scale),
@@ -411,7 +493,7 @@ int main(int argc, char **argv) {
             );
         }
         if (widgets.CustomButton(draw_list, ImVec2(30 * scale, 220 * scale),"Placeholder",scale, Placeholder_Icon, theme, 0, 2)) {
-            panel = 2;
+            sat_map = !sat_map;
 
         }
 
@@ -457,52 +539,79 @@ int main(int argc, char **argv) {
         const float mission_bar_top_y = mission_control_bar.PanelTopY(scale, 70 * scale, 800 * scale);
 
         //--------------------------MAP--------------------------------------------------------------
-        BeginFixedPanel("MapPanel", ImVec2(70 * scale, 70 * scale), ImVec2(1500 * scale, 800 * scale),
+        if(sat_map){
+            BeginFixedPanel("MapPanel", ImVec2(70 * scale, 70 * scale), ImVec2(1500 * scale, 800 * scale),
                 scale, theme, 0, ImVec2(0, 0));
-        ImVec2 front_map_pos = location.MapWidget(testLat, testLon, 1500 * scale, 900 * scale, scale, map_zoom, placeholderTile, theme);
-        // No task list here to sync selection with, so no highlight and the click result is unused.
-        const float overlay_h = std::max(80.0f * scale, mission_bar_top_y - front_map_pos.y);
-        DrawPlanRouteOverlay(location, planner.plan(), testLat, testLon, testLat, testLon, map_zoom,
-                             front_map_pos, 1500 * scale, 900 * scale, overlay_h, scale, -1, -1);
+            ImVec2 front_map_pos = location.MapWidget(Info.gps_status.latitude, Info.gps_status.longitude, 1500 * scale, 900 * scale, scale, map_zoom, placeholderTile, theme);
+            // No task list here to sync selection with, so no highlight and the click result is unused.
+            const float overlay_h = std::max(80.0f * scale, mission_bar_top_y - front_map_pos.y);
+            DrawPlanRouteOverlay(location, planner.plan(), Info.gps_status.latitude, Info.gps_status.longitude,
+                                 Info.gps_status.latitude, Info.gps_status.longitude, map_zoom,
+                                 front_map_pos, 1500 * scale, 900 * scale, overlay_h, scale, -1, -1);
 
 
-        if (widgets.DrawCircleGradientButton(draw_list, winInit.getFont(24), 1.0f, ImVec2(130 * scale, 125 * scale), 50.0f * scale, "ESTOP", 40.0f * scale)) {
-            std::cout << "ESTOP Button Clicked!" << std::endl;
-        }
-        
-        ImGui::SetCursorPos(ImVec2(1440 * scale, 670 * scale));
-        widgets.AltitudeTape(1, (-1 * Info.xyz_pos[2]), 0.5f, theme, scale); 
-
-        widgets.GyroScopeIndicator(draw_list,
-                                ImVec2(1320 * scale, 810 * scale),
-                                Info.orientation, 
-                                theme, scale);
-
-        widgets.Compas(draw_list,
-                                ImVec2(1440 * scale, 810 * scale),
-                                Info.orientation, 
-                                theme, scale);                   
-
-        EndFixedPanel();
-
-        //----------------------------------- Map utils panel-----------------------------------
-        BeginOverlayPanel(draw_list, "MapUtilsPanel", ImVec2(1500 * scale, 72 * scale), ImVec2(49 * scale, 150 * scale), scale, theme);
-
-        
-        GLuint Plus_Icon = theme ? images.at("plus_white") : images.at("plus");
-        if (widgets.CustomButton(draw_list, ImVec2(1524 * scale, 97 * scale), "Plus", scale, Plus_Icon, theme, -5, -3)) {
-            if (map_zoom < 20) {
-                map_zoom += 1;
+            if (widgets.DrawCircleGradientButton(draw_list, winInit.getFont(24), 1.0f, ImVec2(130 * scale, 125 * scale), 50.0f * scale, "ESTOP", 40.0f * scale)) {
+                std::cout << "ESTOP Button Clicked!" << std::endl;
             }
-        }
-        GLuint Minus_Icon = theme ? images.at("minus_white") : images.at("minus");
-        if (widgets.CustomButton(draw_list, ImVec2(1524 * scale, 141 * scale), "Minus", scale, Minus_Icon, theme, -5, -3)) {
-            if (map_zoom > 13) {
-                map_zoom -= 1;
-            }
-        }
 
-        EndOverlayPanel();
+            ImGui::SetCursorPos(ImVec2(1440 * scale, 670 * scale));
+            widgets.AltitudeTape(1, (-1 * Info.xyz_pos[2]), 0.5f, theme, scale); 
+
+            widgets.GyroScopeIndicator(draw_list,
+                                    ImVec2(1320 * scale, 810 * scale),
+                                    Info.orientation, 
+                                    theme, scale);
+
+            widgets.Compas(draw_list,
+                                    ImVec2(1440 * scale, 810 * scale),
+                                    Info.orientation, 
+                                    theme, scale);                   
+
+            EndFixedPanel();
+        } else{
+            BeginFixedPanel("NoSatMapPanel", ImVec2(70 * scale, 70 * scale), ImVec2(1500 * scale, 800 * scale),
+                scale, theme, 0, ImVec2(0, 0));
+            location.NoSatMap(Info.gps_status.latitude, Info.gps_status.longitude, 1500 * scale, 900 * scale, scale, map_zoom, placeholderTile, theme);
+             if (widgets.DrawCircleGradientButton(draw_list, winInit.getFont(24), 1.0f, ImVec2(130 * scale, 125 * scale), 50.0f * scale, "ESTOP", 40.0f * scale)) {
+                std::cout << "ESTOP Button Clicked!" << std::endl;
+            }
+
+            ImGui::SetCursorPos(ImVec2(1440 * scale, 670 * scale));
+            widgets.AltitudeTape(1, (-1 * Info.xyz_pos[2]), 0.5f, theme, scale); 
+
+            widgets.GyroScopeIndicator(draw_list,
+                                    ImVec2(1320 * scale, 810 * scale),
+                                    Info.orientation, 
+                                    theme, scale);
+
+            widgets.Compas(draw_list,
+                                    ImVec2(1440 * scale, 810 * scale),
+                                    Info.orientation, 
+                                    theme, scale); 
+            EndFixedPanel();
+        }
+            //----------------------------------- Map utils panel-----------------------------------
+            BeginOverlayPanel(draw_list, "MapUtilsPanel", ImVec2(1500 * scale, 72 * scale), ImVec2(49 * scale, 150 * scale), scale, theme);
+
+            
+            GLuint Plus_Icon = theme ? images.at("plus_white") : images.at("plus");
+            if (widgets.CustomButton(draw_list, ImVec2(1524 * scale, 97 * scale), "Plus", scale, Plus_Icon, theme, -5, -3)) {
+                if (map_zoom < 20) {
+                    map_zoom += 1;
+                }
+            }
+            GLuint Minus_Icon = theme ? images.at("minus_white") : images.at("minus");
+            if (widgets.CustomButton(draw_list, ImVec2(1524 * scale, 141 * scale), "Minus", scale, Minus_Icon, theme, -5, -3)) {
+                if (map_zoom > 13) {
+                    map_zoom -= 1;
+                }
+            }
+
+            EndOverlayPanel();
+        
+       
+
+        
 
         mission_control_bar.Draw(planner, scale, theme,
                                  70 * scale, 70 * scale, 1500 * scale, 800 * scale);
@@ -550,8 +659,8 @@ int main(int argc, char **argv) {
                        ImGuiWindowFlags_NoScrollbar);
     
         
-        ImGui::InputDouble("Lat", &testLat, 0.000001, 0.01, "%.7f");
-        ImGui::InputDouble("Lon", &testLon, 0.000001, 0.01, "%.7f");
+        //ImGui::InputDouble("Lat", &testLat, 0.000001, 0.01, "%.7f");
+        //ImGui::InputDouble("Lon", &testLon, 0.000001, 0.01, "%.7f");
         //ImGui::SliderFloat("Altitude", &Info.xyz_pos[2], -20.0f, 20.0f);
         //float yaw_f = (float)Info.orientation.yaw;
         //if (ImGui::SliderFloat("Yaw", &yaw_f, -180.0f, 180.0f)) {
@@ -599,32 +708,42 @@ int main(int argc, char **argv) {
             const float map_x = planner_right_edge + map_gap;
             const float map_right_margin = map_gap;
             const float map_w = std::max(200.0f * scale, static_cast<float>(x_sc) - map_x - map_right_margin);
-            BeginFixedPanel("PlannerMapPanel", ImVec2(map_x, 70 * scale), ImVec2(map_w, 800 * scale),
-                    scale, theme, 0, ImVec2(0, 0));
-            ImVec2 planner_map_pos = location.MapWidget(testLat, testLon, map_w, 800 * scale, scale, map_zoom, placeholderTile, theme);
-            // home == center for now -- there's no pan yet.
-            const auto [highlighted_top, highlighted_nested] = planner_panel.highlighted_task();
-            MapTaskClick map_click = DrawPlanRouteOverlay(location, planner.plan(), testLat, testLon, testLat, testLon, map_zoom,
-                                 planner_map_pos, map_w, 800 * scale, 800 * scale, scale, highlighted_top, highlighted_nested);
-            if (map_click.clicked) {
-                planner_panel.SelectTask(map_click.top_level_index, map_click.nested_index);
-            }
-            EndFixedPanel();
+            if(sat_map){
+                BeginFixedPanel("PlannerMapPanel", ImVec2(map_x, 70 * scale), ImVec2(map_w, 800 * scale),
+                        scale, theme, 0, ImVec2(0, 0));
+                ImVec2 planner_map_pos = location.MapWidget(Info.gps_status.latitude, Info.gps_status.longitude, map_w, 800 * scale, scale, map_zoom, placeholderTile, theme);
+                const auto [highlighted_top, highlighted_nested] = planner_panel.highlighted_task();
+                MapTaskClick map_click = DrawPlanRouteOverlay(location, planner.plan(), Info.gps_status.latitude, Info.gps_status.longitude,
+                                     Info.gps_status.latitude, Info.gps_status.longitude, map_zoom,
+                                     planner_map_pos, map_w, 800 * scale, 800 * scale, scale, highlighted_top, highlighted_nested);
+                if (map_click.clicked) {
+                    planner_panel.SelectTask(map_click.top_level_index, map_click.nested_index);
+                }
+                EndFixedPanel();
 
-            BeginOverlayPanel(draw_list, "PlannerMapUtilsPanel", ImVec2(map_x + map_w - 70.0f * scale, 72 * scale), ImVec2(49 * scale, 150 * scale), scale, theme);
-            GLuint PlannerPlus_Icon = theme ? images.at("plus_white") : images.at("plus");
-            if (widgets.CustomButton(draw_list, ImVec2(map_x + map_w - 46.0f * scale, 97 * scale), "Plus", scale, PlannerPlus_Icon, theme, -5, -3)) {
-                if (map_zoom < 20) {
-                    map_zoom += 1;
+                BeginOverlayPanel(draw_list, "PlannerMapUtilsPanel", ImVec2(map_x + map_w - 70.0f * scale, 72 * scale), ImVec2(49 * scale, 150 * scale), scale, theme);
+                GLuint PlannerPlus_Icon = theme ? images.at("plus_white") : images.at("plus");
+                if (widgets.CustomButton(draw_list, ImVec2(map_x + map_w - 46.0f * scale, 97 * scale), "Plus", scale, PlannerPlus_Icon, theme, -5, -3)) {
+                    if (map_zoom < 20) {
+                        map_zoom += 1;
+                    }
                 }
-            }
-            GLuint PlannerMinus_Icon = theme ? images.at("minus_white") : images.at("minus");
-            if (widgets.CustomButton(draw_list, ImVec2(map_x + map_w - 46.0f * scale, 141 * scale), "Minus", scale, PlannerMinus_Icon, theme, -5, -3)) {
-                if (map_zoom > 13) {
-                    map_zoom -= 1;
+                GLuint PlannerMinus_Icon = theme ? images.at("minus_white") : images.at("minus");
+                if (widgets.CustomButton(draw_list, ImVec2(map_x + map_w - 46.0f * scale, 141 * scale), "Minus", scale, PlannerMinus_Icon, theme, -5, -3)) {
+                    if (map_zoom > 13) {
+                        map_zoom -= 1;
+                    }
                 }
+                EndOverlayPanel();
+
             }
-            EndOverlayPanel();
+            else{
+                BeginFixedPanel("PlannerSatMapPanel", ImVec2(map_x, 70 * scale), ImVec2(map_w, 800 * scale),
+                        scale, theme, 0, ImVec2(0, 0));
+               location.NoSatMap(Info.gps_status.latitude, Info.gps_status.longitude, map_w, 800 * scale, scale, map_zoom, placeholderTile, theme);
+               EndFixedPanel();
+
+            }
 
             // Height fills to the real window edge rather than a fixed 150*scale.
             const float chart_y = 880.0f * scale;

@@ -1,19 +1,14 @@
-import os, urllib.request, urllib.error, time, math
+#!/usr/bin/env python3
+import os, sys, urllib.request, urllib.error, time, math
+from ament_index_python.packages import get_package_share_directory
 
-SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-TILE_DIR = os.path.normpath(os.path.join(SCRIPT_DIR, "..", "tiles"))
+TILE_DIR = os.path.join(get_package_share_directory("asr_gcs"), "tiles")
 
-# --- pick your tile source here ---
-# "esri"    - free, no key, but real-world max zoom is often 19 outside the US
-# "google"  - unofficial endpoint, no key, decent zoom-20 coverage in Europe
-# "mapbox"  - official API, needs MAPBOX_TOKEN env var, reliable up to zoom 22
 SOURCE = "google"
-
 MAPBOX_TOKEN = os.environ.get("MAPBOX_TOKEN", "")
 
-regions = [
-    (57.059175, 57.068159, 10.023710, 10.040234, range(13, 21)),  # 500m radius, zoom 13-20
-]
+RADIUS_M = 500
+ZOOM_LEVELS = range(13, 21)
 
 
 def lat_lon_to_tile(lat, lon, zoom):
@@ -24,9 +19,14 @@ def lat_lon_to_tile(lat, lon, zoom):
     return x, y
 
 
+def meters_to_deg(meters, lat):
+    lat_deg = meters / 111320.0
+    lon_deg = meters / (111320.0 * math.cos(math.radians(lat)))
+    return lat_deg, lon_deg
+
+
 def tile_url(source, z, x, y):
     if source == "esri":
-        # Esri URL order is z/y/x
         return f"https://services.arcgisonline.com/arcgis/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
     if source == "google":
         return f"https://mt0.google.com/vt/lyrs=s&x={x}&y={y}&z={z}"
@@ -38,8 +38,6 @@ def tile_url(source, z, x, y):
 
 
 def is_valid_image(data, min_bytes=800):
-    # Google's mt0 endpoint actually serves JPEG bytes despite the "png" in the URL/path.
-    # Esri and Mapbox (with .png requested) serve real PNGs. Check both signatures.
     if len(data) < min_bytes:
         return False
     is_png = data[:8] == b"\x89PNG\r\n\x1a\n"
@@ -47,55 +45,75 @@ def is_valid_image(data, min_bytes=800):
     return is_png or is_jpeg
 
 
-total_downloaded = 0
-total_skipped = 0
-total_blank = 0
-total_failed = 0
+def build_tile_list(lat, lon, radius_m, zoom_levels):
+    lat_deg, lon_deg = meters_to_deg(radius_m, lat)
+    lat_min, lat_max = lat - lat_deg, lat + lat_deg
+    lon_min, lon_max = lon - lon_deg, lon + lon_deg
 
-for (lat_min, lat_max, lon_min, lon_max, zoom_levels) in regions:
+    tiles = []
     for z in zoom_levels:
         x_min, y_max = lat_lon_to_tile(lat_min, lon_min, z)
         x_max, y_min = lat_lon_to_tile(lat_max, lon_max, z)
-        tile_count = (x_max - x_min + 1) * (y_max - y_min + 1)
-        print(f"Zoom {z}: {tile_count} tiles ({x_max-x_min+1} x {y_max-y_min+1})")
-
         for x in range(x_min, x_max + 1):
             for y in range(y_min, y_max + 1):
-                path = f"{TILE_DIR}/{z}/{x}/{y}.png"
+                tiles.append((z, x, y))
+    return tiles
 
-                if os.path.exists(path):
-                    total_skipped += 1
-                    continue
 
-                os.makedirs(f"{TILE_DIR}/{z}/{x}", exist_ok=True)
-                url = tile_url(SOURCE, z, x, y)
+def main():
+    if len(sys.argv) < 3:
+        print("Usage: download_tiles.py <lat> <lon> [radius_m]")
+        sys.exit(1)
 
-                try:
-                    req = urllib.request.Request(url, headers={"User-Agent": "ASR-GCS/1.0"})
-                    with urllib.request.urlopen(req, timeout=10) as response:
-                        data = response.read()
+    lat = float(sys.argv[1])
+    lon = float(sys.argv[2])
+    radius_m = float(sys.argv[3]) if len(sys.argv) > 3 else RADIUS_M
 
-                    if not is_valid_image(data):
-                        total_blank += 1
-                        print(f"  Blank/invalid: {path}")
-                        continue
+    tiles = build_tile_list(lat, lon, radius_m, ZOOM_LEVELS)
 
-                    with open(path, "wb") as f:
-                        f.write(data)
-                    total_downloaded += 1
-                    time.sleep(0.15)
+    missing = [t for t in tiles if not os.path.exists(f"{TILE_DIR}/{t[0]}/{t[1]}/{t[2]}.png")]
 
-                except urllib.error.HTTPError as e:
-                    total_failed += 1
-                    print(f"  HTTP {e.code} for {path}: {e.reason}")
-                except urllib.error.URLError as e:
-                    total_failed += 1
-                    print(f"  Network error for {path}: {e.reason}")
-                except Exception as e:
-                    total_failed += 1
-                    print(f"  Failed {path}: {e}")
+    if not missing:
+        print(f"CACHE_COMPLETE: all {len(tiles)} tiles already present for ({lat}, {lon})")
+        return
 
-        print(f"  Zoom {z} done")
+    print(f"DOWNLOAD_START: {len(missing)}/{len(tiles)} tiles missing for ({lat}, {lon})")
 
-print(f"\nFinished. Downloaded: {total_downloaded}, Skipped: {total_skipped}, "
-      f"Blank/invalid: {total_blank}, Failed: {total_failed}")
+    total_downloaded = 0
+    total_blank = 0
+    total_failed = 0
+
+    for (z, x, y) in missing:
+        path = f"{TILE_DIR}/{z}/{x}/{y}.png"
+        os.makedirs(f"{TILE_DIR}/{z}/{x}", exist_ok=True)
+        url = tile_url(SOURCE, z, x, y)
+
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": "ASR-GCS/1.0"})
+            with urllib.request.urlopen(req, timeout=10) as response:
+                data = response.read()
+
+            if not is_valid_image(data):
+                total_blank += 1
+                continue
+
+            with open(path, "wb") as f:
+                f.write(data)
+            total_downloaded += 1
+            time.sleep(0.15)
+
+        except urllib.error.HTTPError as e:
+            total_failed += 1
+            print(f"  HTTP {e.code} for {path}: {e.reason}")
+        except urllib.error.URLError as e:
+            total_failed += 1
+            print(f"  Network error for {path}: {e.reason}")
+        except Exception as e:
+            total_failed += 1
+            print(f"  Failed {path}: {e}")
+
+    print(f"DOWNLOAD_COMPLETE: downloaded={total_downloaded} blank={total_blank} failed={total_failed}")
+
+
+if __name__ == "__main__":
+    main()

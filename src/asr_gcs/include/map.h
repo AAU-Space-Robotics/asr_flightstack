@@ -32,6 +32,7 @@ class Location {
         ImVec2 latLonToTileOffset(double lat, double lon, int zoom);
         GLuint loadTileCached(int zoom, int x, int y);
         ImVec2 MapWidget(double lat, double lon, float width, float height, float scale, int zoom = 12, GLuint placeholdetTile = 0, bool theme = 0);
+        void NoSatMap(double lat, double lon, float width, float height, float scale, int zoom, GLuint placeholderTile, bool theme);
 
         // Screen position of `lat`/`lon` within a MapWidget -- `widgetPos` must be exactly what that call returned.
         ImVec2 latLonToScreenPos(double lat, double lon, double centerLat, double centerLon,

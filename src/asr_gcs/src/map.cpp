@@ -224,3 +224,57 @@ ImVec2 Location::MapWidget(double lat, double lon, float width, float height, fl
     ImGui::EndChild();
     return pos;
 }
+
+void Location::NoSatMap(double lat, double lon, float width, float height, float scale, int zoom, GLuint placeholderTile, bool theme){
+    ImGui::BeginChild("NoSatMapWidget", ImVec2(width, height), false,
+                        ImGuiWindowFlags_NoScrollbar |
+                        ImGuiWindowFlags_NoScrollWithMouse);
+    ImDrawList* draw = ImGui::GetWindowDrawList();
+    ImVec2 pos = ImGui::GetWindowPos();
+    ImVec2 center = ImVec2(pos.x + width * 0.5f, pos.y + height * 0.5f);
+    float radius = std::min(width, height) * 0.25f; // tweak size to taste
+    ImU32 color = IM_COL32(255, 0, 0, 255); // solid red
+    int segments = 0; // 0 = let ImGui auto-pick smoothness
+    
+    draw->AddCircleFilled(center, radius, color, segments);
+
+    float roundRadius = 12.0f * scale;
+    ImU32 maskColor = ImGui::ColorConvertFloat4ToU32(Color::panelColor(theme));
+    ImVec2 p_min = pos;
+    ImVec2 p_max = ImVec2(pos.x + width, pos.y + height);
+
+    // Top-left
+    draw->PathClear();
+    draw->PathLineTo(p_min);
+    draw->PathLineTo(ImVec2(p_min.x + roundRadius, p_min.y));
+    draw->PathArcTo(ImVec2(p_min.x + roundRadius, p_min.y + roundRadius), roundRadius, -IM_PI * 0.5f, -IM_PI, 8);
+    draw->PathFillConvex(maskColor);
+
+    // Top-right
+    draw->PathClear();
+    draw->PathLineTo(ImVec2(p_max.x, p_min.y));
+    draw->PathLineTo(ImVec2(p_max.x, p_min.y + roundRadius));
+    draw->PathArcTo(ImVec2(p_max.x - roundRadius, p_min.y + roundRadius), roundRadius, 0.0f, -IM_PI * 0.5f, 8);
+    draw->PathFillConvex(maskColor);
+
+    // Bottom-left
+    draw->PathClear();
+    draw->PathLineTo(ImVec2(p_min.x, p_max.y));
+    draw->PathLineTo(ImVec2(p_min.x + roundRadius, p_max.y));
+    draw->PathArcTo(ImVec2(p_min.x + roundRadius, p_max.y - roundRadius), roundRadius, IM_PI * 0.5f, IM_PI, 8);
+    draw->PathFillConvex(maskColor);
+
+    // Bottom-right
+    draw->PathClear();
+    draw->PathLineTo(p_max);
+    draw->PathLineTo(ImVec2(p_max.x, p_max.y - roundRadius));
+    draw->PathArcTo(ImVec2(p_max.x - roundRadius, p_max.y - roundRadius), roundRadius, 0.0f, IM_PI * 0.5f, 8);
+    draw->PathFillConvex(maskColor);
+
+    float cx = pos.x + width  / 2.0f;
+    float cy = pos.y + height / 2.0f;
+    draw->AddCircleFilled(ImVec2(cx, cy), 6.0f * scale, IM_COL32(255, 50, 50, 255));
+    draw->AddCircle(ImVec2(cx, cy), 6.0f * scale, IM_COL32(255, 255, 255, 255), 12, 1.5f);
+
+    ImGui::EndChild();
+}

@@ -88,6 +88,7 @@ install(PROGRAMS
   script/gcs_heartbeat.py
   script/fft.py
   script/probe_tester.py
+  script/download_tiles.py
   DESTINATION lib/${PROJECT_NAME}
 )
 
