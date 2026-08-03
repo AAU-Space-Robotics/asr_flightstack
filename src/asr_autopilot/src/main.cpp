@@ -1,3 +1,4 @@
+#include <atomic>
 #include <thread>
 #include <rclcpp/rclcpp.hpp>
 #include <rclcpp_action/rclcpp_action.hpp>
@@ -1782,10 +1783,12 @@ private:
 
     void handleAccepted(const std::shared_ptr<GoalHandleUAVCommand> goal_handle)
     {
+        // Bumped before the join, so a still-running goal notices next poll (<=50ms) and self-aborts.
+        const uint64_t my_generation = ++goal_generation_;
         if (execute_thread_.joinable()) {
             execute_thread_.join();
         }
-        execute_thread_ = std::thread([this, goal_handle]() { execute(goal_handle); });
+        execute_thread_ = std::thread([this, goal_handle, my_generation]() { execute(goal_handle, my_generation); });
     }
 
     // Command execution handlers
@@ -1816,7 +1819,7 @@ private:
     }
 
     void executeArm(std::shared_ptr<UAVCommand::Result> result,
-                    const std::shared_ptr<GoalHandleUAVCommand> &goal_handle) {
+                    const std::shared_ptr<GoalHandleUAVCommand> &goal_handle, uint64_t my_generation) {
         Stamped4DVector target_profile = state_manager_.getTargetPositionProfile();
         Stamped3DVector global_pos = state_manager_.getGlobalPosition();
         target_profile.setTime(get_time());
@@ -1836,6 +1839,12 @@ private:
                 result->success = false;
                 result->message = "Cancelled.";
                 goal_handle->canceled(result);
+                return;
+            }
+            if (goal_generation_.load() != my_generation) {
+                result->success = false;
+                result->message = "Preempted by a new command.";
+                goal_handle->abort(result);
                 return;
             }
             if (state_manager_.getUAVState().arming_state == ArmingState::ARMED) {
@@ -1887,13 +1896,20 @@ private:
     // resolved via canceled(), caller must return without touching result);
     // false otherwise with result->success/message already set.
     bool waitForTrajectoryCompletion(const std::shared_ptr<GoalHandleUAVCommand> &goal_handle,
-                                     std::shared_ptr<UAVCommand::Result> result) {
+                                     std::shared_ptr<UAVCommand::Result> result, uint64_t my_generation) {
         while (rclcpp::ok()) {
             if (goal_handle->is_canceling()) {
                 holdCurrentPosition();
                 result->success = false;
                 result->message = "Cancelled.";
                 goal_handle->canceled(result);
+                return true;
+            }
+            if (goal_generation_.load() != my_generation) {
+                holdCurrentPosition();
+                result->success = false;
+                result->message = "Preempted by a new command.";
+                goal_handle->abort(result);
                 return true;
             }
 
@@ -1918,7 +1934,7 @@ private:
 
     void executeTakeoff(const std::shared_ptr<const UAVCommand::Goal> goal,
                         std::shared_ptr<UAVCommand::Result> result,
-                        const std::shared_ptr<GoalHandleUAVCommand> &goal_handle) {
+                        const std::shared_ptr<GoalHandleUAVCommand> &goal_handle, uint64_t my_generation) {
         setUAVMode(FlightMode::POSITION);
         ensureControlLoopRunning(2);
 
@@ -1934,12 +1950,12 @@ private:
         RCLCPP_INFO(get_logger(), "Takeoff target: %.2f %.2f %.2f",
                    target_position.x(), target_position.y(), target_position.z());
 
-        waitForTrajectoryCompletion(goal_handle, result);
+        waitForTrajectoryCompletion(goal_handle, result, my_generation);
     }
 
     void executeGoto(const std::shared_ptr<const UAVCommand::Goal> goal,
                      std::shared_ptr<UAVCommand::Result> result,
-                     const std::shared_ptr<GoalHandleUAVCommand> &goal_handle) {
+                     const std::shared_ptr<GoalHandleUAVCommand> &goal_handle, uint64_t my_generation) {
         setUAVMode(FlightMode::POSITION);
         ensureControlLoopRunning(2);
 
@@ -1953,7 +1969,7 @@ private:
                                         trajectoryMethod::MIN_SNAP);
         activateTrajectory(path_planner_.getTotalTime());
 
-        waitForTrajectoryCompletion(goal_handle, result);
+        waitForTrajectoryCompletion(goal_handle, result, my_generation);
     }
 
     // Flies from the current position to home -- GlobalPosition (0,0,z), which
@@ -1962,7 +1978,7 @@ private:
     // executeRth and executeRtl. Returns true if the goal was already
     // resolved (cancelled), matching waitForTrajectoryCompletion's contract.
     bool flyToHome(std::shared_ptr<UAVCommand::Result> result,
-                   const std::shared_ptr<GoalHandleUAVCommand> &goal_handle) {
+                   const std::shared_ptr<GoalHandleUAVCommand> &goal_handle, uint64_t my_generation) {
         setUAVMode(FlightMode::POSITION);
         ensureControlLoopRunning(2);
 
@@ -1974,20 +1990,20 @@ private:
                                         trajectoryMethod::MIN_SNAP);
         activateTrajectory(path_planner_.getTotalTime());
 
-        return waitForTrajectoryCompletion(goal_handle, result);
+        return waitForTrajectoryCompletion(goal_handle, result, my_generation);
     }
 
     void executeRth(std::shared_ptr<UAVCommand::Result> result,
-                    const std::shared_ptr<GoalHandleUAVCommand> &goal_handle) {
-        if (flyToHome(result, goal_handle)) return;  // cancelled, already resolved
+                    const std::shared_ptr<GoalHandleUAVCommand> &goal_handle, uint64_t my_generation) {
+        if (flyToHome(result, goal_handle, my_generation)) return;  // cancelled, already resolved
         if (result->success) {
             result->message = "Reached home.";
         }
     }
 
     void executeRtl(std::shared_ptr<UAVCommand::Result> result,
-                    const std::shared_ptr<GoalHandleUAVCommand> &goal_handle) {
-        if (flyToHome(result, goal_handle)) return;  // cancelled, already resolved
+                    const std::shared_ptr<GoalHandleUAVCommand> &goal_handle, uint64_t my_generation) {
+        if (flyToHome(result, goal_handle, my_generation)) return;  // cancelled, already resolved
         if (!result->success) return;  // stalled/failed transit -- don't attempt to land
 
         setUAVMode(FlightMode::BEGIN_LAND_POSITION);
@@ -1999,7 +2015,7 @@ private:
 
     void executeSpin(const std::shared_ptr<const UAVCommand::Goal> goal,
                      std::shared_ptr<UAVCommand::Result> result,
-                     const std::shared_ptr<GoalHandleUAVCommand> &goal_handle) {
+                     const std::shared_ptr<GoalHandleUAVCommand> &goal_handle, uint64_t my_generation) {
         setUAVMode(FlightMode::POSITION);
         ensureControlLoopRunning(2);
 
@@ -2015,7 +2031,7 @@ private:
         RCLCPP_INFO(get_logger(), "Spin target: yaw=%.2f, rotations=%.1f, path=%s",
                    target_yaw, num_rotations, use_longest_path ? "longest" : "shortest");
 
-        if (waitForTrajectoryCompletion(goal_handle, result)) return;  // cancelled, already resolved
+        if (waitForTrajectoryCompletion(goal_handle, result, my_generation)) return;  // cancelled, already resolved
 
         // waitForTrajectoryCompletion already set result->success/message
         // (generic position-convergence outcome) -- only customise the
@@ -2136,7 +2152,7 @@ private:
         }
     }
 
-    void execute(const std::shared_ptr<GoalHandleUAVCommand> goal_handle)
+    void execute(const std::shared_ptr<GoalHandleUAVCommand> goal_handle, uint64_t my_generation)
     {
         const auto goal = goal_handle->get_goal();
         auto result = std::make_shared<UAVCommand::Result>();
@@ -2150,18 +2166,18 @@ private:
                 executeEland(result);
             }
             else if (goal->command_type == "arm") {
-                executeArm(result, goal_handle);
+                executeArm(result, goal_handle, my_generation);
             }
             else if (goal->command_type == "disarm") {
                 executeDisarm(result);
             }
             else if (goal->command_type == "takeoff") {
-                executeTakeoff(goal, result, goal_handle);
+                executeTakeoff(goal, result, goal_handle, my_generation);
             }
             else if (goal->command_type == "goto") {
-                executeGoto(goal, result, goal_handle);
+                executeGoto(goal, result, goal_handle, my_generation);
             } else if (goal->command_type == "spin") {
-                executeSpin(goal, result, goal_handle);
+                executeSpin(goal, result, goal_handle, my_generation);
             }
             else if (goal->command_type == "test_multi_waypoint") {
                 executeTestMultiWaypoint(result);
@@ -2176,10 +2192,10 @@ private:
                 executeLand(result);
             }
             else if (goal->command_type == "rth") {
-                executeRth(result, goal_handle);
+                executeRth(result, goal_handle, my_generation);
             }
             else if (goal->command_type == "rtl") {
-                executeRtl(result, goal_handle);
+                executeRtl(result, goal_handle, my_generation);
             }
             else if (goal->command_type == "set_origin") {
                 executeSetOrigin(result);
@@ -2286,6 +2302,8 @@ private:
     rclcpp::Time mode_change_deadline_{0, 0, RCL_ROS_TIME};
 
     std::thread execute_thread_;
+    // Bumped each time a goal is accepted -- lets a still-running goal notice it's been superseded.
+    std::atomic<uint64_t> goal_generation_{0};
     float safety_thrust_;
     float safety_thrust_initial_;
     float safety_thrust_final_;
