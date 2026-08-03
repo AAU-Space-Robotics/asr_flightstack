@@ -243,12 +243,26 @@ void PlannerPanel::DrawVehicleAndPalette(float scale, bool theme)
 
         const float window_right_edge = ImGui::GetWindowPos().x + ImGui::GetWindowContentRegionMax().x;
         ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(14.0f * scale, 8.0f * scale));
+        bool any_hovered = false;
         for (size_t i = 0; i < skill_names.size(); ++i) {
             PushThemedButtonStyle(theme, false);
             if (ImGui::Button(ToUpper(skill_names[i]).c_str())) {
                 planner_.add_task(skill_names[i]);
             }
             PopThemedButtonStyle();
+
+            if (ImGui::IsItemHovered()) {
+                any_hovered = true;
+                if (hovered_skill_ != skill_names[i]) {
+                    hovered_skill_ = skill_names[i];
+                    hover_start_time_ = ImGui::GetTime();
+                }
+                hovered_button_max_ = ImGui::GetItemRectMax();
+                if (ImGui::GetTime() - hover_start_time_ >= kHoverTooltipDelay) {
+                    ImGui::GetWindowDrawList()->AddRect(ImGui::GetItemRectMin(), ImGui::GetItemRectMax(),
+                        IM_COL32(255, 130, 30, 255), 12.0f, 0, 2.5f * scale);
+                }
+            }
 
             if (i + 1 < skill_names.size()) {
                 const float this_right = ImGui::GetItemRectMax().x;
@@ -260,9 +274,52 @@ void PlannerPanel::DrawVehicleAndPalette(float scale, bool theme)
             }
         }
         ImGui::PopStyleVar();
+        if (!any_hovered) { hovered_skill_.clear(); }
     }
 
     EndFixedPanel();
+
+    // Drawn after this panel closes -- BeginFixedPanel positions relative to the current window.
+    if (capabilities && !hovered_skill_.empty() && ImGui::GetTime() - hover_start_time_ >= kHoverTooltipDelay) {
+        DrawPaletteHoverToast(scale, theme, capabilities->skills.at(hovered_skill_).description);
+    }
+}
+
+void PlannerPanel::DrawPaletteHoverToast(float scale, bool theme, const std::string &description)
+{
+    if (description.empty()) { return; }
+
+    ImFont *title_font = winInit.getFont(24);
+    ImFont *body_font = ImGui::GetFont();
+    const float title_font_size = title_font->LegacySize;
+    const float body_font_size = ImGui::GetFontSize();
+
+    const float pad_x = 16.0f * scale;
+    const float pad_y = 12.0f * scale;
+    const float toast_w = 340.0f * scale;
+    const float wrap_w = toast_w - pad_x * 2.0f;
+    const std::string title = ToUpper(hovered_skill_);
+
+    const ImVec2 title_size = title_font->CalcTextSizeA(title_font_size, 9999.0f, wrap_w, title.c_str());
+    const ImVec2 body_size = body_font->CalcTextSizeA(body_font_size, 9999.0f, wrap_w, description.c_str());
+    const float toast_h = pad_y * 2.0f + title_size.y + 4.0f * scale + body_size.y;
+
+    // Anchored to the hovered button's own bottom-right corner, extending down-right from it.
+    const ImVec2 toast_min(hovered_button_max_.x + 6.0f * scale, hovered_button_max_.y + 6.0f * scale);
+    const ImVec2 toast_max(toast_min.x + toast_w, toast_min.y + toast_h);
+
+    // Foreground-drawn -- later-drawn sibling panels (height chart, planner map) would otherwise cover it.
+    ImDrawList *draw_list = ImGui::GetForegroundDrawList();
+    draw_list->AddRectFilled(toast_min, toast_max, ImGui::ColorConvertFloat4ToU32(Color::panelColor(theme)), 12.0f * scale);
+    draw_list->AddRect(toast_min, toast_max, Color::panelBorder(theme), 12.0f * scale, 0, 1.5f * scale);
+
+    const ImVec2 title_pos(toast_min.x + pad_x, toast_min.y + pad_y);
+    draw_list->AddText(title_font, title_font_size, title_pos, Color::white_black(theme),
+                       title.c_str(), nullptr, wrap_w);
+
+    const ImVec2 body_pos(toast_min.x + pad_x, title_pos.y + title_size.y + 4.0f * scale);
+    draw_list->AddText(body_font, body_font_size, body_pos, Color::dwhite_lblack(theme),
+                       description.c_str(), nullptr, wrap_w);
 }
 
 void PlannerPanel::DrawTaskList(float scale, bool theme, float window_height)
@@ -335,7 +392,7 @@ void PlannerPanel::DrawTaskList(float scale, bool theme, float window_height)
     ImGui::SameLine();
     ImGui::SetCursorPosY(header_top_y + (title_h - ImGui::GetFontSize()) * 0.5f);
     ImGui::PushStyleColor(ImGuiCol_Text, Color::dwhite_lblack(theme));
-    const std::string plan_name = current_plan_name_.empty() ? "untitled" : current_plan_name_;
+    const std::string plan_name = planner_.plan_name().empty() ? "untitled" : planner_.plan_name();
     const float prefix_w = ImGui::CalcTextSize("- ").x;
     const float name_budget = std::max(0.0f,
         pills_left_x - 8.0f * scale - title_end_x - ImGui::GetStyle().ItemSpacing.x - prefix_w);
@@ -1185,7 +1242,6 @@ void PlannerPanel::DrawTaskList(float scale, bool theme, float window_height)
         save_load_dialog_.Open(SaveLoadDialog::Mode::Save, PlansDirectory(), ".json",
             [this](const std::string &path) {
                 planner_.save(path);
-                current_plan_name_ = std::filesystem::path(path).stem().string();
             });
     }
     PopThemedButtonStyle();
@@ -1198,7 +1254,6 @@ void PlannerPanel::DrawTaskList(float scale, bool theme, float window_height)
                 expanded_task_index_ = -1;
                 expanded_group_task_index_ = -1;
                 selected_task_indices_.clear();
-                current_plan_name_ = std::filesystem::path(path).stem().string();
             });
     }
     PopThemedButtonStyle();
@@ -1237,7 +1292,6 @@ void PlannerPanel::DrawTaskList(float scale, bool theme, float window_height)
             expanded_task_index_ = -1;
             expanded_group_task_index_ = -1;
             selected_task_indices_.clear();
-            current_plan_name_.clear();
             ImGui::CloseCurrentPopup();
         }
         ImGui::PopStyleColor(4);

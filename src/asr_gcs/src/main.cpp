@@ -39,8 +39,7 @@
 #include "asr_comms/msg/servo_command.hpp"
 #include "asr_comms/msg/probe_locations.hpp"
 #include "asr_comms/msg/gcs_heartbeat.hpp"
-#include "px4_msgs/msg/sensor_gps.hpp"
-#include <px4_msgs/msg/vehicle_attitude.hpp>   
+#include <px4_msgs/msg/vehicle_attitude.hpp>
 #include <px4_msgs/msg/vehicle_local_position.hpp>
 #include <px4_msgs/msg/distance_sensor.hpp>
 
@@ -104,9 +103,9 @@ public:
         battery_sub_compute_ = create_subscription<asr_comms::msg::TelemetryBattery>(
             "telemetry/battery_compute", 10,
             [this](const asr_comms::msg::TelemetryBattery::SharedPtr msg) { batteryCallbackcompute(msg); });
-        gps_sub_ = create_subscription<SensorGps>(
-            "telemetry/gps", qos,
-            [this](const SensorGps::SharedPtr msg)
+        gps_sub_ = create_subscription<asr_comms::msg::TelemetryGPS>(
+            "telemetry/gps", 10,
+            [this](const asr_comms::msg::TelemetryGPS::SharedPtr msg)
             { gpsCallback(msg); });
         origin_gps_sub_ = create_subscription<asr_comms::msg::TelemetryOriginGPS>(
             "telemetry/origin_gps", 10,
@@ -148,7 +147,7 @@ private:
     rclcpp::Subscription<DistanceSensor>::SharedPtr distance_sensor_sub_;
     rclcpp::Subscription<asr_comms::msg::TelemetryBattery>::SharedPtr battery_sub_compute_;
     rclcpp::Subscription<asr_comms::msg::TelemetryBattery>::SharedPtr battery_sub_main_;
-    rclcpp::Subscription<SensorGps>::SharedPtr gps_sub_;
+    rclcpp::Subscription<asr_comms::msg::TelemetryGPS>::SharedPtr gps_sub_;
     rclcpp::Subscription<asr_comms::msg::TelemetryOriginGPS>::SharedPtr origin_gps_sub_;
     rclcpp::Publisher<GcsHeartbeat>::SharedPtr heartbeat_pub_;
     rclcpp::TimerBase::SharedPtr heartbeat_timer_;
@@ -228,11 +227,11 @@ private:
 
         state_manager_.setBatteryState(battery, BATTERY_COMPUTE);
     }
-    void gpsCallback(const SensorGps::SharedPtr msg)
+    void gpsCallback(const asr_comms::msg::TelemetryGPS::SharedPtr msg)
     {
         GPSState gps_state;
-        gps_state.latitude = msg->latitude_deg;
-        gps_state.longitude = msg->longitude_deg;
+        gps_state.latitude = msg->latitude;
+        gps_state.longitude = msg->longitude;
         gps_state.satellites_used = msg->satellites_used;
         state_manager_.setGPSState(gps_state);
 

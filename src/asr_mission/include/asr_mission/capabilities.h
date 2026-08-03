@@ -27,6 +27,7 @@ struct ParamSpec {
 
 struct SkillSpec {
     std::string name;
+    std::string description;  // human-readable, GCS-only -- excluded from hash(), not a functional capability
     std::map<std::string, ParamSpec> params;
 };
 

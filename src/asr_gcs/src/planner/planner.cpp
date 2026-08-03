@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cstdio>
+#include <filesystem>
 #include <fstream>
 #include <random>
 #include <sstream>
@@ -384,6 +385,7 @@ void Planner::clear()
 {
     plan_ = Plan{};
     plan_.plan_id = GeneratePlanId();
+    plan_name_.clear();
     // Cleared plan stays owned by whichever vehicle is currently selected.
     if (selected_capabilities_) {
         plan_.vehicle = selected_capabilities_->vehicle;
@@ -412,11 +414,12 @@ bool Planner::has_tasks() const
     return !static_cast<const SequenceNode *>(root)->children.empty();
 }
 
-void Planner::save(const std::string &path) const
+void Planner::save(const std::string &path)
 {
     if (!has_tasks()) { return; }
     std::ofstream f(path);
     f << plan_.to_json().dump(2);
+    plan_name_ = std::filesystem::path(path).stem().string();
 }
 
 void Planner::load(const std::string &path)
@@ -433,6 +436,7 @@ void Planner::load(const std::string &path)
             select_vehicle(plan_.vehicle);  // no-op if not found, or already selected
         }
         reset_upload_status();
+        plan_name_ = std::filesystem::path(path).stem().string();
     } catch (const PlanFormatError &) {
     }
 }

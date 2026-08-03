@@ -91,8 +91,8 @@ void DrawHeightChart(const Plan &plan, ImVec2 pos, ImVec2 size, float scale, boo
 
     // Y is inverted -- NED altitude is negative-up, so this keeps "higher" plotting higher.
     if (ImPlot::BeginPlot("##HeightChart", ImVec2(-1, -1), ImPlotFlags_NoTitle | ImPlotFlags_NoLegend | ImPlotFlags_NoMouseText)) {
-        ImPlot::SetupAxis(ImAxis_X1, "Task");
-        ImPlot::SetupAxis(ImAxis_Y1, "Altitude (m)", ImPlotAxisFlags_Invert);
+        ImPlot::SetupAxis(ImAxis_X1, "Task", ImPlotAxisFlags_NoHighlight);
+        ImPlot::SetupAxis(ImAxis_Y1, "Altitude (m)", ImPlotAxisFlags_Invert | ImPlotAxisFlags_NoHighlight);
 
         if (altitudes.empty()) {
             // Still shows the plot frame/axes rather than a blank placeholder.
@@ -125,8 +125,8 @@ void DrawHeightChart(const Plan &plan, ImVec2 pos, ImVec2 size, float scale, boo
                 ImDrawList *plot_draw_list = ImPlot::GetPlotDrawList();
                 ImPlot::PushPlotClipRect();
                 for (const auto &band : bands) {
-                    const float x_left = ImPlot::PlotToPixels(xs[band.start_index] - 0.5, 0).x;
-                    const float x_right = ImPlot::PlotToPixels(xs[band.end_index] + 0.5, 0).x;
+                    const float x_left = ImPlot::PlotToPixels(xs[band.start_index], 0).x;
+                    const float x_right = ImPlot::PlotToPixels(xs[band.end_index], 0).x;
                     plot_draw_list->AddRectFilled(ImVec2(x_left, y_top), ImVec2(x_right, y_bottom),
                                                   IM_COL32(90, 150, 255, 45));
 

@@ -6,6 +6,8 @@
 #include <string>
 #include <utility>
 
+#include <imgui.h>
+
 #include "planner/planner.h"
 #include "planner/save_load_dialog.h"
 
@@ -26,9 +28,6 @@ private:
 
     SaveLoadDialog save_load_dialog_;
 
-    // Name of the file the plan was last saved to or loaded from -- empty until either happens, or after Clear.
-    std::string current_plan_name_;
-
     // Index of the top-level row whose block is expanded inline below it, or -1 if none.
     int expanded_task_index_ = -1;
 
@@ -41,8 +40,17 @@ private:
     // One-shot: set by SelectTask(), consumed by the next DrawTaskList() call.
     bool scroll_to_expanded_ = false;
 
+    // Palette hover tooltip -- which skill button, when the hover started (ImGui::GetTime()), and that button's own bottom-right corner (the toast's anchor).
+    std::string hovered_skill_;
+    double hover_start_time_ = 0.0;
+    ImVec2 hovered_button_max_;
+    static constexpr double kHoverTooltipDelay = 1.5;
+
     // Vehicle dropdown + skill palette, one panel.
     void DrawVehicleAndPalette(float scale, bool theme);
+
+    // Bottom-right toast with the hovered palette button's description, once hovered_skill_ has been held long enough.
+    void DrawPaletteHoverToast(float scale, bool theme, const std::string &description);
 
     // The numbered task list, with per-row reorder/remove/param-edit.
     void DrawTaskList(float scale, bool theme, float window_height);

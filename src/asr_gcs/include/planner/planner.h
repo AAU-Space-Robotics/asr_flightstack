@@ -68,8 +68,11 @@ public:
     // False for a fresh/cleared plan or one with no children -- save()/upload() no-op rather than crash.
     bool has_tasks() const;
 
-    void save(const std::string &path) const;
+    void save(const std::string &path);
     void load(const std::string &path);
+
+    // Filename stem of the last save()/load(), regardless of which UI (Mission Control Bar or Planner tab) triggered it -- empty after clear().
+    const std::string &plan_name() const { return plan_name_; }
 
     // Publishes the plan and tracks it: Uploading -> Validated (or TimedOut after kUploadTimeout); a new call supersedes any pending one.
     void upload();
@@ -109,6 +112,7 @@ private:
     asr_mission::SequenceNode *sequence_root();
 
     asr_mission::Plan plan_;
+    std::string plan_name_;
     std::optional<asr_mission::VehicleCapabilities> selected_capabilities_;
 
     // Guards state a ROS callback writes and the render loop reads.
