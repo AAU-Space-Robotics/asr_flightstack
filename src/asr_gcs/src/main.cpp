@@ -61,6 +61,7 @@ constexpr size_t BATTERY_MAIN = 0;
 constexpr size_t BATTERY_COMPUTE = 1;
 
 using GcsHeartbeat = asr_comms::msg::GcsHeartbeat_<std::allocator<void>>;
+using ActionCommand = asr_comms::action::UAVCommand;
 
 class AAUGrouncontrol : public rclcpp::Node
 {
@@ -104,7 +105,7 @@ public:
             "telemetry/battery_compute", 10,
             [this](const asr_comms::msg::TelemetryBattery::SharedPtr msg) { batteryCallbackcompute(msg); });
         gps_sub_ = create_subscription<SensorGps>(
-            "/fmu/out/vehicle_gps_position", qos,
+            "telemetry/gps", qos,
             [this](const SensorGps::SharedPtr msg)
             { gpsCallback(msg); });
         origin_gps_sub_ = create_subscription<asr_comms::msg::TelemetryOriginGPS>(
@@ -116,6 +117,8 @@ public:
             std::chrono::milliseconds(500),
             [this]() { heartbeat(); }
         );
+
+        path_client = rclcpp_action::create_client<ActionCommand>(this, "/asr/thyra/in/uav_command");
     }
     void start()
     {
@@ -127,6 +130,15 @@ public:
         return clock_->now();
     }
     StateManager& getStateManager() { return state_manager_; } 
+    void send_command(string command_type, vector<double> target_pose = {}, double yaw = 0.0){
+        ActionCommand::Goal goal;
+        goal.command_type = command_type;
+        goal.target_pose = target_pose;
+        goal.yaw = yaw;
+
+        auto options = rclcpp_action::Client<ActionCommand>::SendGoalOptions();
+        path_client->async_send_goal(goal, options);
+    }
 private:
     StateManager state_manager_;
     std::thread execute_thread_;
@@ -140,6 +152,7 @@ private:
     rclcpp::Subscription<asr_comms::msg::TelemetryOriginGPS>::SharedPtr origin_gps_sub_;
     rclcpp::Publisher<GcsHeartbeat>::SharedPtr heartbeat_pub_;
     rclcpp::TimerBase::SharedPtr heartbeat_timer_;
+    rclcpp_action::Client<ActionCommand>::SharedPtr path_client;
 
 
     void attitudeCallback(const VehicleAttitude::SharedPtr msg)
@@ -236,7 +249,7 @@ private:
 
         heartbeat_pub_->publish(msg);
     }
-
+    
 };
 EulerAngles quaternionToEulerForDisplay(const Eigen::Quaterniond& q) //trying to do a fix..........
 {
@@ -348,7 +361,9 @@ int main(int argc, char **argv) {
         {"job_white",        "job_white.png"},
         {"f_mode",      "f_mode.png"},
         {"f_mode_white",      "f_mode_white.png"},
-        {"drone",       "droneImage.png"}  // placeholder icon, no light-theme variant yet
+        {"drone",       "droneImage.png"},  // placeholder icon, no light-theme variant yet
+        {"switch_white",      "switch_white.png"},
+        {"switch",      "switch.png"}
     };
     
     GLuint placeholderTile = location.display_map((package_path + "/images/tile_placeholder.png").c_str(), 1.0f);
@@ -506,7 +521,7 @@ int main(int argc, char **argv) {
             );
         }
         if (widgets.CustomButton(draw_list, ImVec2(30 * scale, 220 * scale),"Placeholder",scale, Placeholder_Icon, theme, 0, 2)) {
-            sat_map = !sat_map;
+           cout << "howdi" <<endl;
 
         }
 
@@ -536,6 +551,7 @@ int main(int argc, char **argv) {
         }
         if (widgets.ArmButton(draw_list,ImVec2(340 * scale, 28 * scale), scale, theme, arming_state )){
             arming_state = !arming_state;
+            ground_control->send_command("arm");
         }
 
         if (widgets.ModeToggle(draw_list, ImVec2(160 * scale, 30 * scale), scale, theme, is_manual)) {
@@ -626,6 +642,11 @@ int main(int argc, char **argv) {
                 }
             }
 
+            GLuint Switch_Icon = theme ? images.at("switch_white") : images.at("switch");
+            if (widgets.CustomButton(draw_list, ImVec2(1524 * scale, 185 * scale), "Switch", scale, Switch_Icon, theme, -5, -3)) {
+                 sat_map = !sat_map;
+            }
+
             EndOverlayPanel();
         
        
@@ -643,6 +664,7 @@ int main(int argc, char **argv) {
         GLuint Up_Icon = theme ? images.at("up_white") : images.at("up");
         if (widgets.CustomButton(draw_list, ImVec2(120 * scale, 335 * scale), "Up", scale, Up_Icon, theme, -1, 5)) {
             std::cout << "Takeoff Button Clicked!" << std::endl;
+            ground_control->send_command("takeoff", vector<double>{-1.0}); 
         }
         ImGui::PushFont(winInit.getFont(14));
         draw_list->AddText(ImVec2(100 * scale, 362 * scale), colors.white_black(theme), "TakeOff");
@@ -751,7 +773,17 @@ int main(int argc, char **argv) {
                 }
                 EndFixedPanel();
 
-                BeginOverlayPanel(draw_list, "PlannerMapUtilsPanel", ImVec2(map_x + map_w - 70.0f * scale, 72 * scale), ImVec2(49 * scale, 150 * scale), scale, theme);
+                
+
+            }
+            else{
+                BeginFixedPanel("PlannerSatMapPanel", ImVec2(map_x, 70 * scale), ImVec2(map_w, map_size_x * scale),
+                        scale, theme, 0, ImVec2(0, 0));
+               location.NoSatMap(Info, map_w, map_size_x * scale, scale, map_zoom, theme); 
+               EndFixedPanel();
+
+            }
+            BeginOverlayPanel(draw_list, "PlannerMapUtilsPanel", ImVec2(map_x + map_w - 70.0f * scale, 72 * scale), ImVec2(49 * scale, 150 * scale), scale, theme);
                 GLuint PlannerPlus_Icon = theme ? images.at("plus_white") : images.at("plus");
                 if (widgets.CustomButton(draw_list, ImVec2(map_x + map_w - 46.0f * scale, 97 * scale), "Plus", scale, PlannerPlus_Icon, theme, -5, -3)) {
                     if (map_zoom < 20) {
@@ -764,16 +796,11 @@ int main(int argc, char **argv) {
                         map_zoom -= 1;
                     }
                 }
-                EndOverlayPanel();
-
-            }
-            else{
-                BeginFixedPanel("PlannerSatMapPanel", ImVec2(map_x, 70 * scale), ImVec2(map_w, map_size_x * scale),
-                        scale, theme, 0, ImVec2(0, 0));
-               location.NoSatMap(Info, map_w, map_size_x * scale, scale, map_zoom, theme); 
-               EndFixedPanel();
-
-            }
+                GLuint Switch_Icon = theme ? images.at("switch_white") : images.at("switch");
+                if (widgets.CustomButton(draw_list, ImVec2(1524 * scale, 185 * scale), "Switch", scale, Switch_Icon, theme, -5, -3)) {
+                     sat_map = !sat_map;
+                }
+            EndOverlayPanel();
 
             // Height fills to the real window edge rather than a fixed 150*scale.
             const float chart_y = 880.0f * scale;

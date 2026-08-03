@@ -363,8 +363,8 @@ void InfoPanels::Probe_Info(float scale, bool theme){
     InfoPanels::End_panels();
 }
 
-void Logs::outputlog(ImVec2 pos, float scale, bool theme){ //!!! Doesent scale correct............
-    ImVec2 size =ImVec2(1070 * scale, 170 * scale);
+void Logs::outputlog(ImVec2 pos, float scale, bool theme){ 
+    ImVec2 size =ImVec2(1070 * scale, 160 * scale);
     ImGui::SetCursorPos(ImVec2(pos.x * scale, pos.y * scale)); 
     ImGui::PushStyleColor(ImGuiCol_ChildBg, Color::panelColor(theme));
     ImGui::PushStyleColor(ImGuiCol_Border, Color::panelBorder(theme));
