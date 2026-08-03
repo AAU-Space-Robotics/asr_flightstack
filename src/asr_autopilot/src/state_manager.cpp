@@ -302,5 +302,15 @@ TrajectoryInitState StateManager::getTrajectoryInitState() {
     };
 }
 
+void StateManager::setArminState(const bool state){
+    std::lock_guard<std::mutex> lock(arming_state_mutex_);
+    arming_state = state;
+}
+
+bool StateManager::getArminState(){
+    std::lock_guard<std::mutex> lock(arming_state_mutex_);
+    return arming_state;
+}
+
 // End of Setters & Getters
 

@@ -19,9 +19,9 @@
 #include "transformations.h"
 
 struct DroneInformation {
-    float battery_values_M[4] = {0.0, 0.0, 0.0, 0.0};
-    float battery_values_C[4] = {0.0, 0.0, 0.0, 0.0};
-    float motor_speed[4] = {0.0, 0.0, 0.0, 0.0};
+    BatteryState battery_values_M;
+    BatteryState battery_values_C;
+    double motor_speed[4] = {0.0, 0.0, 0.0, 0.0};
     float xyz_pos[3] = {0.0, 0.0, 0.0};
     float tgt_pos[3] = {0.0, 0.0, 0.0};
     float velocity[3] = {0.0, 0.0, 0.0};

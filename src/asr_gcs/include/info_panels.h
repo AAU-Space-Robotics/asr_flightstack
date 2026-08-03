@@ -38,8 +38,8 @@ static float map_value(float value, float in_min, float in_max, float out_min, f
 class InfoPanels {
     public:
         void ResetPanelTracking(); 
-        void Battery_Info(float scale, bool theme, float battery_percentage[2]);
-        void Position_Info(float scale, bool theme, float xyz_pos[3]);
+        void Battery_Info(float scale, bool theme, BatteryState battery_info_C, BatteryState battery_info_M, double motor_speeds[4]);
+        void Position_Info(float scale, bool theme, float xyz_pos[3], float target_meter[3], float vel_meter[3]);
         void Probe_Info(float scale, bool theme = 0);
     private:
         ImVec2 Panel_tracker(ImVec2 size, float scale);

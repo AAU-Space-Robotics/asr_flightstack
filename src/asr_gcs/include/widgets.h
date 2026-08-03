@@ -20,7 +20,6 @@
 
 
 extern WindowInitializer winInit;
-
 class Widgets {
     public:
         bool ModeToggle(ImDrawList* draw_list, ImVec2 center, float scale, bool theme, bool& is_manual);
@@ -32,6 +31,10 @@ class Widgets {
         void AltitudeTape(int direction, float altitude, float numStep, bool theme, float scale);
         void GyroScopeIndicator(ImDrawList* draw_list,ImVec2 center, EulerAngles orientation, bool theme, float scale);
         void Compas(ImDrawList* draw_list,ImVec2 center, EulerAngles orientation, bool theme, float scale);
+        std::string GotoField(float scale, bool theme);
+        void GotoPanel(ImVec2 pos, float scale, bool theme, std::string& goto_text);
+        bool GotoButton(ImDrawList* draw_list, ImVec2 center, float scale, bool theme, GLuint tex);
     private:
         static std::vector<ImVec2> ArcPoints(float radius, float angleStart, float angleEnd, int segments);
+        
 };

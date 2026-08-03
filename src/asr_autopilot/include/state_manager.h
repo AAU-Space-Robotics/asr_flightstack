@@ -388,6 +388,9 @@ public:
     void setGimbalPriority(const bool priority);
     bool getGimbalPriority();
 
+    void setArminState(const bool state);
+    bool getArminState();
+
 private:
     
     // Mutexes for thread safety
@@ -417,9 +420,12 @@ private:
     std::mutex actuator_speeds_mutex_;
     std::mutex probe_global_locations_mutex_;
     std::mutex gps_state_mutex_;
+    std::mutex arming_state_mutex_;
 
     std::mutex gimbal_priority_mutex_;
     bool gimbal_priority_;
+    bool arming_state;
+
     // Data structures to store state information
     GCSHeartbeat gcs_heartbeat_;
 

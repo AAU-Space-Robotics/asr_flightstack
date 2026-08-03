@@ -77,6 +77,9 @@ public:
         rclcpp::QoS qos(10);
         qos.reliability(rclcpp::ReliabilityPolicy::BestEffort);
         qos.durability(rclcpp::DurabilityPolicy::TransientLocal);
+        rclcpp::QoS qos_volatile(10);
+        qos_volatile.reliability(rclcpp::ReliabilityPolicy::BestEffort);
+        qos_volatile.durability(rclcpp::DurabilityPolicy::Volatile);
         bool use_sim_time = false;
         clock_ = std::make_shared<rclcpp::Clock>(use_sim_time ? RCL_ROS_TIME : RCL_SYSTEM_TIME);
 
@@ -86,13 +89,13 @@ public:
           << "=============================\n"
           << std::endl;
         //------------------------Subscribtions---------------
-        attitude_sub_ = create_subscription<VehicleAttitude>(
-            "/fmu/out/vehicle_attitude", qos,
-            [this](const VehicleAttitude::SharedPtr msg)
+        attitude_sub_ = create_subscription<asr_comms::msg::TelemetryAttitude>(
+            "telemetry/attitude", qos_volatile,
+            [this](const asr_comms::msg::TelemetryAttitude::SharedPtr msg)
             { attitudeCallback(msg); });
-        local_position_sub_ = create_subscription<VehicleLocalPosition>(
-            "/fmu/out/vehicle_local_position", qos,
-            [this](const VehicleLocalPosition::SharedPtr msg) { localPositionCallback(msg); });
+        local_position_sub_ = create_subscription<asr_comms::msg::TelemetryPosition>(
+            "telemetry/position", qos_volatile,
+            [this](const asr_comms::msg::TelemetryPosition::SharedPtr msg) { localPositionCallback(msg); });
         distance_sensor_sub_ = create_subscription<DistanceSensor>(
             "/fmu/out/distance_sensor", qos,
             [this](const DistanceSensor::SharedPtr msg) { distanceSensorCallback(msg); });
@@ -110,6 +113,10 @@ public:
         origin_gps_sub_ = create_subscription<asr_comms::msg::TelemetryOriginGPS>(
             "telemetry/origin_gps", 10,
             [this](const asr_comms::msg::TelemetryOriginGPS::SharedPtr msg) { originGpsCallback(msg); });
+        status_sub_ = create_subscription<asr_comms::msg::TelemetryStatus>(
+            "telemetry/status", 10,
+            [this](const asr_comms::msg::TelemetryStatus::SharedPtr msg) { statusCallback(msg); });
+
 
         heartbeat_pub_ = create_publisher<GcsHeartbeat>("in/gcs_heartbeat", qos);
         heartbeat_timer_ = create_wall_timer(
@@ -140,63 +147,55 @@ public:
     }
 private:
     StateManager state_manager_;
+    Transformations transformations_;
     std::thread execute_thread_;
-    rclcpp::Subscription<VehicleAttitude>::SharedPtr attitude_sub_;
-    rclcpp::Subscription<VehicleLocalPosition>::SharedPtr local_position_sub_;
+    rclcpp::Subscription<asr_comms::msg::TelemetryAttitude>::SharedPtr attitude_sub_;
+    rclcpp::Subscription<asr_comms::msg::TelemetryPosition>::SharedPtr local_position_sub_;
     std::shared_ptr<rclcpp::Clock> clock_;
     rclcpp::Subscription<DistanceSensor>::SharedPtr distance_sensor_sub_;
     rclcpp::Subscription<asr_comms::msg::TelemetryBattery>::SharedPtr battery_sub_compute_;
     rclcpp::Subscription<asr_comms::msg::TelemetryBattery>::SharedPtr battery_sub_main_;
     rclcpp::Subscription<asr_comms::msg::TelemetryGPS>::SharedPtr gps_sub_;
     rclcpp::Subscription<asr_comms::msg::TelemetryOriginGPS>::SharedPtr origin_gps_sub_;
+    rclcpp::Subscription<asr_comms::msg::TelemetryStatus>::SharedPtr status_sub_;
     rclcpp::Publisher<GcsHeartbeat>::SharedPtr heartbeat_pub_;
     rclcpp::TimerBase::SharedPtr heartbeat_timer_;
     rclcpp_action::Client<ActionCommand>::SharedPtr path_client;
 
 
-    void attitudeCallback(const VehicleAttitude::SharedPtr msg)
+    void attitudeCallback(const asr_comms::msg::TelemetryAttitude::SharedPtr msg)
     {
-        if (!std::isfinite(msg->q[0]) || !std::isfinite(msg->q[1]) ||
-            !std::isfinite(msg->q[2]) || !std::isfinite(msg->q[3])) {
+        if (!std::isfinite(msg->orientation[0]) || !std::isfinite(msg->orientation[1]) ||
+            !std::isfinite(msg->orientation[2])) {
             RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 1000,
-                "Rejecting non-finite attitude quaternion");
+                "Rejecting non-finite attitude");
             return;
         }
-        StampedQuaternion attitude(get_time(), Eigen::Quaterniond(msg->q[0], msg->q[1], msg->q[2], msg->q[3]));
+
+        Eigen::Quaterniond quat = transformations_.eulerToQuaternion(
+            msg->orientation[0], msg->orientation[1], msg->orientation[2]).normalized();
+
+        StampedQuaternion attitude(get_time(), quat);
         state_manager_.setAttitude(attitude);
-        
     }
-    void localPositionCallback(const VehicleLocalPosition::SharedPtr msg)
+   void localPositionCallback(const asr_comms::msg::TelemetryPosition::SharedPtr msg)
     {
-        // Reject invalid/non-finite EKF output. Dropping the message leaves the stored
-        // position timestamp stale, which engages the staleness failsafe instead of
-        // feeding garbage (or NaN) into the controller.
-      
-        if (!msg->xy_valid || !msg->z_valid ||
-            !std::isfinite(msg->x) || !std::isfinite(msg->y) || !std::isfinite(msg->z)) {
+        if (!std::isfinite(msg->position[0]) || !std::isfinite(msg->position[1]) || !std::isfinite(msg->position[2])) {
             RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 1000,
-                "Rejecting invalid local position (xy_valid=%d z_valid=%d)",
-                msg->xy_valid, msg->z_valid);
+                "Rejecting invalid local position");
             return;
         }
 
         // Note that local position refers to coordinates being expressed in cartesian coordinates from some origin point.
         Stamped3DVector origin = state_manager_.getOrigin();
-        Stamped3DVector local_position(get_time(), msg->x - origin.x(), msg->y - origin.y(), msg->z - origin.z());
+        Stamped3DVector local_position(get_time(), msg->position[0] - origin.x(), msg->position[1] - origin.y(), msg->position[2] - origin.z());
         state_manager_.setGlobalPosition(local_position);
-
-        // Velocity: only trust it when the EKF marks it valid and finite. A zero velocity
-        // estimate is safe for the controller; a NaN is not.
-        if (msg->v_xy_valid && msg->v_z_valid &&
-            std::isfinite(msg->vx) && std::isfinite(msg->vy) && std::isfinite(msg->vz)) {
-            state_manager_.setGlobalVelocity(Stamped3DVector(get_time(), msg->vx, msg->vy, msg->vz));
+        Stamped4DVector target_position(get_time(), msg->target_position[0], msg->target_position[1], msg->target_position[2], 0.0);
+        state_manager_.setTargetPositionProfile(target_position);
+        if (std::isfinite(msg->velocity[0]) && std::isfinite(msg->velocity[1]) && std::isfinite(msg->velocity[2])) {
+            state_manager_.setGlobalVelocity(Stamped3DVector(get_time(), msg->velocity[0], msg->velocity[1], msg->velocity[2]));
         } else {
             state_manager_.setGlobalVelocity(Stamped3DVector(get_time(), 0.0, 0.0, 0.0));
-        }
-
-        // Acceleration has no dedicated validity flag; guard against non-finite values only.
-        if (std::isfinite(msg->ax) && std::isfinite(msg->ay) && std::isfinite(msg->az)) {
-            state_manager_.setGlobalAcceleration(Stamped3DVector(get_time(), msg->ax, msg->ay, msg->az));
         }
     }
     void distanceSensorCallback(const DistanceSensor::SharedPtr msg)
@@ -239,6 +238,18 @@ private:
     void originGpsCallback(const asr_comms::msg::TelemetryOriginGPS::SharedPtr msg)
     {
         state_manager_.setOriginGPS(Stamped3DVector(get_time(), msg->latitude, msg->longitude, msg->altitude));
+    }
+    void statusCallback(const asr_comms::msg::TelemetryStatus::SharedPtr msg)
+    {
+        state_manager_.setArminState(msg->arming_state);
+
+        Stamped4DVector actuator_speed(get_time(),
+            msg->actuator_speeds[0],
+            msg->actuator_speeds[1],
+            msg->actuator_speeds[2],
+            msg->actuator_speeds[3]);
+
+        state_manager_.setActuatorSpeeds(actuator_speed);
     }
     void heartbeat()
     {
@@ -300,6 +311,7 @@ int main(int argc, char **argv) {
     bool is_manual = 0;
     bool sat_map = 0;
     int map_size_x = 800;
+    string goto_text;
 
     std::atomic<bool> tiles_downloading{false};
     bool tiles_download_triggered = false;
@@ -335,7 +347,11 @@ int main(int argc, char **argv) {
     ImGui_ImplOpenGL3_Init(glsl_version);
     ImPlot::CreateContext();  // linked since the start of this project, never actually initialized until now
     winInit.loadFonts(); // Load fonts once
-    
+
+    ImGuiStyle& style = ImGui::GetStyle();
+    style.AntiAliasedFill = true;
+    style.AntiAliasedLines = true;
+    style.AntiAliasedLinesUseTex = false;
      // ------ Image for buttons
     string package_path = ament_index_cpp::get_package_share_directory("asr_gcs");
     string path = package_path + "/images/";
@@ -362,7 +378,8 @@ int main(int argc, char **argv) {
         {"f_mode_white",      "f_mode_white.png"},
         {"drone",       "droneImage.png"},  // placeholder icon, no light-theme variant yet
         {"switch_white",      "switch_white.png"},
-        {"switch",      "switch.png"}
+        {"switch",      "switch.png"},
+        {"send",        "send.png"}
     };
     
     GLuint placeholderTile = location.display_map((package_path + "/images/tile_placeholder.png").c_str(), 1.0f);
@@ -429,10 +446,35 @@ int main(int argc, char **argv) {
         const StampedQuaternion& attitude = ground_control->getStateManager().getAttitude();
         Info.orientation = quaternionToEulerForDisplay(attitude.quaternion()); 
         const Stamped3DVector& position = ground_control->getStateManager().getGlobalPosition();
+        const Stamped4DVector& target = ground_control->getStateManager().getTargetPositionProfile();
+        const Stamped3DVector& velocity = ground_control->getStateManager().getGlobalVelocity();
+        const Stamped4DVector& speeds = ground_control->getStateManager().getActuatorSpeeds();
         Info.xyz_pos[0] = static_cast<float>(position.x());
         Info.xyz_pos[1] = static_cast<float>(position.y());
         Info.xyz_pos[2] = static_cast<float>(position.z());
+       
+        Info.tgt_pos[0] = static_cast<float>(target.x());
+        Info.tgt_pos[1] = static_cast<float>(target.y());
+        Info.tgt_pos[2] = static_cast<float>(target.z());
+
+        Info.velocity[0] = static_cast<float>(velocity.x());
+        Info.velocity[1] = static_cast<float>(velocity.y());
+        Info.velocity[2] = static_cast<float>(velocity.z());
         Info.gps_status = ground_control->getStateManager().getGPSState();
+        Info.battery_values_M = ground_control->getStateManager().getBatteryState(BATTERY_MAIN);
+        Info.battery_values_C = ground_control->getStateManager().getBatteryState(BATTERY_COMPUTE);
+        Info.motor_speed[0] = speeds.x();
+        Info.motor_speed[1] = speeds.y();
+        Info.motor_speed[2] = speeds.z();
+        Info.motor_speed[3] = speeds.w();
+        arming_state = ground_control->getStateManager().getArminState();
+
+
+        //battery.timestamp = rclcpp::Time(msg->timestamp);   // see note below re: type conversion
+        //battery.voltage = msg->voltage;
+        //battery.charge_remaining = msg->percentage;          // using percentage here — see note below
+        //battery.average_current = msg->average_current;
+        //battery.connected = true;  
         // Fixed until the next "set origin" -- plan overlay home, not the live map center.
         const Stamped3DVector origin_gps = ground_control->getStateManager().getOriginGPS();
 
@@ -549,8 +591,12 @@ int main(int argc, char **argv) {
             );
         }
         if (widgets.ArmButton(draw_list,ImVec2(340 * scale, 28 * scale), scale, theme, arming_state )){
-            arming_state = !arming_state;
-            ground_control->send_command("arm");
+            if(!arming_state){
+                ground_control->send_command("arm");
+            } else {
+                ground_control->send_command("disarm");
+            }
+                
         }
 
         if (widgets.ModeToggle(draw_list, ImVec2(160 * scale, 30 * scale), scale, theme, is_manual)) {
@@ -585,7 +631,7 @@ int main(int argc, char **argv) {
 
 
             if (widgets.DrawCircleGradientButton(draw_list, winInit.getFont(24), 1.0f, ImVec2(130 * scale, 125 * scale), 50.0f * scale, "ESTOP", 40.0f * scale)) {
-                std::cout << "ESTOP Button Clicked!" << std::endl;
+                ground_control->send_command("estop"); 
             }
 
             ImGui::SetCursorPos(ImVec2(1440 * scale, 670 * scale));
@@ -607,7 +653,7 @@ int main(int argc, char **argv) {
                 scale, theme, 0, ImVec2(0, 0));
             location.NoSatMap(Info, 1500 * scale, map_size_x * scale, scale, map_zoom, theme);
              if (widgets.DrawCircleGradientButton(draw_list, winInit.getFont(24), 1.0f, ImVec2(130 * scale, 125 * scale), 50.0f * scale, "ESTOP", 40.0f * scale)) {
-                std::cout << "ESTOP Button Clicked!" << std::endl;
+                ground_control->send_command("estop"); 
             }
 
             ImGui::SetCursorPos(ImVec2(1440 * scale, 670 * scale));
@@ -625,28 +671,29 @@ int main(int argc, char **argv) {
             EndFixedPanel();
         }
             //----------------------------------- Map utils panel-----------------------------------
-            BeginOverlayPanel(draw_list, "MapUtilsPanel", ImVec2(1500 * scale, 72 * scale), ImVec2(49 * scale, 150 * scale), scale, theme);
+        int Map_Upanel_x = 1510 * scale;
+        int Map_Upanel_y = 80 * scale;
+        BeginOverlayPanel(draw_list, "MapUtilsPanel", ImVec2(Map_Upanel_x, Map_Upanel_y), ImVec2(49 * scale, 150 * scale), scale, theme);
 
-            
-            GLuint Plus_Icon = theme ? images.at("plus_white") : images.at("plus");
-            if (widgets.CustomButton(draw_list, ImVec2(1524 * scale, 97 * scale), "Plus", scale, Plus_Icon, theme, -5, -3)) {
-                if (map_zoom < 20) {
-                    map_zoom += 1;
-                }
+        GLuint Plus_Icon = theme ? images.at("plus_white") : images.at("plus");
+        if (widgets.CustomButton(draw_list, ImVec2(Map_Upanel_x + 24, Map_Upanel_y + 25 ), "Plus", scale, Plus_Icon, theme, -5, -3)) {
+            if (map_zoom < 20) {
+                map_zoom += 1;
             }
-            GLuint Minus_Icon = theme ? images.at("minus_white") : images.at("minus");
-            if (widgets.CustomButton(draw_list, ImVec2(1524 * scale, 141 * scale), "Minus", scale, Minus_Icon, theme, -5, -3)) {
-                if (map_zoom > 13) {
-                    map_zoom -= 1;
-                }
+        }
+        GLuint Minus_Icon = theme ? images.at("minus_white") : images.at("minus");
+        if (widgets.CustomButton(draw_list, ImVec2(Map_Upanel_x + 24 , Map_Upanel_y + 69 ), "Minus", scale, Minus_Icon, theme, -5, -3)) {
+            if (map_zoom > 13) {
+                map_zoom -= 1;
             }
+        }
 
-            GLuint Switch_Icon = theme ? images.at("switch_white") : images.at("switch");
-            if (widgets.CustomButton(draw_list, ImVec2(1524 * scale, 185 * scale), "Switch", scale, Switch_Icon, theme, -5, -3)) {
-                 sat_map = !sat_map;
-            }
+        GLuint Switch_Icon = theme ? images.at("switch_white") : images.at("switch");
+        if (widgets.CustomButton(draw_list, ImVec2(Map_Upanel_x + 24 , Map_Upanel_y + 113 ), "Switch", scale, Switch_Icon, theme, -5, -3)) {
+            sat_map = !sat_map;
+        }
 
-            EndOverlayPanel();
+        EndOverlayPanel();
         
        
 
@@ -663,73 +710,57 @@ int main(int argc, char **argv) {
         GLuint Up_Icon = theme ? images.at("up_white") : images.at("up");
         if (widgets.CustomButton(draw_list, ImVec2(120 * scale, 335 * scale), "Up", scale, Up_Icon, theme, -1, 5)) {
             std::cout << "Takeoff Button Clicked!" << std::endl;
-            ground_control->send_command("takeoff", vector<double>{-1.0}); 
+            ground_control->send_command("takeoff", vector<double>{-1.5}); 
         }
         ImGui::PushFont(winInit.getFont(14));
         draw_list->AddText(ImVec2(100 * scale, 362 * scale), colors.white_black(theme), "TakeOff");
 
         GLuint Down_Icon = theme ? images.at("down_white") : images.at("down");
         if (widgets.CustomButton(draw_list, ImVec2(120 * scale, 405 * scale), "Down", scale, Down_Icon, theme, -1, 5)) {
-            std::cout << "Land Button Clicked!" << std::endl;
+            ground_control->send_command("land");
         }
         draw_list->AddText(ImVec2(107 * scale, 432 * scale), colors.white_black(theme), "Land");
 
         GLuint Home_Icon = theme ? images.at("home_white") : images.at("home");
         if (widgets.CustomButton(draw_list, ImVec2(120 * scale, 475 * scale), "Home", scale, Home_Icon, theme, -1, 5)) {
-            std::cout << "Home Button Clicked!" << std::endl;
+            ground_control->send_command("rth"); 
         }
         draw_list->AddText(ImVec2(106 * scale, 502 * scale), colors.white_black(theme), "Home");
 
         GLuint Origin_Icon = theme ? images.at("origin_white") : images.at("origin");
         if (widgets.CustomButton(draw_list, ImVec2(120 * scale, 545 * scale), "Origin", scale, Origin_Icon, theme, -1, 5)) {
-            std::cout << "Orgigin Button Clicked!" << std::endl;
+           ground_control->send_command("set_origin"); 
         }
         draw_list->AddText(ImVec2(106 * scale, 572 * scale), colors.white_black(theme), "Origin");
 
         ImGui::PopFont();
         EndOverlayPanel();
+
+        GLuint Send_Icon = images.at("send");
+        widgets.GotoPanel(ImVec2(70, 880), scale, theme, goto_text);
+        if (widgets.GotoButton(draw_list, ImVec2(390 * scale, 965 * scale), scale, theme, Send_Icon)){
+            istringstream iss(goto_text);
+            double x, y, z, yaw;
+
+            if (iss >> x >> y >> z >> yaw) {
+                ground_control->send_command("goto", vector<double>{x, y, z}, yaw);
+                logs.outputlog(ImVec2(500, 880), scale, theme);   // adjust to your actual logging call once that's built
+            } else {
+                istringstream iss2(goto_text);
+                if (iss2 >> x >> y >> z) {
+                    ground_control->send_command("goto", vector<double>{x, y, z}, 0.0);   // or last_yaw, if you track it
+                } else {
+                    cout << "Invalid input for goto, please enter x y z yaw values" << endl;
+                }
+            }
+        } 
         
 
-        // ---------For testing — replace with ROS later //!!!!!
-        ImGui::SetCursorPos(ImVec2(900 * scale, 500 * scale));
-        // Sized to the live slider below, not 600x600 -- that footprint used to eat Execute/Abort's clicks.
-        ImGui::BeginChild("TestPanel", ImVec2(260 * scale, 40 * scale),
-                       false,  // border
-                       ImGuiWindowFlags_NoBackground |
-                       ImGuiWindowFlags_NoScrollWithMouse |
-                       ImGuiWindowFlags_NoScrollbar);
-    
-        
-        //ImGui::InputDouble("Lat", &testLat, 0.000001, 0.01, "%.7f");
-        //ImGui::InputDouble("Lon", &testLon, 0.000001, 0.01, "%.7f");
-        //ImGui::SliderFloat("Altitude", &Info.xyz_pos[2], -20.0f, 20.0f);
-        //float yaw_f = (float)Info.orientation.yaw;
-        //if (ImGui::SliderFloat("Yaw", &yaw_f, -180.0f, 180.0f)) {
-        //    Info.orientation.yaw = yaw_f;
-        //}
-//
-        //float roll_f = (float)Info.orientation.roll;
-        //if (ImGui::SliderFloat("Roll", &roll_f, -180.0f, 180.0f)) {
-        //    Info.orientation.roll = roll_f;
-        //}
-//
-        //float pitch_f = (float)Info.orientation.pitch;
-        //if (ImGui::SliderFloat("Pitch", &pitch_f, -180.0f, 180.0f)) {
-        //    Info.orientation.pitch = pitch_f;
-        //}
-        ImGui::SliderFloat("BatteryVoltage", &Info.battery_values_C[0], 0, 1.0f);
-
-
-
-        ImGui::EndChild();
-        
-
-       
 
         //--------------------------------------Information panels---------------------------------------
-        info_panels.Battery_Info(scale, theme, Info.battery_values_C);
+        info_panels.Battery_Info(scale, theme, Info.battery_values_C, Info.battery_values_M, Info.motor_speed);
         
-        info_panels.Position_Info(scale, theme, Info.xyz_pos);
+        info_panels.Position_Info(scale, theme, Info.xyz_pos, Info.tgt_pos, Info.velocity);
         info_panels.Probe_Info(scale, theme);
         
         
@@ -782,23 +813,27 @@ int main(int argc, char **argv) {
                EndFixedPanel();
 
             }
-            BeginOverlayPanel(draw_list, "PlannerMapUtilsPanel", ImVec2(map_x + map_w - 70.0f * scale, 72 * scale), ImVec2(49 * scale, 150 * scale), scale, theme);
-                GLuint PlannerPlus_Icon = theme ? images.at("plus_white") : images.at("plus");
-                if (widgets.CustomButton(draw_list, ImVec2(map_x + map_w - 46.0f * scale, 97 * scale), "Plus", scale, PlannerPlus_Icon, theme, -5, -3)) {
-                    if (map_zoom < 20) {
-                        map_zoom += 1;
-                    }
+            float PlannerMap_Upanel_x = map_x + map_w - 60.0f * scale;  
+            float PlannerMap_Upanel_y = 70.0f * scale + 10.0f * scale;   
+
+            BeginOverlayPanel(draw_list, "PlannerMapUtilsPanel", ImVec2(PlannerMap_Upanel_x, PlannerMap_Upanel_y), ImVec2(49 * scale, 150 * scale), scale, theme);
+
+            GLuint PlannerPlus_Icon = theme ? images.at("plus_white") : images.at("plus");
+            if (widgets.CustomButton(draw_list, ImVec2(PlannerMap_Upanel_x + 24.0f * scale, PlannerMap_Upanel_y + 25.0f * scale), "Plus", scale, PlannerPlus_Icon, theme, -5, -3)) {
+                if (map_zoom < 20) {
+                    map_zoom += 1;
                 }
-                GLuint PlannerMinus_Icon = theme ? images.at("minus_white") : images.at("minus");
-                if (widgets.CustomButton(draw_list, ImVec2(map_x + map_w - 46.0f * scale, 141 * scale), "Minus", scale, PlannerMinus_Icon, theme, -5, -3)) {
-                    if (map_zoom > 13) {
-                        map_zoom -= 1;
-                    }
+            }
+            GLuint PlannerMinus_Icon = theme ? images.at("minus_white") : images.at("minus");
+            if (widgets.CustomButton(draw_list, ImVec2(PlannerMap_Upanel_x + 24.0f * scale, PlannerMap_Upanel_y + 69.0f * scale), "Minus", scale, PlannerMinus_Icon, theme, -5, -3)) {
+                if (map_zoom > 13) {
+                    map_zoom -= 1;
                 }
-                GLuint Switch_Icon = theme ? images.at("switch_white") : images.at("switch");
-                if (widgets.CustomButton(draw_list, ImVec2(1524 * scale, 185 * scale), "Switch", scale, Switch_Icon, theme, -5, -3)) {
-                     sat_map = !sat_map;
-                }
+            }
+            GLuint PlannerSwitch_Icon = theme ? images.at("switch_white") : images.at("switch");
+            if (widgets.CustomButton(draw_list, ImVec2(PlannerMap_Upanel_x + 24.0f * scale, PlannerMap_Upanel_y + 113.0f * scale), "Switch", scale, PlannerSwitch_Icon, theme, -5, -3)) {
+                sat_map = !sat_map;
+            }
             EndOverlayPanel();
 
             // Height fills to the real window edge rather than a fixed 150*scale.

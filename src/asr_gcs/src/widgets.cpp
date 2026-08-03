@@ -151,7 +151,7 @@ bool Widgets::ArmButton(ImDrawList* draw_list, ImVec2 center, float scale, bool 
     const char* arming_txt;
     if(arming_state){
         arming_txt = "Disarm";
-        displace_txt = 32;
+        displace_txt = 32 * scale;
     } else {
         arming_txt = "Arm";
     }
@@ -593,4 +593,97 @@ GLuint Widgets::LoadButtonImage(const char* path)
 {
     cv::Mat img = cv::imread(path, cv::IMREAD_UNCHANGED);
     return UploadButtonImageToGL(img, path);
+}
+
+void Widgets::GotoPanel(ImVec2 pos, float scale, bool theme, std::string& goto_text){ 
+
+    ImVec2 size =ImVec2(420 * scale, 160 * scale);
+    ImGui::SetCursorPos(ImVec2(pos.x * scale, pos.y * scale)); 
+    ImGui::PushStyleColor(ImGuiCol_ChildBg, Color::panelColor(theme));
+    ImGui::PushStyleColor(ImGuiCol_Border, Color::panelBorder(theme));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(8 * scale, 8 * scale));
+    ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, 12.0f * scale);
+    ImGui::PushStyleVar(ImGuiStyleVar_ChildBorderSize, 2.0f * scale);
+    ImGui::BeginChild("GotoPanel", size, true,
+                        ImGuiWindowFlags_NoScrollbar |
+                        ImGuiWindowFlags_NoScrollWithMouse);
+    ImDrawList* draw = ImGui::GetWindowDrawList();
+    ImVec2 windowPos = ImGui::GetWindowPos();
+
+    ImGui::PushFont(winInit.getFont(181));
+    draw->AddText(ImVec2((windowPos.x + 10 * scale), (windowPos.y + 10 * scale)), Color::white_black(theme), "Command");
+    ImGui::PopFont();
+
+    draw->AddText(ImVec2(windowPos.x + 10 * scale, windowPos.y + 50 * scale),
+        Color::dwhite_lblack(theme), "Position");
+    
+    ImGui::SetCursorPos(ImVec2(10 * scale, 75 * scale));   
+    goto_text = GotoField(scale, theme); 
+    
+
+    ImGui::EndChild();
+    ImGui::PopStyleVar(3);
+    ImGui::PopStyleColor(2);
+
+}
+
+std::string Widgets::GotoField(float scale, bool theme)
+{
+    static char text_buffer[64] = "";
+    ImGui::PushStyleColor(ImGuiCol_FrameBg, Color::bgColor(theme));   // matches your other panels' background convention
+    ImGui::PushStyleColor(ImGuiCol_FrameBgHovered, Color::bgColor(theme));
+    ImGui::PushStyleColor(ImGuiCol_FrameBgActive, Color::bgColor(theme));
+    ImGui::PushStyleColor(ImGuiCol_Border, Color::panelBorder(theme));
+    ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 1.5f * scale);
+    
+    ImGui::SetNextItemWidth(250 * scale);
+    ImGui::InputTextWithHint("##goto_input", "     x    y    z    yaw", text_buffer, sizeof(text_buffer));
+
+
+    ImGui::PopStyleVar();
+    ImGui::PopStyleColor(4);
+
+    return std::string(text_buffer);   
+}
+
+bool Widgets::GotoButton(ImDrawList* draw_list, ImVec2 center, float scale, bool theme, GLuint tex){
+    float size_x = 35 * scale;
+    float size_y = 15 * scale;
+    ImVec2 bb_min = ImVec2(center.x - size_x, center.y - size_y);
+    ImVec2 bb_max = ImVec2(center.x + size_x, center.y + size_y);
+    float rounding = 12.0f;
+    ImVec2 image_bb_min = ImVec2(center.x - (13 * scale), center.y - (13 * scale));
+    ImVec2 image_bb_max = ImVec2(center.x + (13 * scale ), center.y + (13 * scale));
+    bool hovered = ImGui::IsMouseHoveringRect(bb_min, bb_max);
+    bool active = hovered && ImGui::IsMouseDown(0);
+    bool released = hovered && ImGui::IsMouseReleased(0);
+    ImU32 pointer_color = IM_COL32(255, 130, 30, 255);
+
+    ImVec4 normal_color  = Color::panelColor(theme);
+    ImVec4 hovered_color = ImVec4(
+        normal_color.x + 0.15f,
+        normal_color.y + 0.15f,
+        normal_color.z + 0.15f,
+        normal_color.w
+    );
+    ImVec4 active_color = ImVec4(
+        normal_color.x * 0.7f,
+        normal_color.y * 0.7f,
+        normal_color.z * 0.7f,
+        normal_color.w
+    );
+    ImVec4 base_color = active ? active_color : hovered ? hovered_color : normal_color;
+    draw_list->AddRectFilled(bb_min, bb_max, ImGui::ColorConvertFloat4ToU32(base_color), rounding);
+    float icon_size = 13.0f * scale;
+    draw_list->AddImageRounded(
+        (ImTextureID)(intptr_t)tex,
+        ImVec2(center.x - icon_size, center.y - icon_size),
+        ImVec2(center.x + icon_size, center.y + icon_size),
+        ImVec2(0, 0), ImVec2(1, 1),
+        IM_COL32(255, 255, 255, 255),
+        rounding
+    );
+
+
+    return released;
 }

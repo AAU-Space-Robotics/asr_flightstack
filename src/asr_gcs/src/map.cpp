@@ -231,8 +231,8 @@ void Location::NoSatMap(DroneInformation Info, float width, float height, float 
     ImVec2 center = ImVec2(pos.x + width * 0.5f, pos.y + height * 0.5f);
     
     ImVec2 dot_pos;
-    dot_pos.x = map_value(Info.xyz_pos[0], -50.0f, 50.0f, pos.x, pos.x + width);
-    dot_pos.y = map_value(Info.xyz_pos[1], -50.0f, 50.0f, pos.y, pos.y + height);
+    dot_pos.x = map_value(Info.xyz_pos[1], -50.0f, 50.0f, pos.x, pos.x + width); //flipped x and y to match satmap
+    dot_pos.y = map_value(-Info.xyz_pos[0], -50.0f, 50.0f, pos.y, pos.y + height);
 
     draw->AddCircleFilled(dot_pos, 6.0f * scale, IM_COL32(255, 50, 50, 255));
 

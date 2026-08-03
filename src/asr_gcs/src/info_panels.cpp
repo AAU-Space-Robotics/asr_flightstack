@@ -156,7 +156,7 @@ bool InfoPanels::CollapseButton(ImDrawList* draw_list, ImVec2 pos, float scale, 
     return clicked;
 }
 
-void InfoPanels::Battery_Info(float scale, bool theme, float battery_percentage[]){
+void InfoPanels::Battery_Info(float scale, bool theme, BatteryState battery_info_C, BatteryState battery_info_M, double motor_speeds[4]){
     int size;
     static bool Motor_panel_open = true;
     if(Motor_panel_open) {
@@ -174,8 +174,19 @@ void InfoPanels::Battery_Info(float scale, bool theme, float battery_percentage[
     const char* Battery_row_labels[2] = {"MOTORS", "COMPUTER"};
     ImU32 Battery_row_colors[2] = { IM_COL32(255, 140, 0, 255), IM_COL32(70, 150, 255, 255) };
 
-    float Battery_values_motors[4]  = {battery_percentage[0], 0.0f, 0.0f, 0.0f};
-    float Battery_values_compute[3] = {battery_percentage[1], 0.0f, 0.0f};
+    // Index 0 = MOTORS (battery_info_M), index 1 = COMPUTER (battery_info_C) -- matches the labels/colors above
+    BatteryState Battery_states[2] = { battery_info_M, battery_info_C };
+
+    float Battery_values_motors[3]  = {
+        static_cast<float>(battery_info_M.voltage),
+        static_cast<float>(battery_info_M.discharged_mah),
+        static_cast<float>(battery_info_M.average_current)
+    };
+    float Battery_values_compute[3] = {
+        static_cast<float>(battery_info_C.voltage),
+        static_cast<float>(battery_info_C.discharged_mah),
+        static_cast<float>(battery_info_C.average_current)
+    };
     float* Battery_values[2] = { Battery_values_motors, Battery_values_compute };
 
     const char* Battery_text[3] = {"Voltage","Discharge", "Avg. Current"};
@@ -187,10 +198,12 @@ void InfoPanels::Battery_Info(float scale, bool theme, float battery_percentage[
     for (int i = 0; i < 2; i++){
         float row_y = pos.y + row_start_y + (row_height * i);
 
+        float charge_pct = static_cast<float>(Battery_states[i].charge_remaining);
+
         ImU32 battery_color;
-        if (battery_percentage[i] > 0.5f) {
+        if (charge_pct > 0.5f) {
             battery_color = IM_COL32(0, 255, 0, 255);
-        } else if (battery_percentage[i] > 0.25f) {
+        } else if (charge_pct > 0.25f) {
             battery_color = IM_COL32(255, 255, 0, 255);
         } else {
             battery_color = IM_COL32(255, 0, 0, 255);
@@ -205,7 +218,7 @@ void InfoPanels::Battery_Info(float scale, bool theme, float battery_percentage[
             ImVec2(icon_x + 21 * scale, icon_top),
             Battery_row_colors[i], 3.0f * scale, ImDrawFlags_RoundCornersTop);
 
-        float battery_progressbar = map_value(battery_percentage[i], 0.0f, 1.0f,
+        float battery_progressbar = map_value(charge_pct, 0.0f, 1.0f,
                                                icon_bottom - 4.0f * scale,
                                                icon_top + 6.0f * scale);
         draw->AddRectFilled(
@@ -224,7 +237,7 @@ void InfoPanels::Battery_Info(float scale, bool theme, float battery_percentage[
         ImGui::PopFont();
 
         char pct_text[16];
-        snprintf(pct_text, sizeof(pct_text), "%.0f%%", battery_percentage[i] * 100.0f);
+        snprintf(pct_text, sizeof(pct_text), "%.0f%%", charge_pct * 100.0f);
         draw->AddText(ImVec2(pos.x + 260 * scale, row_y + 4 * scale),
                       Color::dwhite_lblack(theme), pct_text);
 
@@ -236,7 +249,7 @@ void InfoPanels::Battery_Info(float scale, bool theme, float battery_percentage[
 
             draw->AddText(ImVec2(value_x + (value_col_spacing * j), row_y + 25 * scale),
                           Color::dwhite_lblack(theme), value_text);
-            draw->AddText(ImVec2(value_x + (value_col_spacing * j) + 30 * scale, row_y + 25 * scale),
+            draw->AddText(ImVec2(value_x + (value_col_spacing * j) + 40 * scale, row_y + 25 * scale),
                           Color::dwhite_lblack(theme), Battery_text_value[j]);
         }
 
@@ -248,7 +261,6 @@ void InfoPanels::Battery_Info(float scale, bool theme, float battery_percentage[
         }
     }
 
-    
     float motors_section_y = pos.y + row_start_y + (row_height * 2);
     InfoPanels::CollapseButton(draw, ImVec2(pos.x + 290 * scale, pos.y + 10 * scale), scale, Motor_panel_open, theme);
 
@@ -258,7 +270,6 @@ void InfoPanels::Battery_Info(float scale, bool theme, float battery_percentage[
                       IM_COL32(255, 140, 0, 255), "MOTOR USAGE");
         ImGui::PopFont();
 
-        float Motor_values[4] = {battery_percentage[0], 0.0f, 0.0f, 0.0f};
         const char* Motor_labels[4] = {"M1", "M2", "M3", "M4"};
         float Motor_row_spacing = 30.0f * scale;
         float bar_x_start = 45.0f * scale;
@@ -268,6 +279,7 @@ void InfoPanels::Battery_Info(float scale, bool theme, float battery_percentage[
 
         for (int i = 0; i < 4; i++){
             float row_y = motors_section_y + 45.0f * scale + (Motor_row_spacing * i);
+            float motor_val = static_cast<float>(motor_speeds[i]);
 
             draw->AddText(ImVec2(pos.x + 15 * scale, row_y),
                           Color::dwhite_lblack(theme), Motor_labels[i]);
@@ -277,18 +289,17 @@ void InfoPanels::Battery_Info(float scale, bool theme, float battery_percentage[
                 ImVec2(pos.x + bar_x_start + bar_width, row_y + 3 * scale + bar_height),
                 Color::panelBorder(theme), 4.0f * scale, ImDrawFlags_RoundCornersAll);
 
-            float fill_width = map_value(Motor_values[i], 0.0f, 1.0f, 0.0f, bar_width);
+            float fill_width = map_value(motor_val, 0.0f, 1.0f, 0.0f, bar_width);
             draw->AddRectFilled(
                 ImVec2(pos.x + bar_x_start, row_y + 3 * scale),
                 ImVec2(pos.x + bar_x_start + fill_width, row_y + 3 * scale + bar_height),
                 motor_color, 4.0f * scale, ImDrawFlags_RoundCornersAll);
 
             char motor_text[16];
-            snprintf(motor_text, sizeof(motor_text), "%.0f%%", Motor_values[i] * 100.0f);
+            snprintf(motor_text, sizeof(motor_text), "%.0f%%", motor_val * 100.0f);
             draw->AddText(ImVec2(pos.x + bar_x_start + bar_width + 50 * scale, row_y),
                           Color::dwhite_lblack(theme), motor_text);
         }
-        
 
         draw->AddLine(
             ImVec2(pos.x + 14 * scale, motors_section_y),
@@ -299,7 +310,7 @@ void InfoPanels::Battery_Info(float scale, bool theme, float battery_percentage[
     InfoPanels::End_panels();
 }
 
-void InfoPanels::Position_Info(float scale, bool theme, float pos_meter[3]){
+void InfoPanels::Position_Info(float scale, bool theme, float pos_meter[3], float target_meter[3], float vel_meter[3]){
 
     ImVec2 pos = InfoPanels::Begin_panels("PositionInfo",210 * scale,scale, theme);
     ImDrawList* draw = ImGui::GetWindowDrawList();
@@ -307,8 +318,6 @@ void InfoPanels::Position_Info(float scale, bool theme, float pos_meter[3]){
     draw->AddText(ImVec2((pos.x + 10), (pos.y + 10)), Color::white_black(theme), "State-NED");
     ImGui::PopFont();
 
-    float target_meter[3] = {2.1f, 0.3f, -1.5f};
-    float vel_meter[3] = {0.0f, 0.3f, -0.23f};
     ImU32 xyz_color[3] = {
         IM_COL32(232, 45, 39, 255),
         IM_COL32(122, 193, 66, 255),
