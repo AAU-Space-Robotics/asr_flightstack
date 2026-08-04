@@ -1,4 +1,5 @@
 #include "app_window.h"
+#include <ament_index_cpp/get_package_share_directory.hpp>
 
 
 namespace windowVar {
@@ -58,12 +59,16 @@ void WindowInitializer::loadFonts()
 {
     ImGuiIO& io = ImGui::GetIO();
 
-    font14 = io.Fonts->AddFontFromFileTTF("src/asr_gcs/fonts/Roboto-Regular.ttf", 14.0f);
-    font18 = io.Fonts->AddFontFromFileTTF("src/asr_gcs/fonts/Roboto-Regular.ttf", 18.0f);
-    font18B = io.Fonts->AddFontFromFileTTF("src/asr_gcs/fonts/Roboto-Bold.ttf", 18.0f);
-    font24 = io.Fonts->AddFontFromFileTTF("src/asr_gcs/fonts/Roboto-Bold.ttf", 24.0f);
-    font28 = io.Fonts->AddFontFromFileTTF("src/asr_gcs/fonts/Roboto-Regular.ttf", 28.0f);
-    font40 = io.Fonts->AddFontFromFileTTF("src/asr_gcs/fonts/Roboto-Bold.ttf", 40.0f);
+    const std::string fonts_dir = ament_index_cpp::get_package_share_directory("asr_gcs") + "/fonts/";
+    const std::string regular = fonts_dir + "Roboto-Regular.ttf";
+    const std::string bold = fonts_dir + "Roboto-Bold.ttf";
+
+    font14 = io.Fonts->AddFontFromFileTTF(regular.c_str(), 14.0f);
+    font18 = io.Fonts->AddFontFromFileTTF(regular.c_str(), 18.0f);
+    font18B = io.Fonts->AddFontFromFileTTF(bold.c_str(), 18.0f);
+    font24 = io.Fonts->AddFontFromFileTTF(bold.c_str(), 24.0f);
+    font28 = io.Fonts->AddFontFromFileTTF(regular.c_str(), 28.0f);
+    font40 = io.Fonts->AddFontFromFileTTF(bold.c_str(), 40.0f);
 
     io.Fonts->Build();
     io.FontDefault = font18;

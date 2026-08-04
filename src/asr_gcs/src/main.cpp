@@ -23,9 +23,7 @@
 #include <atomic>
 
 #include <rclcpp/rclcpp.hpp>
-#include <rclcpp_action/rclcpp_action.hpp>
 #include <rcutils/logging.h>
-#include <asr_comms/action/uav_command.hpp>
 #include <asr_comms/msg/telemetry_battery.hpp>
 #include <asr_comms/msg/telemetry_gps.hpp>
 #include "asr_comms/msg/telemetry_position.hpp"
@@ -63,7 +61,6 @@ constexpr size_t BATTERY_MAIN = 0;
 constexpr size_t BATTERY_COMPUTE = 1;
 
 using GcsHeartbeat = asr_comms::msg::GcsHeartbeat_<std::allocator<void>>;
-using ActionCommand = asr_comms::action::UAVCommand;
 
 class AAUGrouncontrol : public rclcpp::Node
 {
@@ -131,7 +128,7 @@ public:
         );
         manual_control_pub_ = create_publisher<asr_comms::msg::ManualControlInput>("in/manual_input", qos);
 
-        path_client = rclcpp_action::create_client<ActionCommand>(this, "in/uav_command");
+        uav_command_pub_ = create_publisher<asr_comms::msg::UAVCommand>("in/uav_command", 10);
     }
     void start()
     {
@@ -144,13 +141,12 @@ public:
     }
     StateManager& getStateManager() { return state_manager_; } 
     void send_command(string command_type, vector<double> target_pose = {}, double yaw = 0.0){
-        ActionCommand::Goal goal;
-        goal.command_type = command_type;
-        goal.target_pose = target_pose;
-        goal.yaw = yaw;
+        asr_comms::msg::UAVCommand msg;
+        msg.command_type = command_type;
+        msg.target_pose = target_pose;
+        msg.yaw = yaw;
 
-        auto options = rclcpp_action::Client<ActionCommand>::SendGoalOptions();
-        path_client->async_send_goal(goal, options);
+        uav_command_pub_->publish(msg);
     }
     void send_manual_control(float roll, float pitch, float yaw_velocity, float thrust)
     {
@@ -182,7 +178,7 @@ private:
     rclcpp::Publisher<GcsHeartbeat>::SharedPtr heartbeat_pub_;
     rclcpp::Publisher<asr_comms::msg::ManualControlInput>::SharedPtr manual_control_pub_;
     rclcpp::TimerBase::SharedPtr heartbeat_timer_;
-    rclcpp_action::Client<ActionCommand>::SharedPtr path_client;
+    rclcpp::Publisher<asr_comms::msg::UAVCommand>::SharedPtr uav_command_pub_;
 
     FlightMode current_flight_mode_ = FlightMode::STANDBY;
     mutable std::mutex flight_mode_mutex_;

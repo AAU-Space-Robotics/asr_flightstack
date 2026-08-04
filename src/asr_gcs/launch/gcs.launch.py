@@ -1,5 +1,6 @@
 from launch import LaunchDescription
-from launch.actions import Shutdown
+from launch.actions import RegisterEventHandler, Shutdown
+from launch.event_handlers import OnProcessExit
 from launch.substitutions import PathJoinSubstitution
 from launch_ros.actions import Node
 from launch_ros.substitutions import FindPackageShare
@@ -8,6 +9,16 @@ from launch_ros.substitutions import FindPackageShare
 def generate_launch_description():
     gcs_pkg_share = FindPackageShare('asr_gcs')
     comms_path = PathJoinSubstitution([gcs_pkg_share, 'config', 'gcs_comms.yaml'])
+
+    # Ground control station GUI
+    interface_node = Node(
+        package='asr_gcs',
+        executable='interface',
+        name='aau_groundcontrol_node',
+        namespace='asr/gcs',
+        output='screen',
+        
+    )
 
     return LaunchDescription([
         # MAVLink bridge — GCS side
