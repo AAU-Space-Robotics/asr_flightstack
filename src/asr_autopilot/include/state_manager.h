@@ -57,6 +57,20 @@ enum class FlightModeTrait {
     AUTONOMOUS = 2
 };
 
+enum class RTK_STATUS {
+    INACTIVE = 0,
+    SURVEY_IN = 1,
+    STREAMING = 2
+};
+
+struct BaseStateInfo {
+    bool bs_connected = false;
+    RTK_STATUS bs_status = RTK_STATUS::INACTIVE;
+    double rtk_accuracy = 0.0;
+    double rtk_accuracy_target = 0.0;
+    double rtk_survey_duration = 0.0;
+};
+
 // Example mapping (can be used in a function or static const array)
 static const std::unordered_map<FlightMode, std::vector<FlightModeTrait>> flight_mode_traits_map = {
     {FlightMode::EMERGENCY_STOP, {FlightModeTrait::ESTOP}},
@@ -391,6 +405,9 @@ public:
     void setArminState(const bool state);
     bool getArminState();
 
+    void setRTKstatus(const BaseStateInfo& new_data);
+    BaseStateInfo getRTKstatus();
+
 private:
     
     // Mutexes for thread safety
@@ -421,6 +438,7 @@ private:
     std::mutex probe_global_locations_mutex_;
     std::mutex gps_state_mutex_;
     std::mutex arming_state_mutex_;
+    std::mutex rtk_data_mutex_;
 
     std::mutex gimbal_priority_mutex_;
     bool gimbal_priority_;
@@ -453,6 +471,7 @@ private:
     Stamped4DVector actuator_speeds_ = Stamped4DVector(rclcpp::Time(0, 0), 0.0, 0.0, 0.0, 0.0);
     GlobalProbeLocations probe_global_locations_;
     GPSState gps_state_;
+    BaseStateInfo rtk_data_;
 };
 
 #endif // STATE_MANAGER_H

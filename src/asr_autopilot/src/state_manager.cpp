@@ -279,6 +279,16 @@ bool StateManager::getGimbalPriority() {
     return gimbal_priority_;
 }
 
+void StateManager::setRTKstatus(const BaseStateInfo& new_data){
+    std::lock_guard<std::mutex> lock(rtk_data_mutex_);
+    rtk_data_ = new_data;
+}
+
+BaseStateInfo StateManager::getRTKstatus(){
+    std::lock_guard<std::mutex> lock(rtk_data_mutex_);
+    return rtk_data_;
+}
+
 // Get bundled trajectory initialization state
 TrajectoryInitState StateManager::getTrajectoryInitState() {
     // Lock all necessary mutexes

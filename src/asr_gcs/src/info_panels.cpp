@@ -397,13 +397,111 @@ void Logs::outputlog(ImVec2 pos, float scale, bool theme){
 
 }
 
-void InfoPanels::GNSS_Info(float scale, bool theme){
-    ImVec2 pos = InfoPanels::Begin_panels("GNSSInfo",210 * scale,scale, theme);
+void InfoPanels::GNSS_Info(float scale, bool theme, 
+                        double accuracy, 
+                        double accuracy_target, 
+                        double duration,
+                        GPSState gps_info){
+    ImVec2 pos = InfoPanels::Begin_panels("GNSSInfo", 140 * scale, scale, theme);
     ImDrawList* draw = ImGui::GetWindowDrawList();
     ImGui::PushFont(winInit.getFont(181));
     draw->AddText(ImVec2((pos.x + 10), (pos.y + 10)), Color::white_black(theme), "GNSS");
     ImGui::PopFont();
 
-    InfoPanels::End_panels();
+    float col_start_x = 10.0f * scale;
+    float col_spacing = 70.0f * scale;
 
+    // --- Lat/Lon, right under the title ---
+    char latitude_text[32];
+    snprintf(latitude_text, sizeof(latitude_text), "Lat:  %.5f", gps_info.latitude);
+    draw->AddText(ImVec2(pos.x + col_start_x, pos.y + 35 * scale),
+        Color::dwhite_lblack(theme), latitude_text);
+
+    char longitude_text[32];
+    snprintf(longitude_text, sizeof(longitude_text), "Lon:  %.5f", gps_info.longitude);
+    draw->AddText(ImVec2(pos.x + col_start_x + col_spacing * 2, pos.y + 35 * scale),
+        Color::dwhite_lblack(theme), longitude_text);
+
+    // --- Sats | Accuracy | Duration, same row, same y ---
+    float value_row_y = 60 * scale;
+    float label_row_y = 75 * scale;
+
+    char sat_used_text[32];
+    snprintf(sat_used_text, sizeof(sat_used_text), "%d", gps_info.satellites_used);
+    draw->AddText(ImVec2(pos.x + col_start_x + col_spacing * 2, pos.y + value_row_y),
+        Color::dwhite_lblack(theme), sat_used_text);
+    ImGui::PushFont(winInit.getFont(14));
+    draw->AddText(ImVec2(pos.x + col_start_x + col_spacing * 2, pos.y + label_row_y),
+        Color::dwhite_lblack(theme), "Sats Used");
+    ImGui::PopFont();
+
+    char cur_accuracy_text[32];
+    snprintf(cur_accuracy_text, sizeof(cur_accuracy_text), "%.0f m", accuracy);
+    draw->AddText(ImVec2(pos.x + col_start_x, pos.y + value_row_y),
+        Color::dwhite_lblack(theme), cur_accuracy_text);
+    ImGui::PushFont(winInit.getFont(14));
+    draw->AddText(ImVec2(pos.x + col_start_x, pos.y + label_row_y),
+        Color::dwhite_lblack(theme), "Accuracy");
+    ImGui::PopFont();
+
+    char duration_text[32];
+    snprintf(duration_text, sizeof(duration_text), "%.0f s", duration);
+    draw->AddText(ImVec2(pos.x + col_start_x + col_spacing, pos.y + value_row_y),
+        Color::dwhite_lblack(theme), duration_text);
+    ImGui::PushFont(winInit.getFont(14));
+    draw->AddText(ImVec2(pos.x + col_start_x + col_spacing, pos.y + label_row_y),
+        Color::dwhite_lblack(theme), "Duration");
+    ImGui::PopFont();
+
+    // --- Survey progress bar ---
+    float bar_x_start = 20.0f * scale;
+    float bar_start_y = 110.0f * scale;
+    float bar_width    = 200.0f * scale;
+    float bar_height   = 8.0f * scale;
+    ImU32 survey_color = IM_COL32(255, 140, 0, 255);
+    ImU32 overshoot_color = IM_COL32(0, 220, 100, 255);
+
+    bool target_reached = (accuracy_target > 0.0 && accuracy <= accuracy_target);
+
+    float fill_width;
+    float overshoot_x = -1.0f;
+
+    if (!target_reached) {
+        float progress = (accuracy_target > 0.0)
+            ? static_cast<float>(accuracy_target / accuracy)
+            : 0.0f;
+        progress = std::clamp(progress, 0.0f, 1.0f);
+        fill_width = progress * bar_width;
+    } else {
+        fill_width = bar_width;
+        float overshoot_frac = 1.0f - static_cast<float>(accuracy / accuracy_target);
+        overshoot_frac = std::clamp(overshoot_frac, 0.0f, 1.0f);
+        overshoot_x = bar_x_start + overshoot_frac * bar_width;
+    }
+
+    draw->AddRectFilled(
+        ImVec2(pos.x + bar_x_start, pos.y + bar_start_y),
+        ImVec2(pos.x + bar_x_start + bar_width, pos.y + bar_start_y + bar_height),
+        Color::panelBorder(theme), 4.0f * scale, ImDrawFlags_RoundCornersAll);
+
+    draw->AddRectFilled(
+        ImVec2(pos.x + bar_x_start, pos.y + bar_start_y),
+        ImVec2(pos.x + bar_x_start + fill_width, pos.y + bar_start_y + bar_height),
+        survey_color, 4.0f * scale, ImDrawFlags_RoundCornersAll);
+
+    if (overshoot_x >= 0.0f) {
+        draw->AddLine(
+            ImVec2(pos.x + overshoot_x, pos.y + bar_start_y - 2.0f * scale),
+            ImVec2(pos.x + overshoot_x, pos.y + bar_start_y + bar_height + 2.0f * scale),
+            overshoot_color, 2.0f * scale);
+    }
+
+    // --- Accuracy percentage -- aligned to the bar's row, same convention as motor % text ---
+    double pct = (accuracy > 0.0) ? (accuracy_target / accuracy) * 100.0 : 0.0;
+    char accuracy_pct_text[32];
+    snprintf(accuracy_pct_text, sizeof(accuracy_pct_text), "%.0f%%", pct);
+    draw->AddText(ImVec2(pos.x + bar_x_start + bar_width + 50 * scale, pos.y + bar_start_y - 8 * scale),
+        Color::dwhite_lblack(theme), accuracy_pct_text);
+
+    InfoPanels::End_panels();
 }

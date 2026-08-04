@@ -263,6 +263,14 @@ private:
     }
     void basestationCallback(const asr_comms::msg::BaseStationStats::SharedPtr msg)
     {
+        BaseStateInfo RTK_info;
+        RTK_info.bs_connected = msg->basestation_connected;
+        RTK_info.bs_status = static_cast<RTK_STATUS>(msg->rtk_status);
+        RTK_info.rtk_accuracy = msg-> rtk_accuracy;
+        RTK_info.rtk_accuracy_target = msg->rtk_accuracy_target;
+        RTK_info.rtk_survey_duration = msg->rtk_survey_duration;
+
+        state_manager_.setRTKstatus(RTK_info);
 
     }
     void statusCallback(const asr_comms::msg::TelemetryStatus::SharedPtr msg)
@@ -508,6 +516,7 @@ int main(int argc, char **argv) {
         Info.motor_speed[1] = speeds.y();
         Info.motor_speed[2] = speeds.z();
         Info.motor_speed[3] = speeds.w();
+        Info.RTK_INFO = ground_control->getStateManager().getRTKstatus();
         Info.flight_mode = ground_control->getFlightMode();
         if (!mode_switch_pending) {   
             is_manual = (Info.flight_mode == FlightMode::MANUAL_AIDED || Info.flight_mode == FlightMode::MANUAL);
@@ -673,7 +682,8 @@ int main(int argc, char **argv) {
         //         << js.axes[2] << "," << js.axes[3] << "," << js.axes[4] << endl;
         //    ground_control->send_manual_control(ctrl.roll, ctrl.pitch, ctrl.yaw_velocity, ctrl.thrust);
         //}
-//
+//      
+        widgets.SurveyPanel(draw_list, ImVec2(1450, 22),scale, theme, Info.RTK_INFO.bs_status, Info.RTK_INFO.bs_connected);
         switch (panel)
         {
 
@@ -830,7 +840,11 @@ int main(int argc, char **argv) {
         info_panels.Battery_Info(scale, theme, Info.battery_values_C, Info.battery_values_M, Info.motor_speed);
         
         info_panels.Position_Info(scale, theme, Info.xyz_pos, Info.tgt_pos, Info.velocity);
-        info_panels.GNSS_Info(scale, theme);
+        info_panels.GNSS_Info(scale, theme, 
+                            Info.RTK_INFO.rtk_accuracy, 
+                            Info.RTK_INFO.rtk_accuracy_target, 
+                            Info.RTK_INFO.rtk_survey_duration,
+                            Info.gps_status);
         info_panels.Probe_Info(scale, theme);
         
         

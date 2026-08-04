@@ -102,6 +102,7 @@ include_directories(
 install(PROGRAMS
   script/GUI.py
   script/download_tiles.py
+  script/test_pub.py
   DESTINATION lib/${PROJECT_NAME}
 )
 

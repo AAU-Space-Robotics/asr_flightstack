@@ -41,7 +41,11 @@ class InfoPanels {
         void Battery_Info(float scale, bool theme, BatteryState battery_info_C, BatteryState battery_info_M, double motor_speeds[4]);
         void Position_Info(float scale, bool theme, float xyz_pos[3], float target_meter[3], float vel_meter[3]);
         void Probe_Info(float scale, bool theme = 0);
-        void GNSS_Info(float scale, bool theme);
+        void GNSS_Info(float scale, bool theme, 
+                        double accuracy, 
+                        double accuracy_target, 
+                        double duration,
+                        GPSState gps_info);
     private:
         ImVec2 Panel_tracker(ImVec2 size, float scale);
         int cur_panel_space = 0;
