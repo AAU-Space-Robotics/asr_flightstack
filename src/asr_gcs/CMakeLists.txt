@@ -34,9 +34,14 @@ install(PROGRAMS
 
 install(DIRECTORY fonts DESTINATION share/${PROJECT_NAME}/)
 install(DIRECTORY images DESTINATION share/${PROJECT_NAME}/)
-install(DIRECTORY tiles DESTINATION share/${PROJECT_NAME}/)
 install(DIRECTORY launch DESTINATION share/${PROJECT_NAME}/)
 install(DIRECTORY config DESTINATION share/${PROJECT_NAME}/)
+
+# tiles/ is a gitignored runtime cache populated by script/download_tiles.py,
+# so it won't exist on a fresh clone - only install it if present.
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tiles")
+  install(DIRECTORY tiles DESTINATION share/${PROJECT_NAME}/)
+endif()
 
 if(NOT ASR_GCS_SKIP_INTERFACE)
 
