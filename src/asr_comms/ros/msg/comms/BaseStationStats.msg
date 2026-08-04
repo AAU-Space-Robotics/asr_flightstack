@@ -1,5 +1,5 @@
 # Connection status
-bool  basestation_connected      # true if any the base station is connected
+bool  basestation_connected      # true if the base station is connected
 
 # RTK survey state
 uint8 RTK_STATUS_INACTIVE  = 0

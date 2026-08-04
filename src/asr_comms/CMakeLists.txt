@@ -34,6 +34,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "ros/msg/comms/LinkStats.msg"
   "ros/msg/comms/GcsHeartbeat.msg"
   "ros/msg/comms/CameraStreamRequest.msg"
+  "ros/msg/comms/BaseStationStats.msg"
   # control
   "ros/msg/control/ControlDetail.msg"
   "ros/msg/control/UAVScope.msg"

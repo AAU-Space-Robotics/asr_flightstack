@@ -30,6 +30,8 @@ import rclpy
 from rclpy.node import Node
 from std_msgs.msg import UInt8MultiArray
 
+from asr_comms.msg import BaseStationStats
+
 from serial import Serial, SerialException
 from pyrtcm import RTCMReader
 from pyubx2 import UBXMessage, UBXReader, SET, POLL
@@ -112,10 +114,30 @@ class RtcmReaderNode(Node):
             self._meas_rate_hz = 1.0
 
         self._rtcm_pub = self.create_publisher(UInt8MultiArray, 'rtcm', 10)
+        self._status_pub = self.create_publisher(BaseStationStats, 'basestation_stats', 10)
+        self._status_timer = self.create_timer(1.0, self._publish_status)
+
+        # Updated from the background thread (_run and friends), read back here
+        # by the status timer on the executor thread — plain attribute
+        # read/write is safe under the GIL for these scalar types.
+        self._connected = False
+        self._rtk_status = BaseStationStats.RTK_STATUS_INACTIVE
+        self._rtk_accuracy = 0.0
+        self._survey_duration = 0.0
 
         self._serial = None
         self._thread = threading.Thread(target=self._run, daemon=True)
         self._thread.start()
+
+    def _publish_status(self):
+        msg = BaseStationStats()
+        msg.basestation_connected = self._connected
+        msg.rtk_status = self._rtk_status
+        msg.rtk_accuracy = self._rtk_accuracy
+        msg.rtk_accuracy_target = self._survey_acc_limit / 1000.0
+        msg.rtk_survey_duration = self._survey_duration
+        msg.rtk_survey_duration_max = float(self._survey_min_dur)
+        self._status_pub.publish(msg)
 
     # ------------------------------------------------------------------
     # Main thread: wait for port → configure → survey-in → stream,
@@ -124,9 +146,12 @@ class RtcmReaderNode(Node):
 
     def _run(self):
         while rclpy.ok():
+            self._connected = False
+            self._rtk_status = BaseStationStats.RTK_STATUS_INACTIVE
             self._serial = self._wait_for_port()
             if self._serial is None:
                 return  # ROS shut down while waiting
+            self._connected = True
 
             try:
                 if self._configure:
@@ -142,21 +167,30 @@ class RtcmReaderNode(Node):
                     elif state == 'active':
                         self.get_logger().info(
                             'Receiver survey-in still in progress — waiting for it to finish')
+                        self._rtk_status = BaseStationStats.RTK_STATUS_SURVEY_IN
                         self._enable_rtcm_output()
                         self._wait_for_survey()
                     else:
+                        self._rtk_status = BaseStationStats.RTK_STATUS_SURVEY_IN
+                        self._rtk_accuracy = 0.0
+                        self._survey_duration = 0.0
                         self._configure_receiver()
                         self._wait_for_survey()
+                self._rtk_status = BaseStationStats.RTK_STATUS_STREAMING
                 self._stream_rtcm()
                 return  # clean exit — ROS shut down
             except (SerialException, OSError) as e:
                 self.get_logger().warn(f'RTK receiver link lost ({e}) — reconnecting')
+                self._connected = False
+                self._rtk_status = BaseStationStats.RTK_STATUS_INACTIVE
                 try:
                     self._serial.close()
                 except Exception:
                     pass
             except Exception as e:
                 self.get_logger().error(f'rtcm_reader thread crashed: {e}')
+                self._connected = False
+                self._rtk_status = BaseStationStats.RTK_STATUS_INACTIVE
                 return
 
     def _wait_for_port(self):
@@ -198,6 +232,8 @@ class RtcmReaderNode(Node):
             if msg is None:
                 continue
             if msg.identity == 'NAV-SVIN':
+                self._rtk_accuracy = msg.meanAcc / 10000.0
+                self._survey_duration = float(msg.dur)
                 if msg.valid:
                     return 'valid'
                 if msg.active:
@@ -340,6 +376,8 @@ class RtcmReaderNode(Node):
             if msg.identity == 'NAV-SVIN':
                 acc_m = msg.meanAcc / 10000.0
                 acc_limit_m = self._survey_acc_limit / 1000.0
+                self._rtk_accuracy = acc_m
+                self._survey_duration = float(msg.dur)
 
                 # Log when something meaningful changes (active state, 0.1m acc
                 # step, 10s dur step), and at least every HEARTBEAT_S so a stuck
