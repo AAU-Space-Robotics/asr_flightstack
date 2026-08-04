@@ -18,6 +18,12 @@
 #include "state_manager.h"
 #include "transformations.h"
 
+enum class RTK_STATUS {
+    INACTIVE = 0,
+    SURVEY_IN = 1,
+    STREAMING = 2
+};
+
 struct DroneInformation {
     BatteryState battery_values_M;
     BatteryState battery_values_C;
@@ -28,8 +34,11 @@ struct DroneInformation {
     EulerAngles orientation;
     FlightMode flight_mode = FlightMode::STANDBY;
     GPSState gps_status;
+    bool bs_connected = false;
+    RTK_STATUS bs_status = RTK_STATUS::INACTIVE;
 
 };
+
 
 
 namespace windowVar {

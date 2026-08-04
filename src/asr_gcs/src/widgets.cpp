@@ -687,3 +687,7 @@ bool Widgets::GotoButton(ImDrawList* draw_list, ImVec2 center, float scale, bool
 
     return released;
 }
+
+void Widgets::SurveryPanel(ImDrawList* draw_list, ImVec2 pos, float scale, float theme){
+    
+}
