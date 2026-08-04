@@ -22,9 +22,7 @@
 #include <atomic>
 
 #include <rclcpp/rclcpp.hpp>
-#include <rclcpp_action/rclcpp_action.hpp>
 #include <rcutils/logging.h>
-#include <asr_comms/action/uav_command.hpp>
 #include <asr_comms/msg/telemetry_battery.hpp>
 #include <asr_comms/msg/telemetry_gps.hpp>
 #include "asr_comms/msg/telemetry_position.hpp"
@@ -60,7 +58,6 @@ constexpr size_t BATTERY_MAIN = 0;
 constexpr size_t BATTERY_COMPUTE = 1;
 
 using GcsHeartbeat = asr_comms::msg::GcsHeartbeat_<std::allocator<void>>;
-using ActionCommand = asr_comms::action::UAVCommand;
 
 class AAUGrouncontrol : public rclcpp::Node
 {
@@ -124,7 +121,11 @@ public:
             [this]() { heartbeat(); }
         );
 
-        path_client = rclcpp_action::create_client<ActionCommand>(this, "/asr/thyra/in/uav_command");
+        // Published on the GCS namespace's "in/uav_command" topic, not sent as a
+        // direct ROS 2 action goal: the UAV is a separate DDS graph reachable
+        // only over the comms_gcs/comms_uav MAVLink radio/WiFi bridge, which
+        // subscribes to this same relative topic name and forwards it.
+        uav_command_pub_ = create_publisher<asr_comms::msg::UAVCommand>("in/uav_command", 10);
     }
     void start()
     {
@@ -137,13 +138,12 @@ public:
     }
     StateManager& getStateManager() { return state_manager_; } 
     void send_command(string command_type, vector<double> target_pose = {}, double yaw = 0.0){
-        ActionCommand::Goal goal;
-        goal.command_type = command_type;
-        goal.target_pose = target_pose;
-        goal.yaw = yaw;
+        asr_comms::msg::UAVCommand msg;
+        msg.command_type = command_type;
+        msg.target_pose = target_pose;
+        msg.yaw = yaw;
 
-        auto options = rclcpp_action::Client<ActionCommand>::SendGoalOptions();
-        path_client->async_send_goal(goal, options);
+        uav_command_pub_->publish(msg);
     }
 private:
     StateManager state_manager_;
@@ -160,7 +160,7 @@ private:
     rclcpp::Subscription<asr_comms::msg::TelemetryStatus>::SharedPtr status_sub_;
     rclcpp::Publisher<GcsHeartbeat>::SharedPtr heartbeat_pub_;
     rclcpp::TimerBase::SharedPtr heartbeat_timer_;
-    rclcpp_action::Client<ActionCommand>::SharedPtr path_client;
+    rclcpp::Publisher<asr_comms::msg::UAVCommand>::SharedPtr uav_command_pub_;
 
 
     void attitudeCallback(const asr_comms::msg::TelemetryAttitude::SharedPtr msg)
