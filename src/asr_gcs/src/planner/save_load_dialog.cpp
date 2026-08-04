@@ -35,7 +35,10 @@ std::string FormatSize(std::uintmax_t bytes) {
 }
 
 std::string FormatTime(std::filesystem::file_time_type ftime) {
-    const auto system_time = std::chrono::clock_cast<std::chrono::system_clock>(ftime);
+    // std::chrono::clock_cast requires a newer libstdc++ than what ships on
+    // Jetson toolchains, so convert manually via the classic now()-offset trick.
+    const auto system_time = std::chrono::time_point_cast<std::chrono::system_clock::duration>(
+        ftime - std::filesystem::file_time_type::clock::now() + std::chrono::system_clock::now());
     const std::time_t tt = std::chrono::system_clock::to_time_t(system_time);
     char buf[32];
     std::strftime(buf, sizeof(buf), "%Y-%m-%d %H:%M", std::localtime(&tt));
