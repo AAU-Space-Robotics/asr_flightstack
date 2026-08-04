@@ -39,7 +39,7 @@ ImVec2 InfoPanels::Panel_tracker(ImVec2 size, float scale){
     const int max_panel_space = 1500;
     const float gap = 10.0f;
     if (cur_panel_space + size.y > max_panel_space){
-        std::cout << "Damn boy" << std::endl;
+        //std::cout << "Damn boy" << std::endl;
     }
 
     ImVec2 panel_pos = ImVec2(1580* scale, (70 * scale + cur_panel_space));
@@ -55,7 +55,7 @@ void InfoPanels::ResetPanelTracking() {
 
 ImVec2 InfoPanels::Begin_panels(const char* id, int y_size, float scale, bool theme){
 
-    const ImVec2 size = ImVec2(310, y_size);
+    const ImVec2 size = ImVec2(310 *scale, y_size);
     ImVec2 pos = InfoPanels::Panel_tracker(size, scale);
     ImGui::SetCursorPos(ImVec2(pos.x, pos.y));
     ImGui::PushStyleColor(ImGuiCol_ChildBg, Color::panelColor(theme));
@@ -367,7 +367,9 @@ void InfoPanels::Probe_Info(float scale, bool theme){
 
     ImVec2 pos = InfoPanels::Begin_panels("ProbeInfo",170,scale, theme);
     ImDrawList* draw = ImGui::GetWindowDrawList();
+    ImGui::PushFont(winInit.getFont(181));
     draw->AddText(ImVec2((pos.x + 10), (pos.y + 10)), Color::white_black(theme), "Probe Info");
+    ImGui::PopFont();
 
     InfoPanels::End_panels();
 }
@@ -392,5 +394,16 @@ void Logs::outputlog(ImVec2 pos, float scale, bool theme){
     ImGui::PopStyleVar(3);
     ImGui::PopStyleColor(2);
    
+
+}
+
+void InfoPanels::GNSS_Info(float scale, bool theme){
+    ImVec2 pos = InfoPanels::Begin_panels("GNSSInfo",210 * scale,scale, theme);
+    ImDrawList* draw = ImGui::GetWindowDrawList();
+    ImGui::PushFont(winInit.getFont(181));
+    draw->AddText(ImVec2((pos.x + 10), (pos.y + 10)), Color::white_black(theme), "GNSS");
+    ImGui::PopFont();
+
+    InfoPanels::End_panels();
 
 }

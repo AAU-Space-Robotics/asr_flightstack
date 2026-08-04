@@ -23,19 +23,6 @@ else()
   set(ASR_GCS_SKIP_INTERFACE FALSE)
 endif()
 
-install(PROGRAMS
-  script/GUI.py
-  script/drone_state_publisher.py
-  script/MotionCaptureReceiver.py
-  script/probe_tester.py
-  script/download_tiles.py
-  DESTINATION lib/${PROJECT_NAME}
-)
-
-install(DIRECTORY fonts DESTINATION share/${PROJECT_NAME}/)
-install(DIRECTORY images DESTINATION share/${PROJECT_NAME}/)
-install(DIRECTORY launch DESTINATION share/${PROJECT_NAME}/)
-install(DIRECTORY config DESTINATION share/${PROJECT_NAME}/)
 
 # tiles/ is a gitignored runtime cache populated by script/download_tiles.py,
 # so it won't exist on a fresh clone - only install it if present.
@@ -71,7 +58,7 @@ FetchContent_MakeAvailable(imgui)
 FetchContent_Declare(
   glfw
   GIT_REPOSITORY https://github.com/glfw/glfw.git
-  GIT_TAG        3.3.4
+  GIT_TAG        master
 )
 FetchContent_MakeAvailable(glfw)
 
@@ -111,6 +98,20 @@ include_directories(
   ${CMAKE_SOURCE_DIR}/include
 )
 
+
+install(PROGRAMS
+  script/GUI.py
+  script/download_tiles.py
+  DESTINATION lib/${PROJECT_NAME}
+)
+
+install(DIRECTORY fonts DESTINATION share/${PROJECT_NAME}/)
+install(DIRECTORY images DESTINATION share/${PROJECT_NAME}/)
+install(DIRECTORY tiles DESTINATION share/${PROJECT_NAME}/)
+install(DIRECTORY launch DESTINATION share/${PROJECT_NAME}/)
+install(DIRECTORY config DESTINATION share/${PROJECT_NAME}/)
+
+
 # Interface node executable
 add_executable(interface
   src/main.cpp
@@ -120,6 +121,7 @@ add_executable(interface
   src/map.cpp
   src/planner/map_overlay.cpp
   src/widgets.cpp
+  src/manual.cpp
   src/planner/planner.cpp
   src/planner/planner_panel.cpp
   src/planner/save_load_dialog.cpp

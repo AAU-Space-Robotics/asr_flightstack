@@ -7,6 +7,7 @@
 #include "map.h"
 #include "planner/map_overlay.h"
 #include "widgets.h"
+#include "manual.h"
 #include "planner/planner.h"
 #include "planner/planner_panel.h"
 #include "planner/mission_control_bar.h"
@@ -39,6 +40,7 @@
 #include "asr_comms/msg/servo_command.hpp"
 #include "asr_comms/msg/probe_locations.hpp"
 #include "asr_comms/msg/gcs_heartbeat.hpp"
+#include "asr_comms/msg/manual_control_input.hpp"
 #include <px4_msgs/msg/vehicle_attitude.hpp>
 #include <px4_msgs/msg/vehicle_local_position.hpp>
 #include <px4_msgs/msg/distance_sensor.hpp>
@@ -123,6 +125,7 @@ public:
             std::chrono::milliseconds(500),
             [this]() { heartbeat(); }
         );
+        manual_control_pub_ = create_publisher<asr_comms::msg::ManualControlInput>("in/manual_input", qos);
 
         path_client = rclcpp_action::create_client<ActionCommand>(this, "/asr/thyra/in/uav_command");
     }
@@ -145,6 +148,19 @@ public:
         auto options = rclcpp_action::Client<ActionCommand>::SendGoalOptions();
         path_client->async_send_goal(goal, options);
     }
+    void send_manual_control(float roll, float pitch, float yaw_velocity, float thrust)
+    {
+        auto msg = asr_comms::msg::ManualControlInput();
+        msg.roll = roll;
+        msg.pitch = pitch;
+        msg.yaw_velocity = yaw_velocity;
+        msg.thrust = thrust;
+        manual_control_pub_->publish(msg);
+    }
+    FlightMode getFlightMode() {
+        std::lock_guard<std::mutex> lock(flight_mode_mutex_);
+        return current_flight_mode_;
+    }
 private:
     StateManager state_manager_;
     Transformations transformations_;
@@ -159,8 +175,13 @@ private:
     rclcpp::Subscription<asr_comms::msg::TelemetryOriginGPS>::SharedPtr origin_gps_sub_;
     rclcpp::Subscription<asr_comms::msg::TelemetryStatus>::SharedPtr status_sub_;
     rclcpp::Publisher<GcsHeartbeat>::SharedPtr heartbeat_pub_;
+    rclcpp::Publisher<asr_comms::msg::ManualControlInput>::SharedPtr manual_control_pub_;
     rclcpp::TimerBase::SharedPtr heartbeat_timer_;
     rclcpp_action::Client<ActionCommand>::SharedPtr path_client;
+
+    FlightMode current_flight_mode_ = FlightMode::STANDBY;
+    mutable std::mutex flight_mode_mutex_;
+    
 
 
     void attitudeCallback(const asr_comms::msg::TelemetryAttitude::SharedPtr msg)
@@ -242,6 +263,10 @@ private:
     void statusCallback(const asr_comms::msg::TelemetryStatus::SharedPtr msg)
     {
         state_manager_.setArminState(msg->arming_state);
+        {
+            std::lock_guard<std::mutex> lock(flight_mode_mutex_);
+            current_flight_mode_ = static_cast<FlightMode>(msg->flight_mode);
+        }
 
         Stamped4DVector actuator_speed(get_time(),
             msg->actuator_speeds[0],
@@ -308,10 +333,14 @@ int main(int argc, char **argv) {
     bool arming_state = false;
     int panel = 0;
     //bool is_manual = (Info.flight_mode == FlightMode::MANUAL_AIDED); for later:
-    bool is_manual = 0;
+    bool is_manual = false;
     bool sat_map = 0;
     int map_size_x = 800;
     string goto_text;
+
+    FlightMode pending_mode = FlightMode::STANDBY;
+    bool mode_switch_pending = false;
+    rclcpp::Time mode_switch_start;
 
     std::atomic<bool> tiles_downloading{false};
     bool tiles_download_triggered = false;
@@ -394,9 +423,15 @@ int main(int argc, char **argv) {
     // Register the callback with GLFW
     glfwSetFramebufferSizeCallback(window, framebuffer_size_callback);
 
-
+    
     while (!glfwWindowShouldClose(window)) {
         glfwPollEvents();
+        glfwSetErrorCallback([](int error, const char* description) {
+            if (error == GLFW_INVALID_VALUE && std::string(description).find("gamepad mapping") != std::string::npos) {
+                return;
+            }
+            fprintf(stderr, "GLFW Error %d: %s\n", error, description);
+        });
         // Start the Dear ImGui frame
         ImGui_ImplOpenGL3_NewFrame();
         ImGui_ImplGlfw_NewFrame();
@@ -467,7 +502,13 @@ int main(int argc, char **argv) {
         Info.motor_speed[1] = speeds.y();
         Info.motor_speed[2] = speeds.z();
         Info.motor_speed[3] = speeds.w();
+        Info.flight_mode = ground_control->getFlightMode();
+        if (!mode_switch_pending) {   
+            is_manual = (Info.flight_mode == FlightMode::MANUAL_AIDED || Info.flight_mode == FlightMode::MANUAL);
+        }
         arming_state = ground_control->getStateManager().getArminState();
+       
+        //JoystickState js = PollJoystick();
 
 
         //battery.timestamp = rclcpp::Time(msg->timestamp);   // see note below re: type conversion
@@ -600,11 +641,31 @@ int main(int argc, char **argv) {
         }
 
         if (widgets.ModeToggle(draw_list, ImVec2(160 * scale, 30 * scale), scale, theme, is_manual)) {
-            
+            //if (is_manual) {
+            //    
+            //    if (js.connected) {
+            //        ground_control->send_command("manual_aided");
+            //        pending_mode = FlightMode::MANUAL_AIDED;
+            //        mode_switch_pending = true;
+            //        mode_switch_start = ground_control->get_time();
+            //    } else {
+            //        cout << "Joystick not connected or not initialized." << endl;
+            //        is_manual = false;   // don't leave the toggle showing "Manual" if we didn't actually send the command
+            //    }
+            //}
         }
         
         EndFixedPanel(); 
-
+        //!! Work in progress
+        //if (js.connected && Info.flight_mode == FlightMode::MANUAL_AIDED) {
+        //    ManualControlValues ctrl = ComputeManualControl(js);
+        //    cout << "Manual ctrl -> roll=" << ctrl.roll << " pitch=" << ctrl.pitch
+        //         << " yaw=" << ctrl.yaw_velocity << " thrust=" << ctrl.thrust
+        //         << " | raw axes[0..4]=" << js.axes[0] << "," << js.axes[1] << ","
+        //         << js.axes[2] << "," << js.axes[3] << "," << js.axes[4] << endl;
+        //    ground_control->send_manual_control(ctrl.roll, ctrl.pitch, ctrl.yaw_velocity, ctrl.thrust);
+        //}
+//
         switch (panel)
         {
 
@@ -761,6 +822,7 @@ int main(int argc, char **argv) {
         info_panels.Battery_Info(scale, theme, Info.battery_values_C, Info.battery_values_M, Info.motor_speed);
         
         info_panels.Position_Info(scale, theme, Info.xyz_pos, Info.tgt_pos, Info.velocity);
+        info_panels.GNSS_Info(scale, theme);
         info_panels.Probe_Info(scale, theme);
         
         
