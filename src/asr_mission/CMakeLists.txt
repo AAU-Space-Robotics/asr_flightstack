@@ -16,6 +16,9 @@ find_package(std_msgs REQUIRED)
 find_package(asr_comms REQUIRED)
 find_package(nlohmann_json REQUIRED)
 find_package(yaml-cpp REQUIRED)
+if(NOT TARGET yaml-cpp::yaml-cpp)
+  add_library(yaml-cpp::yaml-cpp ALIAS yaml-cpp)
+endif()
 find_package(OpenSSL REQUIRED)
 
 # --- asr_mission library: plan schema, capabilities, validator, executor ---

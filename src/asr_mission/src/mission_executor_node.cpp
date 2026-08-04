@@ -326,6 +326,7 @@ private:
         status_   = Status::Running;
 
         RCLCPP_INFO(get_logger(), "Plan '%s' starting", plan_->plan_id.c_str());
+        if (timer_) { timer_->cancel(); }  // supersedes a previous run's still-ticking status heartbeat
         timer_ = create_wall_timer(std::chrono::milliseconds(500), [this]() { tick(); });
     }
 
@@ -356,7 +357,9 @@ private:
             } else {
                 RCLCPP_ERROR(get_logger(), "Plan '%s' failed", plan_->plan_id.c_str());
             }
+            // Re-sends the terminal status periodically -- a single dropped best-effort packet shouldn't wedge the GCS.
             timer_->cancel();
+            timer_ = create_wall_timer(std::chrono::seconds(2), [this]() { publish_status(); });
         }
     }
 
