@@ -13,7 +13,6 @@
 #include <std_msgs/msg/string.hpp>
 #include <sensor_msgs/msg/compressed_image.hpp>
 #include <px4_msgs/msg/gps_inject_data.hpp>
-#include <px4_msgs/msg/distance_sensor.hpp>
 #include <asr_comms/msg/telemetry_position.hpp>
 #include <asr_comms/msg/telemetry_attitude.hpp>
 #include <asr_comms/msg/telemetry_battery.hpp>
@@ -76,7 +75,6 @@ private:
     void on_gps(const asr_comms::msg::TelemetryGPS::SharedPtr msg);
     void on_origin_gps(const asr_comms::msg::TelemetryOriginGPS::SharedPtr msg);
     void on_status(const asr_comms::msg::TelemetryStatus::SharedPtr msg);
-    void on_distance(const px4_msgs::msg::DistanceSensor::SharedPtr msg);
 
     // Camera streaming (WiFi-only, started via MAV_CMD_VIDEO_START_STREAMING)
     void start_camera_stream();
@@ -152,7 +150,6 @@ private:
     rclcpp::Subscription<asr_comms::msg::TelemetryGPS>::SharedPtr      gps_sub_;
     rclcpp::Subscription<asr_comms::msg::TelemetryOriginGPS>::SharedPtr origin_gps_sub_;
     rclcpp::Subscription<asr_comms::msg::TelemetryStatus>::SharedPtr   status_sub_;
-    rclcpp::Subscription<px4_msgs::msg::DistanceSensor>::SharedPtr     distance_sub_;
 
     // Command forwarding: COMMAND_LONG → autopilot action → COMMAND_ACK
     rclcpp_action::Client<UAVCommand>::SharedPtr action_client_;

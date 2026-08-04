@@ -884,8 +884,6 @@ private:
         gps_state.longitude = msg->lon;
         state_manager_.setGPSState(gps_state);
 
-        // Display-only default so the GCS overlay has a real anchor before anyone
-        // presses "Set Origin" -- does not touch origin_ (the flight-critical local frame).
         if (!origin_gps_initialized_) {
             origin_gps_initialized_ = true;
             state_manager_.setOriginGPS(gps_position);
@@ -951,6 +949,7 @@ private:
             msg.target_position  = {static_cast<float>(target_profile.x()),
                                     static_cast<float>(target_profile.y()),
                                     static_cast<float>(target_profile.z())};
+            msg.distance_sensor  = static_cast<float>(state_manager_.getGroundDistanceState().x());
             telemetry_position_pub_->publish(msg);
         }
 

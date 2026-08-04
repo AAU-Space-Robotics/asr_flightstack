@@ -167,10 +167,6 @@ CommsUav::CommsUav()
         "out/telemetry/status", qos_rt,
         std::bind(&CommsUav::on_status, this, std::placeholders::_1));
 
-    distance_sub_ = create_subscription<px4_msgs::msg::DistanceSensor>(
-        "/fmu/out/distance_sensor", qos_rt,
-        std::bind(&CommsUav::on_distance, this, std::placeholders::_1));
-
     // Action client — forwards COMMAND_LONG from GCS to the autopilot action server
     action_client_ = rclcpp_action::create_client<UAVCommand>(this, "in/uav_command");
 
@@ -676,27 +672,38 @@ void CommsUav::on_position(const asr_comms::msg::TelemetryPosition::SharedPtr ms
         msg->position[0], msg->position[1], msg->position[2],
         msg->velocity[0], msg->velocity[1], msg->velocity[2]);
     send_mavlink(mav);
-}
 
-void CommsUav::on_distance(const px4_msgs::msg::DistanceSensor::SharedPtr msg)
-{
+    mavlink_message_t target_mav{};
+    mavlink_msg_position_target_local_ned_pack(system_id_, component_id_, &target_mav,
+        static_cast<uint32_t>(msg->timestamp * 1e3),
+        MAV_FRAME_LOCAL_NED, 0,
+        msg->target_position[0], msg->target_position[1], msg->target_position[2],
+        0, 0, 0,   // vx, vy, vz — unused, position-only relay
+        0, 0, 0,   // afx, afy, afz — unused
+        0, 0);     // yaw, yaw_rate — unused
+    send_mavlink(target_mav);
+
+    // Relay the autopilot's offset-corrected/filtered ground distance
+    // (GroundDistanceCallback's state_manager_.ground_distance_state_), not
+    // the raw /fmu/out/distance_sensor reading — so the GCS-displayed value
+    // agrees with what the autopilot actually uses for its own decisions.
+    // Sensor metadata (range/type/orientation) is fixed for the mounted
+    // LIDAR-Lite v3HP, matching lidar.cpp's own constants.
     const auto to_cm = [](float m) {
         return static_cast<uint16_t>(std::clamp(m * 100.0f, 0.0f, 65535.0f));
     };
-    const float q[4] = {msg->q[0], msg->q[1], msg->q[2], msg->q[3]};
-    mavlink_message_t mav{};
-    mavlink_msg_distance_sensor_pack(system_id_, component_id_, &mav,
-        static_cast<uint32_t>(msg->timestamp / 1000),  // µs since boot → ms
-        to_cm(msg->min_distance),
-        to_cm(msg->max_distance),
-        to_cm(msg->current_distance),
-        msg->type,
-        static_cast<uint8_t>(msg->device_id),
-        msg->orientation,
+    const float identity_q[4] = {0.0f, 0.0f, 0.0f, 1.0f};
+    mavlink_message_t dist_mav{};
+    mavlink_msg_distance_sensor_pack(system_id_, component_id_, &dist_mav,
+        static_cast<uint32_t>(msg->timestamp * 1e3),
+        to_cm(0.0f), to_cm(39.95f), to_cm(msg->distance_sensor),
+        0,      // MAV_DISTANCE_SENSOR_LASER
+        0,      // device_id
+        25,     // MAV_SENSOR_ROTATION_PITCH_270 (downward-facing)
         UINT8_MAX,  // covariance unknown
-        msg->h_fov, msg->v_fov, q,
-        msg->signal_quality > 0 ? static_cast<uint8_t>(msg->signal_quality) : 0);
-    send_mavlink(mav);
+        0.0f, 0.0f, identity_q,
+        0);     // signal_quality unknown
+    send_mavlink(dist_mav);
 }
 
 void CommsUav::on_attitude(const asr_comms::msg::TelemetryAttitude::SharedPtr msg)

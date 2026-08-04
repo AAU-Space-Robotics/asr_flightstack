@@ -52,12 +52,12 @@ def generate_launch_description():
             parameters=[comms_path],
         ),
 
-        # Ground control station GUI
-        Node(
-            package='asr_gcs',
-            executable='interface',
-            name='aau_groundcontrol_node',
-            namespace='asr/gcs',
-            output='screen',
+        interface_node,
+
+        RegisterEventHandler(
+            OnProcessExit(
+                target_action=interface_node,
+                on_exit=[Shutdown(reason='GCS GUI exited')],
+            )
         ),
     ])

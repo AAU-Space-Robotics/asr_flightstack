@@ -219,11 +219,22 @@ private:
         } else {
             state_manager_.setGlobalVelocity(Stamped3DVector(get_time(), 0.0, 0.0, 0.0));
         }
+        // Bridged over the radio link via comms_uav/comms_gcs — the path that
+        // actually works on real hardware (see distanceSensorCallback below
+        // for the direct-topic path, which only works when GCS and UAV share
+        // a DDS graph, e.g. sim).
+        if (std::isfinite(msg->distance_sensor)) {
+            state_manager_.setGroundDistanceState(Stamped3DVector(get_time(), msg->distance_sensor, 0.0, 0.0));
+        }
     }
     void distanceSensorCallback(const DistanceSensor::SharedPtr msg)
     {
-        // your logic here — e.g.:
-        // state_manager_.setDistance(msg->current_distance);
+        // Direct subscription to /fmu/out/distance_sensor — only reachable
+        // when GCS and UAV share a DDS graph (sim). Real hardware gets this
+        // value via localPositionCallback's msg->distance_sensor instead.
+        if (std::isfinite(msg->current_distance)) {
+            state_manager_.setGroundDistanceState(Stamped3DVector(get_time(), msg->current_distance, 0.0, 0.0));
+        }
     }
     void batteryCallbackmain(const asr_comms::msg::TelemetryBattery::SharedPtr msg)
     {
@@ -498,6 +509,8 @@ int main(int argc, char **argv) {
         const Stamped4DVector& target = ground_control->getStateManager().getTargetPositionProfile();
         const Stamped3DVector& velocity = ground_control->getStateManager().getGlobalVelocity();
         const Stamped4DVector& speeds = ground_control->getStateManager().getActuatorSpeeds();
+        const Stamped3DVector& ground_distance = ground_control->getStateManager().getGroundDistanceState();
+        Info.ground_distance = static_cast<float>(ground_distance.x());
         Info.xyz_pos[0] = static_cast<float>(position.x());
         Info.xyz_pos[1] = static_cast<float>(position.y());
         Info.xyz_pos[2] = static_cast<float>(position.z());
@@ -714,7 +727,7 @@ int main(int argc, char **argv) {
             }
 
             ImGui::SetCursorPos(ImVec2(1440 * scale, 670 * scale));
-            widgets.AltitudeTape(1, (-1 * Info.xyz_pos[2]), 0.5f, theme, scale); 
+            widgets.AltitudeTape(1, Info.ground_distance, 0.5f, theme, scale);
 
             widgets.GyroScopeIndicator(draw_list,
                                     ImVec2(1320 * scale, 810 * scale),
@@ -736,7 +749,7 @@ int main(int argc, char **argv) {
             }
 
             ImGui::SetCursorPos(ImVec2(1440 * scale, 670 * scale));
-            widgets.AltitudeTape(1, (-1 * Info.xyz_pos[2]), 0.5f, theme, scale); 
+            widgets.AltitudeTape(1, Info.ground_distance, 0.5f, theme, scale);
 
             widgets.GyroScopeIndicator(draw_list,
                                     ImVec2(1320 * scale, 810 * scale),

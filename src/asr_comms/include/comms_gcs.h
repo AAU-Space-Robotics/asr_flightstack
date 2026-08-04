@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <atomic>
 #include <chrono>
 #include <thread>
@@ -106,6 +107,8 @@ private:
     rclcpp::Publisher<asr_comms::msg::TelemetryOriginGPS>::SharedPtr origin_gps_pub_;
     rclcpp::Publisher<asr_comms::msg::TelemetryStatus>::SharedPtr   status_pub_;
     rclcpp::Publisher<px4_msgs::msg::DistanceSensor>::SharedPtr     distance_pub_;
+    float latest_distance_sensor_{0.0f};                       // cached for TelemetryPosition.distance_sensor
+    std::array<float, 3> latest_target_position_{0.0f, 0.0f, 0.0f};  // cached for TelemetryPosition.target_position
 
     // Send side
     rclcpp::TimerBase::SharedPtr heartbeat_timer_;

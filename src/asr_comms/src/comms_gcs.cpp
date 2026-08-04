@@ -332,11 +332,19 @@ void CommsGcs::handle_message(const mavlink_message_t& msg)
         mavlink_msg_local_position_ned_decode(&msg, &p);
 
         asr_comms::msg::TelemetryPosition out{};
-        out.timestamp    = p.time_boot_ms / 1e3;
-        out.position     = {p.x, p.y, p.z};
-        out.velocity     = {p.vx, p.vy, p.vz};
-        // target_position not carried in LOCAL_POSITION_NED — left at default zero
+        out.timestamp       = p.time_boot_ms / 1e3;
+        out.position        = {p.x, p.y, p.z};
+        out.velocity        = {p.vx, p.vy, p.vz};
+        out.target_position = latest_target_position_;  // from the last POSITION_TARGET_LOCAL_NED packet
+        out.distance_sensor = latest_distance_sensor_;  // from the last DISTANCE_SENSOR packet
         position_pub_->publish(out);
+        break;
+    }
+
+    case MAVLINK_MSG_ID_POSITION_TARGET_LOCAL_NED: {
+        mavlink_position_target_local_ned_t t{};
+        mavlink_msg_position_target_local_ned_decode(&msg, &t);
+        latest_target_position_ = {t.x, t.y, t.z};
         break;
     }
 
@@ -388,6 +396,7 @@ void CommsGcs::handle_message(const mavlink_message_t& msg)
         out.v_fov            = d.vertical_fov;
         for (size_t i = 0; i < out.q.size(); ++i) out.q[i] = d.quaternion[i];
         out.orientation      = d.orientation;
+        latest_distance_sensor_ = out.current_distance;
         distance_pub_->publish(out);
         break;
     }
