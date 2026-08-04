@@ -57,9 +57,6 @@ def generate_launch_description():
 
         interface_node,
 
-        # Shut the whole launch down when the GUI exits (closed or crashed) -
-        # comms_gcs/rtcm_reader/logger_gcs would otherwise keep running with
-        # nothing left to stop them, especially with no terminal attached.
         RegisterEventHandler(
             OnProcessExit(
                 target_action=interface_node,
