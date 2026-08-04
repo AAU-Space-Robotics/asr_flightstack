@@ -10,8 +10,37 @@ if (POLICY CMP0072)
   cmake_policy(SET CMP0072 NEW)
 endif()
 
-# Find ROS 2 dependencies
 find_package(ament_cmake REQUIRED)
+
+# asr_gcs is the ground-control-station GUI; it has no business running on the
+# onboard Jetson flight computer, and the Jetson toolchain's older libstdc++
+# doesn't support the C++20 chrono features the interface build relies on.
+# Skip the C++ build there instead of failing.
+if(EXISTS "/etc/nv_tegra_release")
+  message(STATUS "asr_gcs: detected Jetson (L4T) device via /etc/nv_tegra_release - skipping interface GUI build")
+  set(ASR_GCS_SKIP_INTERFACE TRUE)
+else()
+  set(ASR_GCS_SKIP_INTERFACE FALSE)
+endif()
+
+install(PROGRAMS
+  script/GUI.py
+  script/drone_state_publisher.py
+  script/MotionCaptureReceiver.py
+  script/probe_tester.py
+  script/download_tiles.py
+  DESTINATION lib/${PROJECT_NAME}
+)
+
+install(DIRECTORY fonts DESTINATION share/${PROJECT_NAME}/)
+install(DIRECTORY images DESTINATION share/${PROJECT_NAME}/)
+install(DIRECTORY tiles DESTINATION share/${PROJECT_NAME}/)
+install(DIRECTORY launch DESTINATION share/${PROJECT_NAME}/)
+install(DIRECTORY config DESTINATION share/${PROJECT_NAME}/)
+
+if(NOT ASR_GCS_SKIP_INTERFACE)
+
+# Find ROS 2 dependencies
 find_package(rclcpp REQUIRED)
 find_package(rclcpp_action REQUIRED)
 find_package(std_msgs REQUIRED)
@@ -77,23 +106,6 @@ include_directories(
   ${CMAKE_SOURCE_DIR}/include
 )
 
-
-install(PROGRAMS
-  script/GUI.py
-  script/drone_state_publisher.py
-  script/MotionCaptureReceiver.py
-  script/probe_tester.py
-  script/download_tiles.py
-  DESTINATION lib/${PROJECT_NAME}
-)
-
-install(DIRECTORY fonts DESTINATION share/${PROJECT_NAME}/)
-install(DIRECTORY images DESTINATION share/${PROJECT_NAME}/)
-install(DIRECTORY tiles DESTINATION share/${PROJECT_NAME}/)
-install(DIRECTORY launch DESTINATION share/${PROJECT_NAME}/)
-install(DIRECTORY config DESTINATION share/${PROJECT_NAME}/)
-
-
 # Interface node executable
 add_executable(interface
   src/main.cpp
@@ -126,7 +138,7 @@ ament_target_dependencies(interface
   asr_comms
   ament_index_cpp
   asr_autopilot
-  px4_msgs  
+  px4_msgs
 )
 
 install(TARGETS interface
@@ -140,9 +152,11 @@ target_link_libraries(interface
   asr_autopilot::asr_autopilot_core
   asr_mission::asr_mission_lib
 )
-target_include_directories(interface 
+target_include_directories(interface
   PRIVATE ${OpenCV_INCLUDE_DIRS}
 )
+
+endif() # NOT ASR_GCS_SKIP_INTERFACE
 
 # Ament package
 ament_package()
