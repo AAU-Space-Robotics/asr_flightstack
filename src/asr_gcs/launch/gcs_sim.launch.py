@@ -26,9 +26,7 @@ def generate_launch_description():
             name='aau_groundcontrol_node',
             namespace='asr/gcs',
             output='screen',
-            additional_env={
-                'LIBGL_ALWAYS_SOFTWARE': '1',
-                'WAYLAND_DISPLAY': '',   # force GLFW onto X11/GLX so PyOpenGL can detect the context
-            },
+            # additional_env removed entirely — let the process inherit the normal session environment,
+            # matching what happens when run directly via `ros2 run`
         ),
     ])

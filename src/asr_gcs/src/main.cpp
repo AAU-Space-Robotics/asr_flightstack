@@ -33,6 +33,7 @@
 #include "asr_comms/msg/telemetry_battery.hpp"
 #include "asr_comms/msg/telemetry_gps.hpp"
 #include "asr_comms/msg/telemetry_origin_gps.hpp"
+#include "asr_comms/msg/base_station_stats.hpp"
 #include "asr_comms/msg/telemetry_status.hpp"
 #include "asr_comms/msg/gcs_heartbeat.hpp"
 #include "asr_comms/msg/uav_command.hpp"
@@ -115,6 +116,9 @@ public:
         origin_gps_sub_ = create_subscription<asr_comms::msg::TelemetryOriginGPS>(
             "telemetry/origin_gps", 10,
             [this](const asr_comms::msg::TelemetryOriginGPS::SharedPtr msg) { originGpsCallback(msg); });
+        base_station_sub_ = create_subscription<asr_comms::msg::BaseStationStats>(
+            "basestation_stats", 10,
+            [this](const asr_comms::msg::BaseStationStats::SharedPtr msg) { basestationCallback(msg); });
         status_sub_ = create_subscription<asr_comms::msg::TelemetryStatus>(
             "telemetry/status", 10,
             [this](const asr_comms::msg::TelemetryStatus::SharedPtr msg) { statusCallback(msg); });
@@ -127,7 +131,7 @@ public:
         );
         manual_control_pub_ = create_publisher<asr_comms::msg::ManualControlInput>("in/manual_input", qos);
 
-        path_client = rclcpp_action::create_client<ActionCommand>(this, "/asr/thyra/in/uav_command");
+        path_client = rclcpp_action::create_client<ActionCommand>(this, "in/uav_command");
     }
     void start()
     {
@@ -173,6 +177,7 @@ private:
     rclcpp::Subscription<asr_comms::msg::TelemetryBattery>::SharedPtr battery_sub_main_;
     rclcpp::Subscription<asr_comms::msg::TelemetryGPS>::SharedPtr gps_sub_;
     rclcpp::Subscription<asr_comms::msg::TelemetryOriginGPS>::SharedPtr origin_gps_sub_;
+    rclcpp::Subscription<asr_comms::msg::BaseStationStats>::SharedPtr base_station_sub_;
     rclcpp::Subscription<asr_comms::msg::TelemetryStatus>::SharedPtr status_sub_;
     rclcpp::Publisher<GcsHeartbeat>::SharedPtr heartbeat_pub_;
     rclcpp::Publisher<asr_comms::msg::ManualControlInput>::SharedPtr manual_control_pub_;
@@ -260,6 +265,10 @@ private:
     {
         state_manager_.setOriginGPS(Stamped3DVector(get_time(), msg->latitude, msg->longitude, msg->altitude));
     }
+    void basestationCallback(const asr_comms::msg::BaseStationStats::SharedPtr msg)
+    {
+
+    }
     void statusCallback(const asr_comms::msg::TelemetryStatus::SharedPtr msg)
     {
         state_manager_.setArminState(msg->arming_state);
@@ -314,6 +323,7 @@ EulerAngles quaternionToEulerForDisplay(const Eigen::Quaterniond& q) //trying to
 }
 
 int main(int argc, char **argv) {
+     
     rclcpp::init(argc, argv);
     auto ground_control = std::make_shared<AAUGrouncontrol>();
     ground_control->start();
@@ -371,7 +381,7 @@ int main(int argc, char **argv) {
         return 1;
     glfwMakeContextCurrent(window);
     glfwSetWindowSizeLimits(window, 700, 500, GLFW_DONT_CARE, GLFW_DONT_CARE);
-    glfwSwapInterval(1); // Enable vsync
+    glfwSwapInterval(0); // Enable vsync
     ImGui_ImplGlfw_InitForOpenGL(window, true);
     ImGui_ImplOpenGL3_Init(glsl_version);
     ImPlot::CreateContext();  // linked since the start of this project, never actually initialized until now
@@ -507,6 +517,8 @@ int main(int argc, char **argv) {
             is_manual = (Info.flight_mode == FlightMode::MANUAL_AIDED || Info.flight_mode == FlightMode::MANUAL);
         }
         arming_state = ground_control->getStateManager().getArminState();
+
+        
        
         //JoystickState js = PollJoystick();
 
