@@ -676,6 +676,16 @@ void CommsUav::on_position(const asr_comms::msg::TelemetryPosition::SharedPtr ms
         msg->position[0], msg->position[1], msg->position[2],
         msg->velocity[0], msg->velocity[1], msg->velocity[2]);
     send_mavlink(mav);
+
+    mavlink_message_t target_mav{};
+    mavlink_msg_position_target_local_ned_pack(system_id_, component_id_, &target_mav,
+        static_cast<uint32_t>(msg->timestamp * 1e3),
+        MAV_FRAME_LOCAL_NED, 0,
+        msg->target_position[0], msg->target_position[1], msg->target_position[2],
+        0, 0, 0,   // vx, vy, vz — unused, position-only relay
+        0, 0, 0,   // afx, afy, afz — unused
+        0, 0);     // yaw, yaw_rate — unused
+    send_mavlink(target_mav);
 }
 
 void CommsUav::on_distance(const px4_msgs::msg::DistanceSensor::SharedPtr msg)
