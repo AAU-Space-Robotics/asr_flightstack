@@ -692,7 +692,7 @@ bool Widgets::GotoButton(ImDrawList* draw_list, ImVec2 center, float scale, bool
 void Widgets::SurveyPanel(ImDrawList* draw_list, ImVec2 pos, float scale, bool theme, RTK_STATUS rtk_survey, bool bs_connected){
 
     bool temp_manual = 0;
-    ImVec4 inactive_color  = ImVec4(0.6f, 0.1f, 0.1f, 1.0f);   // red — not surveying
+    ImVec4 inactive_color  = ImVec4(0.5f, 0.5f, 0.5f, 1.0f);  // red — not surveying
     ImVec4 survey_color    = ImVec4(0.9f, 0.6f, 0.0f, 1.0f);   // orange — survey in progress
     ImVec4 streaming_color = ImVec4(0.1f, 0.7f, 0.2f, 1.0f);   // green — streaming/fixed
 
@@ -703,20 +703,25 @@ void Widgets::SurveyPanel(ImDrawList* draw_list, ImVec2 pos, float scale, bool t
         case RTK_STATUS::STREAMING: rtk_survey_color = streaming_color; break;
     }
     draw_list->AddCircleFilled(ImVec2(pos.x * scale, (pos.y + 8) * scale), 6.0f * scale,
-                                    ImGui::ColorConvertFloat4ToU32(rtk_survey_color));
+    ImGui::ColorConvertFloat4ToU32(rtk_survey_color));
+    draw_list->AddCircle(ImVec2(pos.x * scale, (pos.y + 8) * scale), 6.0f * scale,
+        IM_COL32(0, 0, 0, 255), 0, 1.5f * scale);
     draw_list->AddText(ImVec2((pos.x + 25) * scale, (pos.y * scale)), Color::white_black(theme), "RTK-Survey");
 
 
-    ImVec4 notconnected_color = ImVec4(0.6f, 0.1f, 0.1f, 1.0f);
+    ImVec4 notconnected_color = ImVec4(0.5f, 0.5f, 0.5f, 1.0f);
     ImVec4 connected_color    = ImVec4(0.1f, 0.7f, 0.2f, 1.0f);
-    
     ImVec4 bs_connected_color = bs_connected ? connected_color : notconnected_color;
     draw_list->AddCircleFilled(ImVec2((pos.x + 130) * scale, (pos.y + 8) * scale), 6.0f * scale,
-                                    ImGui::ColorConvertFloat4ToU32(bs_connected_color));
+        ImGui::ColorConvertFloat4ToU32(bs_connected_color));
+    draw_list->AddCircle(ImVec2((pos.x + 130) * scale, (pos.y + 8) * scale), 6.0f * scale,
+        IM_COL32(0, 0, 0, 255), 0, 1.5f * scale);
     draw_list->AddText(ImVec2((pos.x + 155) * scale, (pos.y * scale)), Color::white_black(theme), "RTK-Connected");
-    
-    ImVec4 joystick_connected_color  = temp_manual ? connected_color : notconnected_color;
+
+    ImVec4 joystick_connected_color = temp_manual ? connected_color : notconnected_color;
     draw_list->AddCircleFilled(ImVec2((pos.x + 280) * scale, (pos.y + 8) * scale), 6.0f * scale,
-                                    ImGui::ColorConvertFloat4ToU32(joystick_connected_color));
+        ImGui::ColorConvertFloat4ToU32(joystick_connected_color));
+    draw_list->AddCircle(ImVec2((pos.x + 280) * scale, (pos.y + 8) * scale), 6.0f * scale,
+        IM_COL32(0, 0, 0, 255), 0, 1.5f * scale);
     draw_list->AddText(ImVec2((pos.x + 305) * scale, (pos.y * scale)), Color::white_black(theme), "Controller Connected");
 }

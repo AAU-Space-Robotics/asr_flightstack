@@ -262,7 +262,7 @@ void InfoPanels::Battery_Info(float scale, bool theme, BatteryState battery_info
     }
 
     float motors_section_y = pos.y + row_start_y + (row_height * 2);
-    InfoPanels::CollapseButton(draw, ImVec2(pos.x + 290 * scale, pos.y + 10 * scale), scale, Motor_panel_open, theme);
+    InfoPanels::CollapseButton(draw, ImVec2(pos.x + 270 * scale, pos.y + 10 * scale), scale, Motor_panel_open, theme);
 
     if (Motor_panel_open) {
         ImGui::PushFont(winInit.getFont(181));
@@ -402,29 +402,40 @@ void InfoPanels::GNSS_Info(float scale, bool theme,
                         double accuracy_target, 
                         double duration,
                         GPSState gps_info){
-    ImVec2 pos = InfoPanels::Begin_panels("GNSSInfo", 140 * scale, scale, theme);
+                            int size;
+    static bool GNSS_panel_open = true;
+    if(GNSS_panel_open) {
+        size = 150 * scale;
+    } else {
+        size = 40 * scale;
+    }
+
+    ImVec2 pos = InfoPanels::Begin_panels("GNSSInfo", size, scale, theme);
     ImDrawList* draw = ImGui::GetWindowDrawList();
     ImGui::PushFont(winInit.getFont(181));
     draw->AddText(ImVec2((pos.x + 10), (pos.y + 10)), Color::white_black(theme), "GNSS");
     ImGui::PopFont();
 
-    float col_start_x = 10.0f * scale;
+    InfoPanels::CollapseButton(draw, ImVec2(pos.x + 270 * scale, pos.y + 10 * scale), scale, GNSS_panel_open, theme);
+    if(GNSS_panel_open)
+    {
+    float col_start_x = 20.0f * scale;
     float col_spacing = 70.0f * scale;
 
     // --- Lat/Lon, right under the title ---
     char latitude_text[32];
     snprintf(latitude_text, sizeof(latitude_text), "Lat:  %.5f", gps_info.latitude);
-    draw->AddText(ImVec2(pos.x + col_start_x, pos.y + 35 * scale),
+    draw->AddText(ImVec2(pos.x + col_start_x, pos.y + 40 * scale),
         Color::dwhite_lblack(theme), latitude_text);
 
     char longitude_text[32];
     snprintf(longitude_text, sizeof(longitude_text), "Lon:  %.5f", gps_info.longitude);
-    draw->AddText(ImVec2(pos.x + col_start_x + col_spacing * 2, pos.y + 35 * scale),
+    draw->AddText(ImVec2(pos.x + col_start_x + col_spacing * 2, pos.y + 40 * scale),
         Color::dwhite_lblack(theme), longitude_text);
 
     // --- Sats | Accuracy | Duration, same row, same y ---
-    float value_row_y = 60 * scale;
-    float label_row_y = 75 * scale;
+    float value_row_y = 70 * scale;
+    float label_row_y = 85 * scale;
 
     char sat_used_text[32];
     snprintf(sat_used_text, sizeof(sat_used_text), "%d", gps_info.satellites_used);
@@ -455,7 +466,7 @@ void InfoPanels::GNSS_Info(float scale, bool theme,
 
     // --- Survey progress bar ---
     float bar_x_start = 20.0f * scale;
-    float bar_start_y = 110.0f * scale;
+    float bar_start_y = 120.0f * scale;
     float bar_width    = 200.0f * scale;
     float bar_height   = 8.0f * scale;
     ImU32 survey_color = IM_COL32(255, 140, 0, 255);
@@ -502,6 +513,6 @@ void InfoPanels::GNSS_Info(float scale, bool theme,
     snprintf(accuracy_pct_text, sizeof(accuracy_pct_text), "%.0f%%", pct);
     draw->AddText(ImVec2(pos.x + bar_x_start + bar_width + 50 * scale, pos.y + bar_start_y - 8 * scale),
         Color::dwhite_lblack(theme), accuracy_pct_text);
-
+    }
     InfoPanels::End_panels();
 }
