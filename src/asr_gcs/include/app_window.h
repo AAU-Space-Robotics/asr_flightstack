@@ -32,6 +32,7 @@ struct DroneInformation {
     FlightMode flight_mode = FlightMode::STANDBY;
     GPSState gps_status;
     BaseStateInfo RTK_INFO;
+    ProbeData probes;
 };
 
 

@@ -269,6 +269,16 @@ GlobalProbeLocations StateManager::getGlobalProbeLocations() {
     return probe_global_locations_;
 }
 
+void StateManager::setInterfaceProbeLocations(const ProbeData& new_data){
+    std::lock_guard<std::mutex> lock(probe_interface_locations_mutex_);
+    probe_interface_locations_ = new_data;
+}
+
+ProbeData StateManager::getInterfaceProbeLocations(){
+    std::lock_guard<std::mutex> lock(probe_interface_locations_mutex_);
+    return probe_interface_locations_;
+}
+
 void StateManager::setGimbalPriority(const bool priority) {
     std::lock_guard<std::mutex> lock(gimbal_priority_mutex_);
     gimbal_priority_ = priority;

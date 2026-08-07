@@ -296,6 +296,13 @@ struct GPSState{
     float longitude;
     int32_t satellites_used;
 };
+struct Probe {
+    float x = 0.0f, y = 0.0f, z = 0.0f;
+    float sigma_x = 0.0f, sigma_y = 0.0f, sigma_z = 0.0f;
+};
+struct ProbeData{
+    std::vector<Probe> probes;
+};
 
 struct VelocityError {
     PIDError X;
@@ -393,6 +400,9 @@ public:
     void setGlobalProbeLocations(const GlobalProbeLocations& new_data);
     GlobalProbeLocations getGlobalProbeLocations();
 
+    void setInterfaceProbeLocations(const ProbeData& new_data);
+    ProbeData getInterfaceProbeLocations();
+
     void setGPSState(const GPSState& new_data);
     GPSState getGPSState();
 
@@ -436,6 +446,7 @@ private:
     std::mutex battery_state_mutex_;
     std::mutex actuator_speeds_mutex_;
     std::mutex probe_global_locations_mutex_;
+    std::mutex probe_interface_locations_mutex_;
     std::mutex gps_state_mutex_;
     std::mutex arming_state_mutex_;
     std::mutex rtk_data_mutex_;
@@ -470,6 +481,7 @@ private:
     Eigen::Vector4d latest_control_signal_velocity_ = Eigen::Vector4d::Zero(); // Initialize to zero
     Stamped4DVector actuator_speeds_ = Stamped4DVector(rclcpp::Time(0, 0), 0.0, 0.0, 0.0, 0.0);
     GlobalProbeLocations probe_global_locations_;
+    ProbeData probe_interface_locations_;
     GPSState gps_state_;
     BaseStateInfo rtk_data_;
 };

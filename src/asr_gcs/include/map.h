@@ -29,24 +29,21 @@ void LocalOffsetToLatLon(double home_lat, double home_lon, double north_m, doubl
                           double &out_lat, double &out_lon);
 float map_value(float value, float in_min, float in_max, float out_min, float out_max);
 class Location {
-    public:
-        GLuint display_map(const char* path, float scale);
-        ImVec2 latLonToTileOffset(double lat, double lon, int zoom);
-        GLuint loadTileCached(int zoom, int x, int y);
-        ImVec2 MapWidget(double lat, double lon, float width, float height, float scale, int zoom = 12, GLuint placeholdetTile = 0, bool theme = 0);
-        void NoSatMap(DroneInformation Info, float width, float height, float scale, int zoom, bool theme);
+public:
+    GLuint display_map(const char* path, float scale);
+    ImVec2 latLonToTileOffset(double lat, double lon, int zoom);
+    GLuint loadTileCached(int zoom, int x, int y);
+    ImVec2 MapWidget(double lat, double lon, float width, float height, float scale, int zoom = 12, GLuint placeholdetTile = 0, bool theme = 0);
+    void NoSatMap(const DroneInformation& Info, float width, float height, float scale, int zoom, bool theme);
 
-        // Screen position of `lat`/`lon` within a MapWidget -- `widgetPos` must be exactly what that call returned.
-        ImVec2 latLonToScreenPos(double lat, double lon, double centerLat, double centerLon,
-                                  ImVec2 widgetPos, float width, float height, float scale, int zoom);
+    ImVec2 latLonToScreenPos(double lat, double lon, double centerLat, double centerLon,
+        ImVec2 widgetPos, float width, float height, float scale, int zoom);
 
-    private:
-        struct TileCoord { int x, y; };
-        TileCoord latLonToTile(double lat, double lon, int zoom);
-        std::unordered_map<std::string, GLuint> tileCache;
-        std::list<std::string> tileLRU;
-        std::unordered_map<std::string, std::list<std::string>::iterator> lruPos;
-        static constexpr size_t MAX_CACHED_TILES = 300; 
-        
-    
+private:
+    struct TileCoord { int x, y; };
+    TileCoord latLonToTile(double lat, double lon, int zoom);
+    std::unordered_map<std::string, GLuint> tileCache;
+    std::list<std::string> tileLRU;
+    std::unordered_map<std::string, std::list<std::string>::iterator> lruPos;
+    static constexpr size_t MAX_CACHED_TILES = 300; 
 };

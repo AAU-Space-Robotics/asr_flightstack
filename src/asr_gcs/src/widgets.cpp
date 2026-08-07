@@ -359,7 +359,7 @@ std::vector<ImVec2> Widgets::ArcPoints(float radius, float angleStart, float ang
     return pts;
 }
 
-void Widgets::GyroScopeIndicator(ImDrawList* draw_list,ImVec2 center, EulerAngles orientation, bool theme, float scale){
+void Widgets::GyroScopeIndicator(ImDrawList* draw_list,ImVec2 center, const EulerAngles& orientation, bool theme, float scale){
 
     const float radius = 50 * scale;
     const int segments = 32;
@@ -471,7 +471,7 @@ void Widgets::GyroScopeIndicator(ImDrawList* draw_list,ImVec2 center, EulerAngle
     draw_list->AddCircle(center, radius, IM_COL32(0, 0, 0, 255), 64, 3.0f);
 }
 
-void Widgets::Compas(ImDrawList* draw_list,ImVec2 center, EulerAngles orientation, bool theme, float scale){
+void Widgets::Compas(ImDrawList* draw_list,ImVec2 center, const EulerAngles& orientation, bool theme, float scale){
 
     const float radius = 50 * scale;
     float yawTheta = orientation.yaw * (IM_PI / 180.0f);
@@ -689,9 +689,9 @@ bool Widgets::GotoButton(ImDrawList* draw_list, ImVec2 center, float scale, bool
 }
 
 
-void Widgets::SurveyPanel(ImDrawList* draw_list, ImVec2 pos, float scale, bool theme, RTK_STATUS rtk_survey, bool bs_connected){
+void Widgets::SurveyPanel(ImDrawList* draw_list, ImVec2 pos, float scale, bool theme, RTK_STATUS rtk_survey, bool bs_connected, JoystickState js){
 
-    bool temp_manual = 0;
+    
     ImVec4 inactive_color  = ImVec4(0.5f, 0.5f, 0.5f, 1.0f);  // red — not surveying
     ImVec4 survey_color    = ImVec4(0.9f, 0.6f, 0.0f, 1.0f);   // orange — survey in progress
     ImVec4 streaming_color = ImVec4(0.1f, 0.7f, 0.2f, 1.0f);   // green — streaming/fixed
@@ -718,10 +718,59 @@ void Widgets::SurveyPanel(ImDrawList* draw_list, ImVec2 pos, float scale, bool t
         IM_COL32(0, 0, 0, 255), 0, 1.5f * scale);
     draw_list->AddText(ImVec2((pos.x + 155) * scale, (pos.y * scale)), Color::white_black(theme), "RTK-Connected");
 
-    ImVec4 joystick_connected_color = temp_manual ? connected_color : notconnected_color;
+    ImVec4 joystick_connected_color = js.connected ? connected_color : notconnected_color;
     draw_list->AddCircleFilled(ImVec2((pos.x + 280) * scale, (pos.y + 8) * scale), 6.0f * scale,
         ImGui::ColorConvertFloat4ToU32(joystick_connected_color));
     draw_list->AddCircle(ImVec2((pos.x + 280) * scale, (pos.y + 8) * scale), 6.0f * scale,
         IM_COL32(0, 0, 0, 255), 0, 1.5f * scale);
     draw_list->AddText(ImVec2((pos.x + 305) * scale, (pos.y * scale)), Color::white_black(theme), "Controller Connected");
+}
+
+static size_t CurlWriteCallback(void* contents, size_t size, size_t nmemb, std::string* userp) {
+    size_t total = size * nmemb;
+    userp->append((char*)contents, total);
+    return total;
+}
+
+WeatherData FetchWeather(double lat, double lon) {
+    WeatherData result;
+
+    CURL* curl = curl_easy_init();
+    if (!curl) return result;
+
+    std::string url = "https://www.7timer.info/bin/api.pl?lon=" + std::to_string(lon) +
+                       "&lat=" + std::to_string(lat) +
+                       "&product=civil&output=json";
+
+    std::string response_body;
+    curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, CurlWriteCallback);
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response_body);
+    curl_easy_setopt(curl, CURLOPT_TIMEOUT, 15L);   // 7Timer can be slower than Open-Meteo
+    curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
+
+    CURLcode res = curl_easy_perform(curl);
+    curl_easy_cleanup(curl);
+
+    if (res != CURLE_OK) {
+        std::cerr << "Weather fetch failed: " << curl_easy_strerror(res) << std::endl;
+        return result;
+    }
+
+    try {
+        auto j = nlohmann::json::parse(response_body);
+        auto first = j["dataseries"][0];   // nearest forecast point (next 3h)
+
+        result.temperature = first["temp2m"].get<double>();
+        result.cloud_cover = first["cloudcover"].get<int>();
+        result.wind_speed_level = first["wind10m"]["speed"].get<int>();
+        result.wind_direction = first["wind10m"]["direction"].get<std::string>();
+        result.precip_type = first["prec_type"].get<std::string>();
+        result.condition = first["weather"].get<std::string>();
+        result.valid = true;
+    } catch (const std::exception& e) {
+        std::cerr << "Weather JSON parse failed: " << e.what() << std::endl;
+    }
+
+    return result;
 }

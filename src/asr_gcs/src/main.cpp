@@ -53,6 +53,7 @@ Color colors;
 TestFunc test_functions;
 InfoPanels info_panels;
 Logs logs;
+ManualController manual_controller;
 
 using namespace std;
 using namespace px4_msgs::msg;
@@ -119,6 +120,9 @@ public:
         status_sub_ = create_subscription<asr_comms::msg::TelemetryStatus>(
             "telemetry/status", 10,
             [this](const asr_comms::msg::TelemetryStatus::SharedPtr msg) { statusCallback(msg); });
+        probe_sub_ = create_subscription<asr_comms::msg::ProbeLocations>(
+            "probe/probe_locations", 10,
+            [this](const asr_comms::msg::ProbeLocations::SharedPtr msg) { probeCallback(msg); });
 
 
         heartbeat_pub_ = create_publisher<GcsHeartbeat>("in/gcs_heartbeat", qos);
@@ -155,6 +159,11 @@ public:
         msg.pitch = pitch;
         msg.yaw_velocity = yaw_velocity;
         msg.thrust = thrust;
+    
+        RCLCPP_INFO_THROTTLE(get_logger(), *get_clock(), 500,
+            "Sending manual control: roll=%.3f pitch=%.3f yaw=%.3f thrust=%.3f",
+            roll, pitch, yaw_velocity, thrust);
+    
         manual_control_pub_->publish(msg);
     }
     FlightMode getFlightMode() {
@@ -175,6 +184,7 @@ private:
     rclcpp::Subscription<asr_comms::msg::TelemetryOriginGPS>::SharedPtr origin_gps_sub_;
     rclcpp::Subscription<asr_comms::msg::BaseStationStats>::SharedPtr base_station_sub_;
     rclcpp::Subscription<asr_comms::msg::TelemetryStatus>::SharedPtr status_sub_;
+    rclcpp::Subscription<asr_comms::msg::ProbeLocations>::SharedPtr probe_sub_;
     rclcpp::Publisher<GcsHeartbeat>::SharedPtr heartbeat_pub_;
     rclcpp::Publisher<asr_comms::msg::ManualControlInput>::SharedPtr manual_control_pub_;
     rclcpp::TimerBase::SharedPtr heartbeat_timer_;
@@ -300,6 +310,27 @@ private:
 
         state_manager_.setActuatorSpeeds(actuator_speed);
     }
+    void probeCallback(const asr_comms::msg::ProbeLocations::SharedPtr msg )
+    {
+        ProbeData data;
+        data.probes.reserve(msg->num_probes);   
+
+        for (uint32_t i = 0; i < msg->num_probes; i++) {
+            Probe p;
+            p.x = msg->positions[i * 3 + 0];
+            p.y = msg->positions[i * 3 + 1];
+            p.z = msg->positions[i * 3 + 2];
+
+            p.sigma_x = msg->uncertainty[i * 3 + 0];
+            p.sigma_y = msg->uncertainty[i * 3 + 1];
+            p.sigma_z = msg->uncertainty[i * 3 + 2];
+
+            data.probes.push_back(p);
+        }
+
+        
+        state_manager_.setInterfaceProbeLocations(data);
+    }
     void heartbeat()
     {
         auto msg = GcsHeartbeat();
@@ -342,7 +373,7 @@ int main(int argc, char **argv) {
     rclcpp::init(argc, argv);
     auto ground_control = std::make_shared<AAUGrouncontrol>();
     ground_control->start();
-
+    manual_controller.InitJoystick();
     Planner planner(ground_control.get());
     PlannerPanel planner_panel(planner);
     MissionControlBar mission_control_bar;
@@ -370,9 +401,6 @@ int main(int argc, char **argv) {
     std::atomic<bool> tiles_downloading{false};
     bool tiles_download_triggered = false;
     
-    //std::thread([]() {
-    //    std::system("ros2 run asr_gcs download_tiles.py");
-    //}).detach();
 
     glfwSetErrorCallback([](int error, const char* description) {
         fprintf(stderr, "GLFW Error %d: %s\n", error, description);
@@ -399,7 +427,7 @@ int main(int argc, char **argv) {
     glfwSwapInterval(0); // Enable vsync
     ImGui_ImplGlfw_InitForOpenGL(window, true);
     ImGui_ImplOpenGL3_Init(glsl_version);
-    ImPlot::CreateContext();  // linked since the start of this project, never actually initialized until now
+    ImPlot::CreateContext();  
     winInit.loadFonts(); // Load fonts once
 
     ImGuiStyle& style = ImGui::GetStyle();
@@ -531,6 +559,7 @@ int main(int argc, char **argv) {
         Info.motor_speed[3] = speeds.w();
         Info.RTK_INFO = ground_control->getStateManager().getRTKstatus();
         Info.flight_mode = ground_control->getFlightMode();
+        Info.probes = ground_control->getStateManager().getInterfaceProbeLocations();
         if (!mode_switch_pending) {   
             is_manual = (Info.flight_mode == FlightMode::MANUAL_AIDED || Info.flight_mode == FlightMode::MANUAL);
         }
@@ -538,15 +567,8 @@ int main(int argc, char **argv) {
 
         
        
-        //JoystickState js = PollJoystick();
+        JoystickState js = manual_controller.PollJoystick();
 
-
-        //battery.timestamp = rclcpp::Time(msg->timestamp);   // see note below re: type conversion
-        //battery.voltage = msg->voltage;
-        //battery.charge_remaining = msg->percentage;          // using percentage here — see note below
-        //battery.average_current = msg->average_current;
-        //battery.connected = true;  
-        // Fixed until the next "set origin" -- plan overlay home, not the live map center.
         const Stamped3DVector origin_gps = ground_control->getStateManager().getOriginGPS();
 
         bool gps_looks_valid = (Info.gps_status.satellites_used >= 4) &&
@@ -634,6 +656,7 @@ int main(int argc, char **argv) {
         }
         if (widgets.CustomButton(draw_list, ImVec2(30 * scale, 220 * scale),"Placeholder",scale, Placeholder_Icon, theme, 0, 2)) {
            cout << "howdi" <<endl;
+           panel = 2;
 
         }
 
@@ -671,32 +694,31 @@ int main(int argc, char **argv) {
         }
 
         if (widgets.ModeToggle(draw_list, ImVec2(160 * scale, 30 * scale), scale, theme, is_manual)) {
-            //if (is_manual) {
-            //    
-            //    if (js.connected) {
-            //        ground_control->send_command("manual_aided");
-            //        pending_mode = FlightMode::MANUAL_AIDED;
-            //        mode_switch_pending = true;
-            //        mode_switch_start = ground_control->get_time();
-            //    } else {
-            //        cout << "Joystick not connected or not initialized." << endl;
-            //        is_manual = false;   // don't leave the toggle showing "Manual" if we didn't actually send the command
-            //    }
-            //}
+            if (is_manual) {
+                
+                if (js.connected) {
+                    ground_control->send_command("manual_aided");
+                    pending_mode = FlightMode::MANUAL_AIDED;
+                    mode_switch_pending = true;
+                    mode_switch_start = ground_control->get_time();
+                } else {
+                    cout << "Joystick not connected or not initialized." << endl;
+                    is_manual = false;   // don't leave the toggle showing "Manual" if we didn't actually send the command
+                }
+            }
         }
         
         EndFixedPanel(); 
         //!! Work in progress
-        //if (js.connected && Info.flight_mode == FlightMode::MANUAL_AIDED) {
-        //    ManualControlValues ctrl = ComputeManualControl(js);
-        //    cout << "Manual ctrl -> roll=" << ctrl.roll << " pitch=" << ctrl.pitch
-        //         << " yaw=" << ctrl.yaw_velocity << " thrust=" << ctrl.thrust
-        //         << " | raw axes[0..4]=" << js.axes[0] << "," << js.axes[1] << ","
-        //         << js.axes[2] << "," << js.axes[3] << "," << js.axes[4] << endl;
-        //    ground_control->send_manual_control(ctrl.roll, ctrl.pitch, ctrl.yaw_velocity, ctrl.thrust);
-        //}
+        if (js.connected && Info.flight_mode == FlightMode::MANUAL_AIDED) {
+            if (js.connected && Info.flight_mode == FlightMode::MANUAL_AIDED) {
+                ManualControlValues ctrl = manual_controller.ComputeManualControl(js);
+                ground_control->send_manual_control(ctrl.roll, ctrl.pitch, ctrl.yaw_velocity, ctrl.thrust);
+            }
+        }
+        
 //      
-        widgets.SurveyPanel(draw_list, ImVec2(1450, 22),scale, theme, Info.RTK_INFO.bs_status, Info.RTK_INFO.bs_connected);
+        widgets.SurveyPanel(draw_list, ImVec2(1450, 22),scale, theme, Info.RTK_INFO.bs_status, Info.RTK_INFO.bs_connected, js);
         switch (panel)
         {
 
@@ -858,7 +880,7 @@ int main(int argc, char **argv) {
                             Info.RTK_INFO.rtk_accuracy_target, 
                             Info.RTK_INFO.rtk_survey_duration,
                             Info.gps_status);
-        info_panels.Probe_Info(scale, theme);
+        info_panels.Probe_Info(scale, theme, Info.probes);
         
         
         info_panels.ResetPanelTracking();
@@ -941,7 +963,10 @@ int main(int argc, char **argv) {
         break;
         case 2:
         {
-            // Reserved -- empty for now.
+            //WeatherData data_test;
+            //data_test = FetchWeather(Info.gps_status.latitude, Info.gps_status.longitude);
+            //cout << data_test.temperature << " Cloud Cover: " << data_test.cloud_cover << " Windspeed: " << data_test.wind_speed_level << endl;
+            
         }
         break;
         default:

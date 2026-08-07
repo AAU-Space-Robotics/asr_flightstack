@@ -222,7 +222,7 @@ ImVec2 Location::MapWidget(double lat, double lon, float width, float height, fl
     return pos;
 }
 
-void Location::NoSatMap(DroneInformation Info, float width, float height, float scale, int zoom, bool theme){
+void Location::NoSatMap(const DroneInformation& Info, float width, float height, float scale, int zoom, bool theme){
     ImGui::BeginChild("NoSatMapWidget", ImVec2(width, height), false,
                         ImGuiWindowFlags_NoScrollbar |
                         ImGuiWindowFlags_NoScrollWithMouse);

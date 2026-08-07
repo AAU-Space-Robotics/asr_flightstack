@@ -42,6 +42,7 @@ find_package(ament_index_cpp REQUIRED)
 find_package(asr_autopilot REQUIRED)
 find_package(asr_mission REQUIRED)
 find_package(px4_msgs REQUIRED)
+find_package(CURL REQUIRED)
 
 # Fetch Dear ImGui, GLFW, ImPlot, and tinyxml2 using FetchContent
 include(FetchContent)
@@ -159,6 +160,8 @@ target_link_libraries(interface
   ${OpenCV_LIBS}
   asr_autopilot::asr_autopilot_core
   asr_mission::asr_mission_lib
+  CURL::libcurl 
+
 )
 target_include_directories(interface
   PRIVATE ${OpenCV_INCLUDE_DIRS}

@@ -156,7 +156,7 @@ bool InfoPanels::CollapseButton(ImDrawList* draw_list, ImVec2 pos, float scale, 
     return clicked;
 }
 
-void InfoPanels::Battery_Info(float scale, bool theme, BatteryState battery_info_C, BatteryState battery_info_M, double motor_speeds[4]){
+void InfoPanels::Battery_Info(float scale, bool theme, const BatteryState& battery_info_C, const BatteryState& battery_info_M, double motor_speeds[4]){
     int size;
     static bool Motor_panel_open = true;
     if(Motor_panel_open) {
@@ -363,13 +363,25 @@ void InfoPanels::Position_Info(float scale, bool theme, float pos_meter[3], floa
     InfoPanels::End_panels();
 }
 
-void InfoPanels::Probe_Info(float scale, bool theme){
+void InfoPanels::Probe_Info(float scale, bool theme, const ProbeData& info){
+    int size;
+    static bool Probe_panel_open = true;
+    if(Probe_panel_open) {
+        size = 150 * scale;
+    } else {
+        size = 40 * scale;
+    }
 
-    ImVec2 pos = InfoPanels::Begin_panels("ProbeInfo",170,scale, theme);
+    ImVec2 pos = InfoPanels::Begin_panels("ProbeInfo",size,scale, theme);
     ImDrawList* draw = ImGui::GetWindowDrawList();
     ImGui::PushFont(winInit.getFont(181));
     draw->AddText(ImVec2((pos.x + 10), (pos.y + 10)), Color::white_black(theme), "Probe Info");
     ImGui::PopFont();
+    InfoPanels::CollapseButton(draw, ImVec2(pos.x + 270 * scale, pos.y + 10 * scale), scale, Probe_panel_open, theme);
+    if(Probe_panel_open)
+    {
+        
+    }
 
     InfoPanels::End_panels();
 }
@@ -401,8 +413,8 @@ void InfoPanels::GNSS_Info(float scale, bool theme,
                         double accuracy, 
                         double accuracy_target, 
                         double duration,
-                        GPSState gps_info){
-                            int size;
+                        const GPSState& gps_info){
+    int size;
     static bool GNSS_panel_open = true;
     if(GNSS_panel_open) {
         size = 150 * scale;
