@@ -367,7 +367,7 @@ void InfoPanels::Probe_Info(float scale, bool theme, const ProbeData& info){
     int size;
     static bool Probe_panel_open = true;
     if(Probe_panel_open) {
-        size = 150 * scale;
+        size = 215 * scale;
     } else {
         size = 40 * scale;
     }
@@ -380,6 +380,30 @@ void InfoPanels::Probe_Info(float scale, bool theme, const ProbeData& info){
     InfoPanels::CollapseButton(draw, ImVec2(pos.x + 270 * scale, pos.y + 10 * scale), scale, Probe_panel_open, theme);
     if(Probe_panel_open)
     {
+        int numb_probes = info.probes.size();
+        int start_x = 20 * scale;
+        int start_y = 35 * scale;
+        int y_space = 35 * scale;
+        
+        for (int i = 0; i < numb_probes; i++){
+            const Probe& p = info.probes[i];
+
+            char probe_text[32];
+            snprintf(probe_text, sizeof(probe_text), "Probe: %d", i + 1);
+            draw->AddText(ImVec2((pos.x + start_x), (pos.y + start_y) + (y_space * i)), Color::dwhite_lblack(theme), probe_text);
+
+            ImGui::PushFont(winInit.getFont(14));
+            char values_text[64];
+            snprintf(values_text, sizeof(values_text), "%.2f  %.2f  %.2f    %.2f  %.2f  %.2f",
+                    p.x, p.y, p.z, p.sigma_x, p.sigma_y, p.sigma_z);
+            draw->AddText(ImVec2((pos.x + start_x + 85 * scale), (pos.y + start_y) + (y_space * i)), Color::dwhite_lblack(theme), values_text);
+            ImGui::PopFont();
+
+            draw->AddLine(
+            ImVec2(pos.x + 14 * scale, pos.y + start_y + 23 * scale + (y_space * i)),
+            ImVec2(pos.x + 296 * scale, pos.y + start_y + 23 * scale + (y_space * i)),
+            Color::panelBorder(theme), 3.0f);
+        }
         
     }
 
@@ -445,7 +469,7 @@ void InfoPanels::GNSS_Info(float scale, bool theme,
     draw->AddText(ImVec2(pos.x + col_start_x + col_spacing * 2, pos.y + 40 * scale),
         Color::dwhite_lblack(theme), longitude_text);
 
-    // --- Sats | Accuracy | Duration, same row, same y ---
+   
     float value_row_y = 70 * scale;
     float label_row_y = 85 * scale;
 

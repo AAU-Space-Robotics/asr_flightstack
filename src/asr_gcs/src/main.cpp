@@ -326,9 +326,9 @@ private:
             p.sigma_z = msg->uncertainty[i * 3 + 2];
 
             data.probes.push_back(p);
+            
         }
 
-        
         state_manager_.setInterfaceProbeLocations(data);
     }
     void heartbeat()
@@ -560,6 +560,7 @@ int main(int argc, char **argv) {
         Info.RTK_INFO = ground_control->getStateManager().getRTKstatus();
         Info.flight_mode = ground_control->getFlightMode();
         Info.probes = ground_control->getStateManager().getInterfaceProbeLocations();
+        
         if (!mode_switch_pending) {   
             is_manual = (Info.flight_mode == FlightMode::MANUAL_AIDED || Info.flight_mode == FlightMode::MANUAL);
         }

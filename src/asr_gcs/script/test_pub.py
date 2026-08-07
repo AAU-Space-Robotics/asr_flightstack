@@ -1,71 +1,65 @@
 #!/usr/bin/env python3
 import rclpy
 from rclpy.node import Node
-from asr_comms.msg import TelemetryGPS, TelemetryOriginGPS, BaseStationStats
-import math
+from asr_comms.msg import ProbeLocations
+from std_msgs.msg import Header
+import random
 import time
 
 
-class TestPublisher(Node):
+class ProbeTestPublisher(Node):
     def __init__(self):
-        super().__init__('test_telemetry_publisher')
+        super().__init__('probe_test_publisher')
 
-        self.gps_pub = self.create_publisher(TelemetryGPS, 'telemetry/gps', 10)
-        self.origin_gps_pub = self.create_publisher(TelemetryOriginGPS, 'telemetry/origin_gps', 10)
-        self.base_station_pub = self.create_publisher(BaseStationStats, 'basestation_stats', 10)
+        self.probe_pub = self.create_publisher(ProbeLocations, 'probe/probe_locations', 10)
 
         self.start_time = time.time()
-        self.timer = self.create_timer(0.2, self.publish_all)  # 5 Hz
+        self.timer = self.create_timer(1.0, self.publish_probes)  # 1 Hz
 
-    def publish_all(self):
-        now = time.time()
-        elapsed = now - self.start_time
+        # Base position each probe drifts around, so they look like plausible detections
+        self.base_x = 20.0
+        self.base_y = -3.0
+        self.base_z = -4.0
 
-        base_lat = 57.014595
-        base_lon = 9.986395
+    def publish_probes(self):
+        elapsed = time.time() - self.start_time
 
-        # --- GPS ---
-        gps_msg = TelemetryGPS()
-        gps_msg.timestamp = now
-        gps_msg.latitude = base_lat + 0.0001 * math.sin(elapsed * 0.1)
-        gps_msg.longitude = base_lon + 0.0001 * math.cos(elapsed * 0.1)
-        gps_msg.satellites_used = 12
-        self.gps_pub.publish(gps_msg)
+        # Cycle probe count 1 -> 5 -> 1 every 10 seconds, so you can watch the panel grow/shrink
+        cycle = int(elapsed) % 10
+        num_probes = (cycle % 5) + 1
 
-        # --- Origin GPS ---
-        origin_msg = TelemetryOriginGPS()
-        origin_msg.timestamp = now
-        origin_msg.latitude = base_lat
-        origin_msg.longitude = base_lon
-        origin_msg.altitude = 42.0
-        self.origin_gps_pub.publish(origin_msg)
+        msg = ProbeLocations()
+        msg.header = Header()
+        msg.header.stamp = self.get_clock().now().to_msg()
+        msg.header.frame_id = "map"
+        msg.num_probes = num_probes
 
-        # --- Base Station Stats ---
-        bs_msg = BaseStationStats()
-        bs_msg.basestation_connected = True
+        positions = []
+        uncertainty = []
 
-        # Cycle through survey phases for testing: INACTIVE -> SURVEY_IN -> STREAMING
-        cycle = elapsed % 30.0
-        if cycle < 5.0:
-            bs_msg.rtk_status = 0  # RTK_STATUS_INACTIVE
-        elif cycle < 20.0:
-            bs_msg.rtk_status = 1  # RTK_STATUS_SURVEY_IN
-        else:
-            bs_msg.rtk_status = 2  # RTK_STATUS_STREAMING
+        for i in range(num_probes):
+            # Spread probes out a bit so they're visually distinct
+            x = self.base_x + i * 1.5 + random.uniform(-0.05, 0.05)
+            y = self.base_y + i * 1.0 + random.uniform(-0.05, 0.05)
+            z = self.base_z + random.uniform(-0.02, 0.02)
 
-        bs_msg.rtk_accuracy_target = 0.02
-        # Simulate accuracy improving over time, then continuing to improve slightly past target
-        progress = min(cycle / 20.0, 1.5)
-        bs_msg.rtk_accuracy = max(0.005, 2.0 * (1.0 - progress / 1.5))
-        bs_msg.rtk_survey_duration = min(cycle, 25.0)
-        bs_msg.rtk_survey_duration_max = 20.0
+            positions.extend([x, y, z])
 
-        self.base_station_pub.publish(bs_msg)
+            sigma_x = random.uniform(0.01, 0.1)
+            sigma_y = random.uniform(0.01, 0.1)
+            sigma_z = random.uniform(0.01, 0.1)
+            uncertainty.extend([sigma_x, sigma_y, sigma_z])
+
+        msg.positions = positions
+        msg.uncertainty = uncertainty
+
+        self.probe_pub.publish(msg)
+        self.get_logger().info(f"Published {num_probes} probes")
 
 
 def main():
     rclpy.init()
-    node = TestPublisher()
+    node = ProbeTestPublisher()
     try:
         rclpy.spin(node)
     except KeyboardInterrupt:
