@@ -99,6 +99,27 @@ ManualControlValues ManualController::ComputeManualControl(const JoystickState& 
     ManualControlValues out;
     if (!js.connected) return out;
 
+    if (js.name == "8BitDo Ultimate 2 Wireless") {
+        out.manual_engage = (js.buttons[2] != 0) || (js.buttons[5] != 0);
+        out.arm_pressed   = js.buttons[0] != 0;
+        out.estop_pressed = js.buttons[1] != 0;
+        out.land_pressed  = js.buttons[3] != 0;
+
+        if (!out.manual_engage) {
+            return out;
+        }
+
+        auto trigger_pressed = [](float raw) { return (raw + 1.0f) / 2.0f; };
+        const float yaw_raw = trigger_pressed(js.axes[4]) - trigger_pressed(js.axes[5]); // RT - LT
+
+        out.roll          = apply_deadzone(js.axes[0], dead_zone);
+        out.pitch         = apply_deadzone(-js.axes[1], dead_zone);
+        out.thrust        = apply_deadzone(-js.axes[3], dead_zone);
+        out.yaw_velocity  = apply_deadzone(yaw_raw, dead_zone);
+        return out;
+    }
+
+    // Søren please fix name for other controller :)
     out.roll         = apply_deadzone(js.axes[0], dead_zone);
     out.pitch         = apply_deadzone(-js.axes[1], dead_zone);
     out.yaw_velocity  = apply_deadzone(js.axes[2], dead_zone);

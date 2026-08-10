@@ -689,12 +689,29 @@ bool Widgets::GotoButton(ImDrawList* draw_list, ImVec2 center, float scale, bool
 }
 
 
-void Widgets::SurveyPanel(ImDrawList* draw_list, ImVec2 pos, float scale, bool theme, RTK_STATUS rtk_survey, bool bs_connected, JoystickState js){
+void Widgets::SurveyPanel(ImDrawList* draw_list, ImVec2 pos, float scale, bool theme, RTK_STATUS rtk_survey, bool bs_connected, JoystickState js, const LinkStatus& link_status){
 
-    
-    ImVec4 inactive_color  = ImVec4(0.5f, 0.5f, 0.5f, 1.0f);  // red — not surveying
-    ImVec4 survey_color    = ImVec4(0.9f, 0.6f, 0.0f, 1.0f);   // orange — survey in progress
-    ImVec4 streaming_color = ImVec4(0.1f, 0.7f, 0.2f, 1.0f);   // green — streaming/fixed
+    ImVec4 inactive_color     = ImVec4(0.5f, 0.5f, 0.5f, 1.0f);  // grey — inactive/not connected
+    ImVec4 survey_color       = ImVec4(0.9f, 0.6f, 0.0f, 1.0f);  // orange — survey in progress
+    ImVec4 streaming_color    = ImVec4(0.1f, 0.7f, 0.2f, 1.0f);  // green — streaming/fixed
+    ImVec4 notconnected_color = inactive_color;
+    ImVec4 connected_color    = streaming_color;
+
+    constexpr float kDotToLabelGap = 25.0f;  
+    constexpr float kEntryGap      = 25.0f;  
+
+    float cursor_x = 0.0f;
+    auto StatusDot = [&](ImVec4 color, const char* label) {
+        ImVec2 center((pos.x + cursor_x) * scale, (pos.y + 8) * scale);
+        draw_list->AddCircleFilled(center, 6.0f * scale, ImGui::ColorConvertFloat4ToU32(color));
+        draw_list->AddCircle(center, 6.0f * scale, IM_COL32(0, 0, 0, 255), 0, 1.5f * scale);
+
+        const float text_x = cursor_x + kDotToLabelGap;
+        draw_list->AddText(ImVec2((pos.x + text_x) * scale, pos.y * scale), Color::white_black(theme), label);
+
+        const float label_width = ImGui::CalcTextSize(label).x / scale;
+        cursor_x = text_x + label_width + kEntryGap;
+    };
 
     ImVec4 rtk_survey_color;
     switch (rtk_survey) {
@@ -702,28 +719,13 @@ void Widgets::SurveyPanel(ImDrawList* draw_list, ImVec2 pos, float scale, bool t
         case RTK_STATUS::SURVEY_IN: rtk_survey_color = survey_color;    break;
         case RTK_STATUS::STREAMING: rtk_survey_color = streaming_color; break;
     }
-    draw_list->AddCircleFilled(ImVec2(pos.x * scale, (pos.y + 8) * scale), 6.0f * scale,
-    ImGui::ColorConvertFloat4ToU32(rtk_survey_color));
-    draw_list->AddCircle(ImVec2(pos.x * scale, (pos.y + 8) * scale), 6.0f * scale,
-        IM_COL32(0, 0, 0, 255), 0, 1.5f * scale);
-    draw_list->AddText(ImVec2((pos.x + 25) * scale, (pos.y * scale)), Color::white_black(theme), "RTK-Survey");
 
-
-    ImVec4 notconnected_color = ImVec4(0.5f, 0.5f, 0.5f, 1.0f);
-    ImVec4 connected_color    = ImVec4(0.1f, 0.7f, 0.2f, 1.0f);
-    ImVec4 bs_connected_color = bs_connected ? connected_color : notconnected_color;
-    draw_list->AddCircleFilled(ImVec2((pos.x + 130) * scale, (pos.y + 8) * scale), 6.0f * scale,
-        ImGui::ColorConvertFloat4ToU32(bs_connected_color));
-    draw_list->AddCircle(ImVec2((pos.x + 130) * scale, (pos.y + 8) * scale), 6.0f * scale,
-        IM_COL32(0, 0, 0, 255), 0, 1.5f * scale);
-    draw_list->AddText(ImVec2((pos.x + 155) * scale, (pos.y * scale)), Color::white_black(theme), "RTK-Connected");
-
-    ImVec4 joystick_connected_color = js.connected ? connected_color : notconnected_color;
-    draw_list->AddCircleFilled(ImVec2((pos.x + 280) * scale, (pos.y + 8) * scale), 6.0f * scale,
-        ImGui::ColorConvertFloat4ToU32(joystick_connected_color));
-    draw_list->AddCircle(ImVec2((pos.x + 280) * scale, (pos.y + 8) * scale), 6.0f * scale,
-        IM_COL32(0, 0, 0, 255), 0, 1.5f * scale);
-    draw_list->AddText(ImVec2((pos.x + 305) * scale, (pos.y * scale)), Color::white_black(theme), "Controller Connected");
+    StatusDot(rtk_survey_color, "RTK-Survey");
+    StatusDot(bs_connected                  ? connected_color : notconnected_color, "RTK-Connected");
+    StatusDot(js.connected                  ? connected_color : notconnected_color, "Controller Connected");
+    StatusDot(link_status.mavlink_connected ? connected_color : notconnected_color, "Radio");
+    StatusDot(link_status.wifi_connected    ? connected_color : notconnected_color, "WiFi");
+    StatusDot(link_status.camera_streaming  ? connected_color : notconnected_color, "Camera Streaming");
 }
 
 static size_t CurlWriteCallback(void* contents, size_t size, size_t nmemb, std::string* userp) {

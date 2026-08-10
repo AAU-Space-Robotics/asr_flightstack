@@ -758,9 +758,9 @@ void CommsGcs::on_manual_input(const asr_comms::msg::ManualControlInput::SharedP
     const int16_t z = static_cast<int16_t>(msg->thrust       * 1000.0f);
     const int16_t r = static_cast<int16_t>(msg->yaw_velocity * 1000.0f);
     const uint16_t buttons =
-          static_cast<uint16_t>(msg->arm          & 0x01u)
-        | static_cast<uint16_t>((msg->estop        & 0x01u) << 1)
-        | static_cast<uint16_t>((msg->selfdestruct & 0x01u) << 2);
+          static_cast<uint16_t>(msg->arm           & 0x01u)
+        | static_cast<uint16_t>((msg->estop         & 0x01u) << 1)
+        | static_cast<uint16_t>((msg->manual_engage & 0x01u) << 2);
 
     mavlink_message_t mav{};
     mavlink_msg_manual_control_pack(system_id_, component_id_, &mav,

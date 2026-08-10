@@ -31,6 +31,7 @@
 #include "asr_comms/msg/telemetry_battery.hpp"
 #include "asr_comms/msg/telemetry_gps.hpp"
 #include "asr_comms/msg/telemetry_origin_gps.hpp"
+#include "asr_comms/msg/telemetry_status.hpp"
 #include "asr_comms/msg/base_station_stats.hpp"
 #include "asr_comms/msg/telemetry_status.hpp"
 #include "asr_comms/msg/gcs_heartbeat.hpp"
@@ -40,6 +41,7 @@
 #include "asr_comms/msg/probe_locations.hpp"
 #include "asr_comms/msg/gcs_heartbeat.hpp"
 #include "asr_comms/msg/manual_control_input.hpp"
+#include "asr_comms/msg/link_stats.hpp"
 #include <px4_msgs/msg/vehicle_attitude.hpp>
 #include <px4_msgs/msg/vehicle_local_position.hpp>
 #include <px4_msgs/msg/distance_sensor.hpp>
@@ -123,6 +125,9 @@ public:
         probe_sub_ = create_subscription<asr_comms::msg::ProbeLocations>(
             "probe/probe_locations", 10,
             [this](const asr_comms::msg::ProbeLocations::SharedPtr msg) { probeCallback(msg); });
+        link_stats_sub_ = create_subscription<asr_comms::msg::LinkStats>(
+            "link_stats", 10,
+            [this](const asr_comms::msg::LinkStats::SharedPtr msg) { linkStatusCallback(msg); });
 
 
         heartbeat_pub_ = create_publisher<GcsHeartbeat>("in/gcs_heartbeat", qos);
@@ -152,23 +157,28 @@ public:
 
         uav_command_pub_->publish(msg);
     }
-    void send_manual_control(float roll, float pitch, float yaw_velocity, float thrust)
+    void send_manual_control(float roll, float pitch, float yaw_velocity, float thrust, bool manual_engage)
     {
         auto msg = asr_comms::msg::ManualControlInput();
         msg.roll = roll;
         msg.pitch = pitch;
         msg.yaw_velocity = yaw_velocity;
         msg.thrust = thrust;
-    
+        msg.manual_engage = manual_engage ? 1 : 0;
+
         RCLCPP_INFO_THROTTLE(get_logger(), *get_clock(), 500,
-            "Sending manual control: roll=%.3f pitch=%.3f yaw=%.3f thrust=%.3f",
-            roll, pitch, yaw_velocity, thrust);
-    
+            "Sending manual control: roll=%.3f pitch=%.3f yaw=%.3f thrust=%.3f engage=%d",
+            roll, pitch, yaw_velocity, thrust, msg.manual_engage);
+
         manual_control_pub_->publish(msg);
     }
     FlightMode getFlightMode() {
         std::lock_guard<std::mutex> lock(flight_mode_mutex_);
         return current_flight_mode_;
+    }
+    LinkStatus getLinkStatus() {
+        std::lock_guard<std::mutex> lock(link_status_mutex_);
+        return link_status_;
     }
 private:
     StateManager state_manager_;
@@ -185,6 +195,7 @@ private:
     rclcpp::Subscription<asr_comms::msg::BaseStationStats>::SharedPtr base_station_sub_;
     rclcpp::Subscription<asr_comms::msg::TelemetryStatus>::SharedPtr status_sub_;
     rclcpp::Subscription<asr_comms::msg::ProbeLocations>::SharedPtr probe_sub_;
+    rclcpp::Subscription<asr_comms::msg::LinkStats>::SharedPtr link_stats_sub_;
     rclcpp::Publisher<GcsHeartbeat>::SharedPtr heartbeat_pub_;
     rclcpp::Publisher<asr_comms::msg::ManualControlInput>::SharedPtr manual_control_pub_;
     rclcpp::TimerBase::SharedPtr heartbeat_timer_;
@@ -192,6 +203,9 @@ private:
 
     FlightMode current_flight_mode_ = FlightMode::STANDBY;
     mutable std::mutex flight_mode_mutex_;
+
+    LinkStatus link_status_;
+    mutable std::mutex link_status_mutex_;
     
 
 
@@ -229,19 +243,14 @@ private:
         } else {
             state_manager_.setGlobalVelocity(Stamped3DVector(get_time(), 0.0, 0.0, 0.0));
         }
-        // Bridged over the radio link via comms_uav/comms_gcs — the path that
-        // actually works on real hardware (see distanceSensorCallback below
-        // for the direct-topic path, which only works when GCS and UAV share
-        // a DDS graph, e.g. sim).
+
         if (std::isfinite(msg->distance_sensor)) {
             state_manager_.setGroundDistanceState(Stamped3DVector(get_time(), msg->distance_sensor, 0.0, 0.0));
         }
     }
     void distanceSensorCallback(const DistanceSensor::SharedPtr msg)
     {
-        // Direct subscription to /fmu/out/distance_sensor — only reachable
-        // when GCS and UAV share a DDS graph (sim). Real hardware gets this
-        // value via localPositionCallback's msg->distance_sensor instead.
+       
         if (std::isfinite(msg->current_distance)) {
             state_manager_.setGroundDistanceState(Stamped3DVector(get_time(), msg->current_distance, 0.0, 0.0));
         }
@@ -294,6 +303,21 @@ private:
         state_manager_.setRTKstatus(RTK_info);
 
     }
+
+    void linkStatusCallback(const asr_comms::msg::LinkStats::SharedPtr msg)
+    {
+        LinkStatus status;
+        status.mavlink_connected = msg->mavlink_connected;
+        status.wifi_connected    = msg->wifi_connected;
+        status.camera_streaming  = msg->camera_streaming;
+        status.camera_rx_kbps    = msg->camera_rx_kbps;
+        status.signal_quality    = msg->signal_quality;
+
+        std::lock_guard<std::mutex> lock(link_status_mutex_);
+        link_status_ = status;
+    }
+
+
     void statusCallback(const asr_comms::msg::TelemetryStatus::SharedPtr msg)
     {
         state_manager_.setArminState(msg->arming_state);
@@ -390,13 +414,16 @@ int main(int argc, char **argv) {
     int panel = 0;
     //bool is_manual = (Info.flight_mode == FlightMode::MANUAL_AIDED); for later:
     bool is_manual = false;
-    bool sat_map = 0;
+    bool sat_map = 1;
     int map_size_x = 800;
     string goto_text;
 
     FlightMode pending_mode = FlightMode::STANDBY;
     bool mode_switch_pending = false;
     rclcpp::Time mode_switch_start;
+
+    bool prev_controller_arm_button = false;
+    bool prev_controller_land_button = false;
 
     std::atomic<bool> tiles_downloading{false};
     bool tiles_download_triggered = false;
@@ -709,17 +736,32 @@ int main(int argc, char **argv) {
             }
         }
         
-        EndFixedPanel(); 
-        //!! Work in progress
-        if (js.connected && Info.flight_mode == FlightMode::MANUAL_AIDED) {
-            if (js.connected && Info.flight_mode == FlightMode::MANUAL_AIDED) {
-                ManualControlValues ctrl = manual_controller.ComputeManualControl(js);
-                ground_control->send_manual_control(ctrl.roll, ctrl.pitch, ctrl.yaw_velocity, ctrl.thrust);
+        EndFixedPanel();
+
+        if (js.connected) {
+            ManualControlValues ctrl = manual_controller.ComputeManualControl(js);
+
+            ground_control->send_manual_control(ctrl.roll, ctrl.pitch, ctrl.yaw_velocity, ctrl.thrust, ctrl.manual_engage);
+
+            // Arm/land on rising edge only. It should not resend every frame the button is held.
+            if (ctrl.arm_pressed && !prev_controller_arm_button) {
+                ground_control->send_command("arm");
+            }
+            prev_controller_arm_button = ctrl.arm_pressed;
+
+            if (ctrl.land_pressed && !prev_controller_land_button) {
+                ground_control->send_command("land");
+            }
+            prev_controller_land_button = ctrl.land_pressed;
+
+            // Estop: keep re-asserting every frame while held, never rate-limited.
+            if (ctrl.estop_pressed) {
+                ground_control->send_command("estop");
             }
         }
         
-//      
-        widgets.SurveyPanel(draw_list, ImVec2(1450, 22),scale, theme, Info.RTK_INFO.bs_status, Info.RTK_INFO.bs_connected, js);
+        LinkStatus LS = ground_control->getLinkStatus();
+        widgets.SurveyPanel(draw_list, ImVec2(1050, 22),scale, theme, Info.RTK_INFO.bs_status, Info.RTK_INFO.bs_connected, js, LS);
         switch (panel)
         {
 

@@ -826,6 +826,11 @@ private:
         manual_input_sub_.setZ(manual_input_sub_.z() + controller_.mapNormToAngle(msg->yaw_velocity * yaw_sensitivity_));
         manual_input_sub_.setW(msg->thrust);
         state_manager_.setManualControlInput(manual_input_sub_);
+
+        if (msg->manual_engage && state_manager_.getUAVState().arming_state == ArmingState::ARMED) {
+            setUAVMode(FlightMode::MANUAL_AIDED);
+            ensureControlLoopRunning(1);
+        }
     }
 
     void ActuatorOutputCallback(const ActuatorOutputs::SharedPtr msg)
@@ -1490,6 +1495,8 @@ private:
                 (getFlightModeTraits(mode)[0] != getFlightModeTraits(old_flight_mode)[0]) &&
                 mode != FlightMode::STANDBY &&
                 mode != FlightMode::EMERGENCY_STOP &&
+                mode != FlightMode::MANUAL_AIDED &&
+                mode != FlightMode::MANUAL &&
                 !( (mode == FlightMode::EMERGENCY_STOP && old_flight_mode == FlightMode::STANDBY) ||
                    (mode == FlightMode::STANDBY && old_flight_mode == FlightMode::EMERGENCY_STOP) )
             )
@@ -1663,6 +1670,21 @@ private:
         if (std::find(allowed_commands.begin(), allowed_commands.end(), goal->command_type) == allowed_commands.end())
         {
             RCLCPP_WARN(get_logger(), "Rejected invalid command_type: %s", goal->command_type.c_str());
+            return rclcpp_action::GoalResponse::REJECT;
+        }
+
+        // Commands that must never be rate-limited by the mode-change cooldown:
+        // manual/manual_aided need to work instantly to catch the UAV, and
+        // estop/eland/disarm are safety-critical and must never be blocked.
+        static const std::vector<std::string> mode_delay_exempt_commands = {
+            "manual", "manual_aided", "estop", "eland", "disarm"
+        };
+        if (isModeChangePending() &&
+            std::find(mode_delay_exempt_commands.begin(), mode_delay_exempt_commands.end(),
+                      goal->command_type) == mode_delay_exempt_commands.end())
+        {
+            RCLCPP_WARN(get_logger(), "Rejected '%s': mode change cooldown still active (%.2f s remaining)",
+                        goal->command_type.c_str(), (mode_change_deadline_ - get_clock()->now()).seconds());
             return rclcpp_action::GoalResponse::REJECT;
         }
 

@@ -42,7 +42,7 @@ public:
     std::string GotoField(float scale, bool theme);
     void GotoPanel(ImVec2 pos, float scale, bool theme, std::string& goto_text);
     bool GotoButton(ImDrawList* draw_list, ImVec2 center, float scale, bool theme, GLuint tex);
-    void SurveyPanel(ImDrawList* draw_list, ImVec2 pos, float scale, bool theme, RTK_STATUS rtk_survey, bool basestate_connected, JoystickState js);
+    void SurveyPanel(ImDrawList* draw_list, ImVec2 pos, float scale, bool theme, RTK_STATUS rtk_survey, bool basestate_connected, JoystickState js, const LinkStatus& link_status);
 private:
     static std::vector<ImVec2> ArcPoints(float radius, float angleStart, float angleEnd, int segments);
 };

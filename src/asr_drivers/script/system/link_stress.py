@@ -56,9 +56,9 @@ class LinkStress(Node):
         msg.pitch        =  math.sin(t * 1.3)
         msg.yaw_velocity =  math.sin(t * 0.7)
         msg.thrust       = (math.sin(t * 0.5) + 1.0) / 2.0
-        msg.arm          = 0
-        msg.estop        = 0
-        msg.selfdestruct = 0
+        msg.arm           = 0
+        msg.estop         = 0
+        msg.manual_engage = 0
         self._pub.publish(msg)
         self._seq += 1
         self._sent += 1

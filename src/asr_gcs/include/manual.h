@@ -23,6 +23,10 @@ struct ManualControlValues {
     float pitch = 0.0f;
     float yaw_velocity = 0.0f;
     float thrust = 0.0f;
+    bool manual_engage = false;  // deadman held
+    bool arm_pressed = false;
+    bool estop_pressed = false;
+    bool land_pressed = false;
 };
 
 struct ManualController{

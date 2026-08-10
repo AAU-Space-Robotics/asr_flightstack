@@ -20,6 +20,14 @@
 
 
 
+struct LinkStatus {
+    bool mavlink_connected = false;
+    bool wifi_connected = false;
+    bool camera_streaming = false;
+    float camera_rx_kbps = 0.0f;
+    uint8_t signal_quality = 0;  // matches asr_comms::msg::LinkStats::QUALITY_* constants
+};
+
 struct DroneInformation {
     BatteryState battery_values_M;
     BatteryState battery_values_C;
@@ -33,6 +41,7 @@ struct DroneInformation {
     GPSState gps_status;
     BaseStateInfo RTK_INFO;
     ProbeData probes;
+    LinkStatus link_status;
 };
 
 

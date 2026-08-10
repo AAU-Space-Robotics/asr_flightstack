@@ -300,9 +300,9 @@ void CommsUav::handle_message(const mavlink_message_t& msg)
         out.roll         =  mc.y / 1000.0f;
         out.thrust       =  mc.z / 1000.0f;
         out.yaw_velocity =  mc.r / 1000.0f;
-        out.arm          =  (mc.buttons >> 0) & 0x01u;
-        out.estop        =  (mc.buttons >> 1) & 0x01u;
-        out.selfdestruct =  (mc.buttons >> 2) & 0x01u;
+        out.arm           =  (mc.buttons >> 0) & 0x01u;
+        out.estop         =  (mc.buttons >> 1) & 0x01u;
+        out.manual_engage =  (mc.buttons >> 2) & 0x01u;
         manual_input_pub_->publish(out);
         break;
     }
