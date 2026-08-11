@@ -21,6 +21,9 @@
 #include <thread>
 #include <cstdlib>
 #include <atomic>
+#include <sstream>
+#include <iomanip>
+#include <ctime>
 
 #include <rclcpp/rclcpp.hpp>
 #include <rcutils/logging.h>
@@ -42,6 +45,8 @@
 #include "asr_comms/msg/gcs_heartbeat.hpp"
 #include "asr_comms/msg/manual_control_input.hpp"
 #include "asr_comms/msg/link_stats.hpp"
+#include "asr_comms/msg/command_ack.hpp"
+
 #include <px4_msgs/msg/vehicle_attitude.hpp>
 #include <px4_msgs/msg/vehicle_local_position.hpp>
 #include <px4_msgs/msg/distance_sensor.hpp>
@@ -77,6 +82,7 @@ public:
     AAUGrouncontrol()
     : Node("aau_groundcontrol_node")
     {
+        //RCLCPP_INFO(get_logger(), "GCS Started");
         rclcpp::QoS qos(10);
         qos.reliability(rclcpp::ReliabilityPolicy::BestEffort);
         qos.durability(rclcpp::DurabilityPolicy::TransientLocal);
@@ -128,6 +134,9 @@ public:
         link_stats_sub_ = create_subscription<asr_comms::msg::LinkStats>(
             "link_stats", 10,
             [this](const asr_comms::msg::LinkStats::SharedPtr msg) { linkStatusCallback(msg); });
+        command_ack_sub_ = create_subscription<asr_comms::msg::CommandAck>(
+            "command_ack", 10,
+            [this](const asr_comms::msg::CommandAck::SharedPtr msg) { commandAckCallback(msg); });
 
 
         heartbeat_pub_ = create_publisher<GcsHeartbeat>("in/gcs_heartbeat", qos);
@@ -180,6 +189,39 @@ public:
         std::lock_guard<std::mutex> lock(link_status_mutex_);
         return link_status_;
     }
+    void addLogLine(LogLevel level,  const std::string& message)
+    {
+        std::lock_guard<std::mutex> lock(log_mutex_);
+
+        auto now = std::chrono::system_clock::now();
+        auto time_t_now = std::chrono::system_clock::to_time_t(now);
+        std::tm tm_now = *std::localtime(&time_t_now);
+
+        std::ostringstream oss;
+        oss << std::put_time(&tm_now, "%H:%M:%S");
+
+        LogEntry entry;
+        entry.timestamp = oss.str();
+        entry.level = level;
+        entry.message = message;
+
+        log_lines_.push_back(entry);
+        if (log_lines_.size() > MAX_LOG_LINES) {
+            log_lines_.erase(log_lines_.begin());   
+        }
+        
+    }
+    std::vector<LogEntry> getLogLines()
+    {
+        std::lock_guard<std::mutex> lock(log_mutex_);
+        return log_lines_;
+    }
+    void clearLog()
+    {
+        std::lock_guard<std::mutex> lock(log_mutex_);
+        log_lines_.clear();
+    }
+    
 private:
     StateManager state_manager_;
     Transformations transformations_;
@@ -196,16 +238,22 @@ private:
     rclcpp::Subscription<asr_comms::msg::TelemetryStatus>::SharedPtr status_sub_;
     rclcpp::Subscription<asr_comms::msg::ProbeLocations>::SharedPtr probe_sub_;
     rclcpp::Subscription<asr_comms::msg::LinkStats>::SharedPtr link_stats_sub_;
+    rclcpp::Subscription<asr_comms::msg::CommandAck>::SharedPtr command_ack_sub_;
     rclcpp::Publisher<GcsHeartbeat>::SharedPtr heartbeat_pub_;
     rclcpp::Publisher<asr_comms::msg::ManualControlInput>::SharedPtr manual_control_pub_;
     rclcpp::TimerBase::SharedPtr heartbeat_timer_;
     rclcpp::Publisher<asr_comms::msg::UAVCommand>::SharedPtr uav_command_pub_;
+    
 
     FlightMode current_flight_mode_ = FlightMode::STANDBY;
     mutable std::mutex flight_mode_mutex_;
 
     LinkStatus link_status_;
     mutable std::mutex link_status_mutex_;
+
+    std::vector<LogEntry> log_lines_;
+    mutable std::mutex log_mutex_;
+    static constexpr size_t MAX_LOG_LINES = 200;
     
 
 
@@ -363,6 +411,25 @@ private:
 
         heartbeat_pub_->publish(msg);
     }
+
+    std::string MavResultToText(uint8_t result)
+    {
+        switch (result) {
+            case 0: return "ACCEPTED";
+            case 1: return "TEMP_REJECTED";
+            case 2: return "DENIED";
+            case 3: return "UNSUPPORTED";
+            case 4: return "FAILED";
+            case 6: return "CANCELLED";
+            default: return "UNKNOWN";
+        }
+    }
+    void commandAckCallback(const asr_comms::msg::CommandAck::SharedPtr msg)
+    {
+        LogLevel level = (msg->result == 0) ? LogLevel::INFO : LogLevel::ERROR;
+        std::string log_message = msg->command_type + " -> " + MavResultToText(msg->result);
+        addLogLine(level, log_message);
+    }
     
 };
 EulerAngles quaternionToEulerForDisplay(const Eigen::Quaterniond& q) //trying to do a fix..........
@@ -417,10 +484,10 @@ int main(int argc, char **argv) {
     bool sat_map = 1;
     int map_size_x = 800;
     string goto_text;
-
     FlightMode pending_mode = FlightMode::STANDBY;
     bool mode_switch_pending = false;
     rclcpp::Time mode_switch_start;
+    static rclcpp::Time last_estop_log_time = ground_control->get_time();
 
     bool prev_controller_arm_button = false;
     bool prev_controller_land_button = false;
@@ -485,10 +552,12 @@ int main(int argc, char **argv) {
         {"job_white",        "job_white.png"},
         {"f_mode",      "f_mode.png"},
         {"f_mode_white",      "f_mode_white.png"},
-        {"drone",       "droneImage.png"},  // placeholder icon, no light-theme variant yet
+        {"drone",       "droneImage.png"},  // placeholder icon
         {"switch_white",      "switch_white.png"},
         {"switch",      "switch.png"},
-        {"send",        "send.png"}
+        {"send",        "send.png"},
+        {"goto",        "goto.png"},
+        {"goto_white",   "goto_white.png"}
     };
     
     GLuint placeholderTile = location.display_map((package_path + "/images/tile_placeholder.png").c_str(), 1.0f);
@@ -559,12 +628,16 @@ int main(int argc, char **argv) {
 
 
         const StampedQuaternion& attitude = ground_control->getStateManager().getAttitude();
-        Info.orientation = quaternionToEulerForDisplay(attitude.quaternion()); 
         const Stamped3DVector& position = ground_control->getStateManager().getGlobalPosition();
         const Stamped4DVector& target = ground_control->getStateManager().getTargetPositionProfile();
         const Stamped3DVector& velocity = ground_control->getStateManager().getGlobalVelocity();
         const Stamped4DVector& speeds = ground_control->getStateManager().getActuatorSpeeds();
         const Stamped3DVector& ground_distance = ground_control->getStateManager().getGroundDistanceState();
+        const Stamped3DVector origin_gps = ground_control->getStateManager().getOriginGPS();
+        LinkStatus LS = ground_control->getLinkStatus();
+        JoystickState js = manual_controller.PollJoystick();
+        
+        Info.orientation = quaternionToEulerForDisplay(attitude.quaternion()); 
         Info.ground_distance = static_cast<float>(ground_distance.x());
         Info.xyz_pos[0] = static_cast<float>(position.x());
         Info.xyz_pos[1] = static_cast<float>(position.y());
@@ -588,6 +661,7 @@ int main(int argc, char **argv) {
         Info.flight_mode = ground_control->getFlightMode();
         Info.probes = ground_control->getStateManager().getInterfaceProbeLocations();
         
+        
         if (!mode_switch_pending) {   
             is_manual = (Info.flight_mode == FlightMode::MANUAL_AIDED || Info.flight_mode == FlightMode::MANUAL);
         }
@@ -595,9 +669,9 @@ int main(int argc, char **argv) {
 
         
        
-        JoystickState js = manual_controller.PollJoystick();
+        
 
-        const Stamped3DVector origin_gps = ground_control->getStateManager().getOriginGPS();
+        
 
         bool gps_looks_valid = (Info.gps_status.satellites_used >= 4) &&
                        (Info.gps_status.latitude != 0.0) &&
@@ -607,6 +681,7 @@ int main(int argc, char **argv) {
             tiles_download_triggered = true;
             double lat = Info.gps_status.latitude;
             double lon = Info.gps_status.longitude;
+            ground_control->addLogLine(LogLevel::INFO,"Valid GPS coordinates");
 
             thread([lat, lon, &tiles_downloading]() {
                 tiles_downloading = true;
@@ -684,6 +759,7 @@ int main(int argc, char **argv) {
         }
         if (widgets.CustomButton(draw_list, ImVec2(30 * scale, 220 * scale),"Placeholder",scale, Placeholder_Icon, theme, 0, 2)) {
            cout << "howdi" <<endl;
+           ground_control->addLogLine(LogLevel::ERROR,"Howdi");
            panel = 2;
 
         }
@@ -712,11 +788,13 @@ int main(int argc, char **argv) {
                 1.0f
             );
         }
-        if (widgets.ArmButton(draw_list,ImVec2(340 * scale, 28 * scale), scale, theme, arming_state )){
+        if (widgets.ArmButton(draw_list,ImVec2(340 * scale, 30 * scale), scale, theme, arming_state )){
             if(!arming_state){
                 ground_control->send_command("arm");
+                ground_control->addLogLine(LogLevel::INFO, "Arm command sent");
             } else {
                 ground_control->send_command("disarm");
+                ground_control->addLogLine(LogLevel::INFO,"Disarm command sent");
             }
                 
         }
@@ -726,11 +804,12 @@ int main(int argc, char **argv) {
                 
                 if (js.connected) {
                     ground_control->send_command("manual_aided");
+                    ground_control->addLogLine(LogLevel::INFO,"Manual-aided mode initialized");
                     pending_mode = FlightMode::MANUAL_AIDED;
                     mode_switch_pending = true;
                     mode_switch_start = ground_control->get_time();
                 } else {
-                    cout << "Joystick not connected or not initialized." << endl;
+                    ground_control->addLogLine(LogLevel::ERROR,"Joystick not connected or not initialized");
                     is_manual = false;   // don't leave the toggle showing "Manual" if we didn't actually send the command
                 }
             }
@@ -746,22 +825,29 @@ int main(int argc, char **argv) {
             // Arm/land on rising edge only. It should not resend every frame the button is held.
             if (ctrl.arm_pressed && !prev_controller_arm_button) {
                 ground_control->send_command("arm");
+                ground_control->addLogLine(LogLevel::INFO, "Arm command sent");
             }
             prev_controller_arm_button = ctrl.arm_pressed;
 
             if (ctrl.land_pressed && !prev_controller_land_button) {
                 ground_control->send_command("land");
+                ground_control->addLogLine(LogLevel::INFO, "Land command sent");
             }
             prev_controller_land_button = ctrl.land_pressed;
 
             // Estop: keep re-asserting every frame while held, never rate-limited.
             if (ctrl.estop_pressed) {
                 ground_control->send_command("estop");
+                auto now = ground_control->get_time();
+                if ((now - last_estop_log_time).seconds() > 1.0) {   
+                    ground_control->addLogLine(LogLevel::WARN, "Estop command sent");
+                    last_estop_log_time = now;
+                }
             }
         }
         
-        LinkStatus LS = ground_control->getLinkStatus();
-        widgets.SurveyPanel(draw_list, ImVec2(1050, 22),scale, theme, Info.RTK_INFO.bs_status, Info.RTK_INFO.bs_connected, js, LS);
+        
+        widgets.SurveyPanel(draw_list, ImVec2(1450, 22), scale, theme, Info.RTK_INFO.bs_status, Info.RTK_INFO.bs_connected, js, LS);
         switch (panel)
         {
 
@@ -789,6 +875,11 @@ int main(int argc, char **argv) {
 
             if (widgets.DrawCircleGradientButton(draw_list, winInit.getFont(24), 1.0f, ImVec2(130 * scale, 125 * scale), 50.0f * scale, "ESTOP", 40.0f * scale)) {
                 ground_control->send_command("estop"); 
+                auto now = ground_control->get_time();
+                if ((now - last_estop_log_time).seconds() > 1.0) {   
+                    ground_control->addLogLine(LogLevel::WARN, "Estop command sent");
+                    last_estop_log_time = now;
+                }
             }
 
             ImGui::SetCursorPos(ImVec2(1440 * scale, 670 * scale));
@@ -811,6 +902,11 @@ int main(int argc, char **argv) {
             location.NoSatMap(Info, 1500 * scale, map_size_x * scale, scale, map_zoom, theme);
              if (widgets.DrawCircleGradientButton(draw_list, winInit.getFont(24), 1.0f, ImVec2(130 * scale, 125 * scale), 50.0f * scale, "ESTOP", 40.0f * scale)) {
                 ground_control->send_command("estop"); 
+                auto now = ground_control->get_time();
+                if ((now - last_estop_log_time).seconds() > 1.0) {   
+                    ground_control->addLogLine(LogLevel::WARN, "Estop command sent");
+                    last_estop_log_time = now;
+                }
             }
 
             ImGui::SetCursorPos(ImVec2(1440 * scale, 670 * scale));
@@ -861,56 +957,69 @@ int main(int argc, char **argv) {
 
          // -----------------------------------Control Panel-----------------------------
 
-        BeginOverlayPanel(draw_list, "ControlPanel", ImVec2(90 * scale, 305 * scale), ImVec2(60 * scale, 300 * scale), scale, theme);
+        BeginOverlayPanel(draw_list, "ControlPanel", ImVec2(90 * scale, 305 * scale), ImVec2(60 * scale, 370 * scale), scale, theme);
 
         
         GLuint Up_Icon = theme ? images.at("up_white") : images.at("up");
         if (widgets.CustomButton(draw_list, ImVec2(120 * scale, 335 * scale), "Up", scale, Up_Icon, theme, -1, 5)) {
-            std::cout << "Takeoff Button Clicked!" << std::endl;
             ground_control->send_command("takeoff", vector<double>{-1.5}); 
+            ground_control->addLogLine(LogLevel::INFO,"Takeoff command sent");
         }
         ImGui::PushFont(winInit.getFont(14));
         draw_list->AddText(ImVec2(100 * scale, 362 * scale), colors.white_black(theme), "TakeOff");
 
-        GLuint Down_Icon = theme ? images.at("down_white") : images.at("down");
-        if (widgets.CustomButton(draw_list, ImVec2(120 * scale, 405 * scale), "Down", scale, Down_Icon, theme, -1, 5)) {
-            ground_control->send_command("land");
+        GLuint Goto_Icon = theme ? images.at("goto_white") : images.at("goto");
+        if (widgets.CustomButton(draw_list, ImVec2(120 * scale, 405 * scale), "Goto", scale, Goto_Icon, theme, -1, 5)) {
+            //ground_control->send_command("set_origin"); //!!! Make the goto function
+            //ground_control->addLogLine(LogLevel::INFO, "Goto (something something something) command sent");
         }
-        draw_list->AddText(ImVec2(107 * scale, 432 * scale), colors.white_black(theme), "Land");
+        draw_list->AddText(ImVec2(106 * scale, 432 * scale), colors.white_black(theme), "Goto");
+        
+
+        GLuint Down_Icon = theme ? images.at("down_white") : images.at("down");
+        if (widgets.CustomButton(draw_list, ImVec2(120 * scale, 475 * scale), "Down", scale, Down_Icon, theme, -1, 5)) {
+            ground_control->send_command("land");
+            ground_control->addLogLine(LogLevel::INFO, "Land command sent");
+        }
+        draw_list->AddText(ImVec2(107 * scale, 502 * scale), colors.white_black(theme), "Land");
 
         GLuint Home_Icon = theme ? images.at("home_white") : images.at("home");
-        if (widgets.CustomButton(draw_list, ImVec2(120 * scale, 475 * scale), "Home", scale, Home_Icon, theme, -1, 5)) {
+        if (widgets.CustomButton(draw_list, ImVec2(120 * scale, 545 * scale), "Home", scale, Home_Icon, theme, -1, 5)) {
             ground_control->send_command("rth"); 
+            ground_control->addLogLine(LogLevel::INFO, "Return to home command sent");
         }
-        draw_list->AddText(ImVec2(106 * scale, 502 * scale), colors.white_black(theme), "Home");
+        draw_list->AddText(ImVec2(106 * scale, 572 * scale), colors.white_black(theme), "Home");
 
         GLuint Origin_Icon = theme ? images.at("origin_white") : images.at("origin");
-        if (widgets.CustomButton(draw_list, ImVec2(120 * scale, 545 * scale), "Origin", scale, Origin_Icon, theme, -1, 5)) {
-           ground_control->send_command("set_origin"); 
+        if (widgets.CustomButton(draw_list, ImVec2(120 * scale, 615 * scale), "Origin", scale, Origin_Icon, theme, -1, 5)) {
+            ground_control->send_command("set_origin"); 
+            char origin_txt[64];
+            snprintf(origin_txt, sizeof(origin_txt), "Origin set at previously: %.2f , %.2f", Info.xyz_pos[0], Info.xyz_pos[1]);
+            ground_control->addLogLine(LogLevel::INFO, origin_txt);
         }
-        draw_list->AddText(ImVec2(106 * scale, 572 * scale), colors.white_black(theme), "Origin");
+        draw_list->AddText(ImVec2(106 * scale, 642 * scale), colors.white_black(theme), "Origin");
 
         ImGui::PopFont();
         EndOverlayPanel();
 
-        GLuint Send_Icon = images.at("send");
-        widgets.GotoPanel(ImVec2(70, 880), scale, theme, goto_text);
-        if (widgets.GotoButton(draw_list, ImVec2(390 * scale, 965 * scale), scale, theme, Send_Icon)){
-            istringstream iss(goto_text);
-            double x, y, z, yaw;
-
-            if (iss >> x >> y >> z >> yaw) {
-                ground_control->send_command("goto", vector<double>{x, y, z}, yaw);
-                logs.outputlog(ImVec2(500, 880), scale, theme);   // adjust to your actual logging call once that's built
-            } else {
-                istringstream iss2(goto_text);
-                if (iss2 >> x >> y >> z) {
-                    ground_control->send_command("goto", vector<double>{x, y, z}, 0.0);   // or last_yaw, if you track it
-                } else {
-                    cout << "Invalid input for goto, please enter x y z yaw values" << endl;
-                }
-            }
-        } 
+        //GLuint Send_Icon = images.at("send");
+        //widgets.GotoPanel(ImVec2(70, 880), scale, theme, goto_text);
+        //if (widgets.GotoButton(draw_list, ImVec2(390 * scale, 965 * scale), scale, theme, Send_Icon)){
+        //    istringstream iss(goto_text);
+        //    double x, y, z, yaw;
+//
+        //    if (iss >> x >> y >> z >> yaw) {
+        //        ground_control->send_command("goto", vector<double>{x, y, z}, yaw);
+        //        logs.outputlog(ImVec2(500, 880), scale, theme);   // adjust to your actual logging call once that's built
+        //    } else {
+        //        istringstream iss2(goto_text);
+        //        if (iss2 >> x >> y >> z) {
+        //            ground_control->send_command("goto", vector<double>{x, y, z}, 0.0);   // or last_yaw, if you track it
+        //        } else {
+        //            cout << "Invalid input for goto, please enter x y z yaw values" << endl;
+        //        }
+        //    }
+        //} 
         
 
 
@@ -929,7 +1038,9 @@ int main(int argc, char **argv) {
         info_panels.ResetPanelTracking();
 
     
-        logs.outputlog(ImVec2(500, 880), scale, theme);
+        if (logs.outputlog(ImVec2(70, 880), scale, theme, ground_control->getLogLines(), log_filters)) {
+            ground_control->clearLog();
+        }
 
 
 

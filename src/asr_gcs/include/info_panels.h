@@ -16,6 +16,7 @@
 
 #include "state_manager.h"
 #include "app_window.h"
+#include "widgets.h"
 
 extern WindowInitializer winInit;
 
@@ -25,9 +26,27 @@ struct panelInfo {
     int id;
 };
 
+enum class LogLevel {
+    DEBUG,
+    INFO,
+    WARN,
+    ERROR
+};
+
+struct LogEntry {
+    std::string timestamp;
+    LogLevel level;
+    std::string message;
+};
 
 
-
+struct LogFilters {
+    bool show_info = true;
+    bool show_warn = true;
+    bool show_error = true;
+    bool show_debug = false;
+};
+static LogFilters log_filters; 
 struct Graphs {
     void battery_graph(ImDrawList* draw_list, float x1, float y1, float x2, float y2,
                                                     float x1b, float y1b, float x2b, float y2b,
@@ -72,5 +91,5 @@ void DrawPanelBackground(ImDrawList* draw_list, ImVec2 pos, ImVec2 size,
 void framebuffer_size_callback(GLFWwindow* window, int width, int height);
 
 struct Logs {
-    void outputlog(ImVec2 pos, float scale, bool theme);
+    bool outputlog(ImVec2 pos, float scale, bool theme, const std::vector<LogEntry>& log_lines, const LogFilters& filters);
 };

@@ -123,6 +123,42 @@ bool Widgets::CustomButton(ImDrawList* draw_list, ImVec2 center,
 
     return released;
 }
+bool Widgets::DrawSmallRedButton(ImDrawList* draw_list, ImVec2 center, float scale, const char* label)
+{
+    float size_x = 40 * scale;
+    float size_y = 15 * scale;
+    ImVec2 bb_min = ImVec2(center.x - size_x, center.y - size_y);
+    ImVec2 bb_max = ImVec2(center.x + size_x, center.y + size_y);
+    float rounding = 6.0f * scale;
+
+    bool hovered = ImGui::IsMouseHoveringRect(bb_min, bb_max);
+    bool active = hovered && ImGui::IsMouseDown(0);
+    bool released = hovered && ImGui::IsMouseReleased(0);
+
+    ImVec4 normal_color  = ImVec4(0.7f, 0.15f, 0.15f, 1.0f);
+    ImVec4 hovered_color = ImVec4(
+        normal_color.x + 0.15f,
+        normal_color.y + 0.15f,
+        normal_color.z + 0.15f,
+        normal_color.w
+    );
+    ImVec4 active_color = ImVec4(
+        normal_color.x * 0.7f,
+        normal_color.y * 0.7f,
+        normal_color.z * 0.7f,
+        normal_color.w
+    );
+
+    ImVec4 base_color = active ? active_color : hovered ? hovered_color : normal_color;
+
+    draw_list->AddRectFilled(bb_min, bb_max, ImGui::ColorConvertFloat4ToU32(base_color), rounding);
+
+    ImVec2 text_size = ImGui::CalcTextSize(label);
+    ImVec2 text_pos = ImVec2(center.x - text_size.x / 2, center.y - text_size.y / 2);
+    draw_list->AddText(text_pos, IM_COL32(255, 255, 255, 255), label);
+
+    return released;
+}
 
 bool Widgets::ArmButton(ImDrawList* draw_list, ImVec2 center, float scale, bool theme, bool arming_state){
     float rounding = 8.0f;
@@ -538,7 +574,7 @@ void Widgets::Compas(ImDrawList* draw_list,ImVec2 center, const EulerAngles& ori
     snprintf(headingStr, sizeof(headingStr), "%.0f°", fmodf(orientation.yaw + 360.0f, 360.0f));
 
     ImVec2 textSize = ImGui::CalcTextSize(headingStr);
-    ImVec2 textPos = ImVec2((center.x - textSize.x * 0.5f) + 2 , (center.y - textSize.y * 0.5f) + 10);
+    ImVec2 textPos = ImVec2((center.x - textSize.x * 0.5f) + 2 * scale, (center.y - textSize.y * 0.5f) + 10 * scale);
 
     draw_list->AddText(textPos, Color::white_black(theme), headingStr);
     draw_list->AddCircle(center, radius, IM_COL32(0, 0, 0, 255), 64, 3.0f);
@@ -697,7 +733,7 @@ void Widgets::SurveyPanel(ImDrawList* draw_list, ImVec2 pos, float scale, bool t
     ImVec4 notconnected_color = inactive_color;
     ImVec4 connected_color    = streaming_color;
 
-    constexpr float kDotToLabelGap = 25.0f;  
+    constexpr float kDotToLabelGap = 15.0f;  
     constexpr float kEntryGap      = 25.0f;  
 
     float cursor_x = 0.0f;
@@ -719,13 +755,12 @@ void Widgets::SurveyPanel(ImDrawList* draw_list, ImVec2 pos, float scale, bool t
         case RTK_STATUS::SURVEY_IN: rtk_survey_color = survey_color;    break;
         case RTK_STATUS::STREAMING: rtk_survey_color = streaming_color; break;
     }
-
-    StatusDot(rtk_survey_color, "RTK-Survey");
-    StatusDot(bs_connected                  ? connected_color : notconnected_color, "RTK-Connected");
-    StatusDot(js.connected                  ? connected_color : notconnected_color, "Controller Connected");
     StatusDot(link_status.mavlink_connected ? connected_color : notconnected_color, "Radio");
     StatusDot(link_status.wifi_connected    ? connected_color : notconnected_color, "WiFi");
-    StatusDot(link_status.camera_streaming  ? connected_color : notconnected_color, "Camera Streaming");
+    StatusDot(rtk_survey_color, "RTK-Survey");
+    StatusDot(link_status.camera_streaming  ? connected_color : notconnected_color, "Camera");
+    StatusDot(js.connected                  ? connected_color : notconnected_color, "Controller");
+    
 }
 
 static size_t CurlWriteCallback(void* contents, size_t size, size_t nmemb, std::string* userp) {

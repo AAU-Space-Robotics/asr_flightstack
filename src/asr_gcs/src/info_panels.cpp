@@ -1,5 +1,6 @@
 #include "info_panels.h"
 #include "app_window.h"
+#include "widgets.h"
 
 
 float map_value(float value, float in_min, float in_max, float out_min, float out_max) {
@@ -158,7 +159,7 @@ bool InfoPanels::CollapseButton(ImDrawList* draw_list, ImVec2 pos, float scale, 
 
 void InfoPanels::Battery_Info(float scale, bool theme, const BatteryState& battery_info_C, const BatteryState& battery_info_M, double motor_speeds[4]){
     int size;
-    static bool Motor_panel_open = true;
+    static bool Motor_panel_open = false;
     if(Motor_panel_open) {
         size = 350 * scale;
     } else {
@@ -297,7 +298,7 @@ void InfoPanels::Battery_Info(float scale, bool theme, const BatteryState& batte
 
             char motor_text[16];
             snprintf(motor_text, sizeof(motor_text), "%.0f%%", motor_val * 100.0f);
-            draw->AddText(ImVec2(pos.x + bar_x_start + bar_width + 50 * scale, row_y),
+            draw->AddText(ImVec2(pos.x + bar_x_start + bar_width + 40 * scale, row_y),
                           Color::dwhite_lblack(theme), motor_text);
         }
 
@@ -358,7 +359,7 @@ void InfoPanels::Position_Info(float scale, bool theme, float pos_meter[3], floa
     char speed_char[8];
     snprintf(speed_char, sizeof(speed_char), "%.2f", speed_numb);
     draw->AddText(ImVec2((pos.x + 250 * scale), (pos.y + 170 * scale)), Color::dwhite_lblack(theme), speed_char);
-    draw->AddText(ImVec2((pos.x + 10 * scale), (pos.y + 170 * scale)), Color::dwhite_lblack(theme), "Speed m/s");
+    draw->AddText(ImVec2((pos.x + 10 * scale), (pos.y + 170 * scale)), Color::dwhite_lblack(theme), "Ground Speed m/s");
 
     InfoPanels::End_panels();
 }
@@ -409,28 +410,70 @@ void InfoPanels::Probe_Info(float scale, bool theme, const ProbeData& info){
 
     InfoPanels::End_panels();
 }
-
-void Logs::outputlog(ImVec2 pos, float scale, bool theme){ 
-    ImVec2 size =ImVec2(1070 * scale, 160 * scale);
+bool Logs::outputlog(ImVec2 pos, float scale, bool theme, const std::vector<LogEntry>& log_lines, const LogFilters& filters){ 
+    ImVec2 size = ImVec2(900 * scale, 160 * scale);
     ImGui::SetCursorPos(ImVec2(pos.x * scale, pos.y * scale)); 
     ImGui::PushStyleColor(ImGuiCol_ChildBg, Color::panelColor(theme));
     ImGui::PushStyleColor(ImGuiCol_Border, Color::panelBorder(theme));
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(8 * scale, 8 * scale));
     ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, 12.0f * scale);
     ImGui::PushStyleVar(ImGuiStyleVar_ChildBorderSize, 2.0f * scale);
-    ImGui::BeginChild("ConsoleLogger", size, true,
-                        ImGuiWindowFlags_NoScrollbar |
-                        ImGuiWindowFlags_NoScrollWithMouse);
+    ImGui::BeginChild("ConsoleLoggerOverpanel", size, true,
+        ImGuiWindowFlags_NoScrollbar |
+        ImGuiWindowFlags_NoScrollWithMouse);
+
     ImDrawList* draw = ImGui::GetWindowDrawList();
     ImVec2 windowPos = ImGui::GetWindowPos();
 
+    ImGui::PushFont(winInit.getFont(181));
+    draw->AddText(ImVec2((windowPos.x + 10), (windowPos.y + 10)), Color::white_black(theme), "Console logger");
+    ImGui::PopFont();
+    
+    ImGui::SetCursorScreenPos(ImVec2(windowPos.x + 15 * scale, windowPos.y + 50 * scale));
+    ImVec2 log_area_size = ImVec2(size.x - 35 * scale, size.y - 65 * scale);
 
+    ImGui::PushStyleColor(ImGuiCol_ChildBg, Color::bgColor(theme));
+    ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, 4.0f * scale);
+    ImGui::BeginChild("ConsoleLoggerContent", log_area_size, false,
+        ImGuiWindowFlags_AlwaysVerticalScrollbar);
+    
+    ImGui::PushFont(winInit.getFont(18));
+    for (const auto& entry : log_lines) {
+        if (entry.level == LogLevel::INFO  && !filters.show_info)  continue;
+        if (entry.level == LogLevel::WARN  && !filters.show_warn)  continue;
+        if (entry.level == LogLevel::ERROR && !filters.show_error) continue;
+        if (entry.level == LogLevel::DEBUG && !filters.show_debug) continue;
 
+        const char* level_text = "";
+        ImVec4 color;
+        switch (entry.level) {
+            case LogLevel::ERROR: level_text = "ERROR"; color = ImVec4(1.0f, 0.4f, 0.4f, 1.0f); break;
+            case LogLevel::WARN:  level_text = "WARN";  color = ImVec4(1.0f, 0.8f, 0.0f, 1.0f); break;
+            case LogLevel::INFO:  level_text = "INFO";  color = ImVec4(0.4f, 1.0f, 0.4f, 1.0f); break;
+            case LogLevel::DEBUG: level_text = "DEBUG"; color = ImVec4(0.7f, 0.7f, 0.7f, 1.0f); break;
+        }
+        ImGui::Text("[%s]", entry.timestamp.c_str());
+        ImGui::SameLine();
+        ImGui::TextColored(color, "%s", level_text);
+        ImGui::SameLine();
+        ImGui::Text("%s", entry.message.c_str());
+    }
+    ImGui::PopFont();
+
+    if (ImGui::GetScrollY() >= ImGui::GetScrollMaxY()) {
+        ImGui::SetScrollHereY(1.0f);
+    }
+    
     ImGui::EndChild();
-    ImGui::PopStyleVar(3);
-    ImGui::PopStyleColor(2);
-   
+    ImGui::PopStyleVar();
+    ImGui::PopStyleColor();
 
+    bool clear_clicked = Widgets::DrawSmallRedButton(draw, ImVec2(windowPos.x + size.x - 70 * scale, windowPos.y + 30 * scale), scale, "clear");
+
+    ImGui::EndChild();          
+    ImGui::PopStyleVar(3);     
+    ImGui::PopStyleColor(2);   
+    return clear_clicked;
 }
 
 void InfoPanels::GNSS_Info(float scale, bool theme, 

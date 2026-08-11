@@ -1,6 +1,6 @@
 from PIL import Image
 
-img = Image.open('/home/dksoren/asr_workspace/asr_flightstack/src/asr_gcs/images/moon.png').convert('RGBA')
+img = Image.open('/home/dksoren/asr_workspace/asr_flightstack/src/asr_gcs/images/goto.png').convert('RGBA')
 r, g, b, a = img.split()
 
 # Invert only RGB channels, keep alpha (transparency) untouched
@@ -9,4 +9,4 @@ g = g.point(lambda x: 255 - x)
 b = b.point(lambda x: 255 - x)
 
 inverted = Image.merge('RGBA', (r, g, b, a))
-inverted.save('moon_white.png')
+inverted.save('goto_white.png')
