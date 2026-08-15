@@ -124,6 +124,7 @@ add_executable(interface
   src/planner/map_overlay.cpp
   src/widgets.cpp
   src/manual.cpp
+  src/prearm_checklist.cpp
   src/planner/planner.cpp
   src/planner/planner_panel.cpp
   src/planner/save_load_dialog.cpp

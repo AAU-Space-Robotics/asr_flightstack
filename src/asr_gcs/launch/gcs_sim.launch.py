@@ -6,7 +6,8 @@ from launch_ros.substitutions import FindPackageShare
 def generate_launch_description():
     gcs_pkg_share = FindPackageShare('asr_gcs')
     comms_path = PathJoinSubstitution([gcs_pkg_share, 'config', 'gcs_comms.yaml'])
-            
+    checklist_path = PathJoinSubstitution([gcs_pkg_share, 'config', 'checklist.yaml'])
+
 
     return LaunchDescription([
        
@@ -32,6 +33,7 @@ def generate_launch_description():
             name='aau_groundcontrol_node',
             namespace='asr/gcs',
             output='screen',
+            parameters=[checklist_path],
         ),
 
         Node(

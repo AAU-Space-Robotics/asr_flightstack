@@ -55,7 +55,8 @@ float MissionControlBar::PanelTopY(float scale, float map_y, float map_h) const
 }
 
 float MissionControlBar::Draw(Planner &planner, float scale, bool theme,
-                               float map_x, float map_y, float map_w, float map_h)
+                               float map_x, float map_y, float map_w, float map_h,
+                               const std::function<void(std::function<void()>)> &guard_execute)
 {
     const std::vector<Issue> issues = planner.local_issues();
     size_t error_count = 0, warning_count = 0;
@@ -225,7 +226,7 @@ float MissionControlBar::Draw(Planner &planner, float scale, bool theme,
     ImGui::BeginDisabled(!can_execute);
     PushThemedButtonStyle(theme, false);
     if (ImGui::Button("Execute")) {
-        planner.start();
+        guard_execute([&planner]() { planner.start(); });
     }
     PopThemedButtonStyle();
     ImGui::EndDisabled();

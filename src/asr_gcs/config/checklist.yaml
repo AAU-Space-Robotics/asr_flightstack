@@ -1,0 +1,9 @@
+# Pre-arm checklist gate. When require_checklist is true, Arm opens a confirmation
+# modal (physical inspection, area clear, RTK acknowledgement) instead of arming
+# immediately -- see PreArmChecklist / main.cpp's request_arm().
+
+/asr/gcs/aau_groundcontrol_node:
+  ros__parameters:
+    require_checklist: true
+    min_battery_percent: 40.0   # motor battery -- below this, the checklist's battery row needs an explicit override
+    min_satellites: 6           # hard block, no override -- below this the checklist won't let you arm at all

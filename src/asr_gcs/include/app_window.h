@@ -42,6 +42,7 @@ struct DroneInformation {
     BaseStateInfo RTK_INFO;
     ProbeData probes;
     LinkStatus link_status;
+    bool estop = false;
 };
 
 

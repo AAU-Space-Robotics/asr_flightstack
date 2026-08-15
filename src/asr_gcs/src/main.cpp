@@ -12,6 +12,7 @@
 #include "planner/planner_panel.h"
 #include "planner/mission_control_bar.h"
 #include "planner/height_chart.h"
+#include "prearm_checklist.h"
 #include <implot.h>
 
 
@@ -147,6 +148,10 @@ public:
         manual_control_pub_ = create_publisher<asr_comms::msg::ManualControlInput>("in/manual_input", qos);
 
         uav_command_pub_ = create_publisher<asr_comms::msg::UAVCommand>("in/uav_command", 10);
+
+        require_checklist_ = declare_parameter<bool>("require_checklist", true);
+        min_battery_percent_ = declare_parameter<double>("min_battery_percent", 40.0);
+        min_satellites_ = declare_parameter<int>("min_satellites", 6);
     }
     void start()
     {
@@ -188,6 +193,13 @@ public:
     LinkStatus getLinkStatus() {
         std::lock_guard<std::mutex> lock(link_status_mutex_);
         return link_status_;
+    }
+    bool requireChecklist() const { return require_checklist_; }
+    double minBatteryPercent() const { return min_battery_percent_; }
+    int minSatellites() const { return min_satellites_; }
+    bool getEstop() const {
+        std::lock_guard<std::mutex> lock(estop_mutex_);
+        return estop_engaged_;
     }
     void addLogLine(LogLevel level,  const std::string& message)
     {
@@ -250,6 +262,13 @@ private:
 
     LinkStatus link_status_;
     mutable std::mutex link_status_mutex_;
+
+    bool require_checklist_ = true;
+    double min_battery_percent_ = 40.0;
+    int min_satellites_ = 6;
+
+    bool estop_engaged_ = false;
+    mutable std::mutex estop_mutex_;
 
     std::vector<LogEntry> log_lines_;
     mutable std::mutex log_mutex_;
@@ -373,6 +392,10 @@ private:
             std::lock_guard<std::mutex> lock(flight_mode_mutex_);
             current_flight_mode_ = static_cast<FlightMode>(msg->flight_mode);
         }
+        {
+            std::lock_guard<std::mutex> lock(estop_mutex_);
+            estop_engaged_ = (msg->estop != 0);
+        }
 
         Stamped4DVector actuator_speed(get_time(),
             msg->actuator_speeds[0],
@@ -468,6 +491,24 @@ int main(int argc, char **argv) {
     Planner planner(ground_control.get());
     PlannerPanel planner_panel(planner);
     MissionControlBar mission_control_bar;
+    PreArmChecklist prearm_checklist;
+    bool arming_state = false;
+    const bool require_checklist = ground_control->requireChecklist();
+    const double min_battery_percent = ground_control->minBatteryPercent();
+    const int min_satellites = ground_control->minSatellites();
+    auto guard_with_checklist = [&](std::function<void()> action) {
+        if (!arming_state && require_checklist) {
+            prearm_checklist.Open(std::move(action));
+        } else {
+            action();
+        }
+    };
+    auto request_arm = [&]() {
+        guard_with_checklist([ground_control]() {
+            ground_control->send_command("arm");
+            ground_control->addLogLine(LogLevel::INFO, "Arm command sent");
+        });
+    };
     DroneInformation Info;
     Transformations transformations_;
 
@@ -477,7 +518,6 @@ int main(int argc, char **argv) {
     int map_zoom = 20;
     double Latitude = 57.063, Longitude = 10.032;
       // shared between FlightMode and Mission Planner map views
-    bool arming_state = false;
     int panel = 0;
     //bool is_manual = (Info.flight_mode == FlightMode::MANUAL_AIDED); for later:
     bool is_manual = false;
@@ -660,6 +700,16 @@ int main(int argc, char **argv) {
         Info.RTK_INFO = ground_control->getStateManager().getRTKstatus();
         Info.flight_mode = ground_control->getFlightMode();
         Info.probes = ground_control->getStateManager().getInterfaceProbeLocations();
+        Info.estop = ground_control->getEstop();
+
+        PreArmSnapshot prearm_snapshot;
+        prearm_snapshot.rtk_status = Info.RTK_INFO.bs_status;
+        prearm_snapshot.battery_percent = Info.battery_values_M.charge_remaining * 100.0;  // charge_remaining is a 0-1 fraction (PX4 convention)
+        prearm_snapshot.min_battery_percent = static_cast<float>(min_battery_percent);
+        prearm_snapshot.estop_engaged = Info.estop;
+        prearm_snapshot.satellites_used = Info.gps_status.satellites_used;
+        prearm_snapshot.min_satellites = min_satellites;
+        const std::vector<std::string> prearm_hard_issues = PreArmHardBlockIssues(prearm_snapshot);
         
         
         if (!mode_switch_pending) {   
@@ -790,13 +840,17 @@ int main(int argc, char **argv) {
         }
         if (widgets.ArmButton(draw_list,ImVec2(340 * scale, 30 * scale), scale, theme, arming_state )){
             if(!arming_state){
-                ground_control->send_command("arm");
-                ground_control->addLogLine(LogLevel::INFO, "Arm command sent");
+                request_arm();
             } else {
                 ground_control->send_command("disarm");
                 ground_control->addLogLine(LogLevel::INFO,"Disarm command sent");
             }
-                
+
+        }
+
+        if (require_checklist && !arming_state) {
+            DrawIssuesBadge(draw_list, ImVec2(400 * scale, 12 * scale), scale,
+                             static_cast<int>(prearm_hard_issues.size()));
         }
 
         if (widgets.ModeToggle(draw_list, ImVec2(160 * scale, 30 * scale), scale, theme, is_manual)) {
@@ -824,8 +878,7 @@ int main(int argc, char **argv) {
 
             // Arm/land on rising edge only. It should not resend every frame the button is held.
             if (ctrl.arm_pressed && !prev_controller_arm_button) {
-                ground_control->send_command("arm");
-                ground_control->addLogLine(LogLevel::INFO, "Arm command sent");
+                request_arm();
             }
             prev_controller_arm_button = ctrl.arm_pressed;
 
@@ -953,7 +1006,8 @@ int main(int argc, char **argv) {
         
 
         mission_control_bar.Draw(planner, scale, theme,
-                                 70 * scale, 70 * scale, 1500 * scale, 800 * scale);
+                                 70 * scale, 70 * scale, 1500 * scale, 800 * scale,
+                                 guard_with_checklist);
 
          // -----------------------------------Control Panel-----------------------------
 
@@ -1127,7 +1181,9 @@ int main(int argc, char **argv) {
             break;
         }
         ImGui::End();
-
+   
+        prearm_checklist.Draw(draw_list, ImVec2(450 * scale, 62 * scale), scale, theme,
+                               prearm_snapshot, prearm_hard_issues);
 
         // Rendering
         ImGui::Render();
