@@ -230,15 +230,40 @@ void Location::NoSatMap(const DroneInformation& Info, float width, float height,
     ImVec2 pos = ImGui::GetWindowPos();
     ImVec2 center = ImVec2(pos.x + width * 0.5f, pos.y + height * 0.5f);
     
+    float world_min = -50.0f;
+    float world_max = 50.0f;
+    float world_range = world_max - world_min; 
+
+    float pixels_per_meter_x = width  / world_range;
+    float pixels_per_meter_y = height / world_range;
+    float grid_step_meters = 10.0f;
+
     ImVec2 dot_pos;
-    dot_pos.x = map_value(Info.xyz_pos[1], -50.0f, 50.0f, pos.x, pos.x + width); //flipped x and y to match satmap
-    dot_pos.y = map_value(-Info.xyz_pos[0], -50.0f, 50.0f, pos.y, pos.y + height);
+    dot_pos.x = map_value(Info.xyz_pos[1], world_min, world_max, pos.x, pos.x + width); //flipped x and y to match satmap
+    dot_pos.y = map_value(-Info.xyz_pos[0], world_min, world_max, pos.y, pos.y + height);
+
+    
+
+     for (int i = -5; i <= 5; i++) {   // -50, -40, ..., 0, ..., 40, 50
+        float x_offset = i * grid_step_meters * pixels_per_meter_x;
+        float line_x = center.x + x_offset;
+        draw->AddLine(
+            ImVec2(line_x, pos.y),
+            ImVec2(line_x, pos.y + height),
+            Color::panelBorder(theme), 1.0f);
+    }
+
+    
+    for (int i = -5; i <= 5; i++) {
+        float y_offset = i * grid_step_meters * pixels_per_meter_y;
+        float line_y = center.y + y_offset;
+        draw->AddLine(
+            ImVec2(pos.x, line_y),
+            ImVec2(pos.x + width, line_y),
+            Color::panelBorder(theme), 1.0f);
+    }
 
     draw->AddCircleFilled(dot_pos, 6.0f * scale, IM_COL32(255, 50, 50, 255));
-
-
-
-
 
 
     float roundRadius = 12.0f * scale;

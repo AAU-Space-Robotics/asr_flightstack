@@ -125,6 +125,7 @@ add_executable(interface
   src/widgets.cpp
   src/manual.cpp
   src/prearm_checklist.cpp
+  src/camera.cpp
   src/planner/planner.cpp
   src/planner/planner_panel.cpp
   src/planner/save_load_dialog.cpp

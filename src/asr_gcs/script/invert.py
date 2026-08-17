@@ -1,6 +1,6 @@
 from PIL import Image
 
-img = Image.open('/home/dksoren/asr_workspace/asr_flightstack/src/asr_gcs/images/goto.png').convert('RGBA')
+img = Image.open('/home/dksoren/asr_workspace/asr_flightstack/src/asr_gcs/images/camera.png').convert('RGBA')
 r, g, b, a = img.split()
 
 # Invert only RGB channels, keep alpha (transparency) untouched

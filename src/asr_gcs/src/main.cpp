@@ -8,6 +8,7 @@
 #include "planner/map_overlay.h"
 #include "widgets.h"
 #include "manual.h"
+#include "camera.h"
 #include "planner/planner.h"
 #include "planner/planner_panel.h"
 #include "planner/mission_control_bar.h"
@@ -48,6 +49,9 @@
 #include "asr_comms/msg/link_stats.hpp"
 #include "asr_comms/msg/command_ack.hpp"
 
+#include "sensor_msgs/msg/compressed_image.hpp"
+#include "asr_comms/msg/camera_stream_request.hpp"
+
 #include <px4_msgs/msg/vehicle_attitude.hpp>
 #include <px4_msgs/msg/vehicle_local_position.hpp>
 #include <px4_msgs/msg/distance_sensor.hpp>
@@ -62,6 +66,7 @@ TestFunc test_functions;
 InfoPanels info_panels;
 Logs logs;
 ManualController manual_controller;
+cv::Mat frame;
 
 using namespace std;
 using namespace px4_msgs::msg;
@@ -90,8 +95,15 @@ public:
         rclcpp::QoS qos_volatile(10);
         qos_volatile.reliability(rclcpp::ReliabilityPolicy::BestEffort);
         qos_volatile.durability(rclcpp::DurabilityPolicy::Volatile);
+
+        rclcpp::QoS camera_qos(10);
+        camera_qos.reliability(rclcpp::ReliabilityPolicy::BestEffort);
+        camera_qos.durability(rclcpp::DurabilityPolicy::Volatile);
+
         bool use_sim_time = false;
         clock_ = std::make_shared<rclcpp::Clock>(use_sim_time ? RCL_ROS_TIME : RCL_SYSTEM_TIME);
+
+
 
         std::cout << "\n"
           << "=============================\n"
@@ -138,6 +150,9 @@ public:
         command_ack_sub_ = create_subscription<asr_comms::msg::CommandAck>(
             "command_ack", 10,
             [this](const asr_comms::msg::CommandAck::SharedPtr msg) { commandAckCallback(msg); });
+        camera_sub_ = create_subscription<sensor_msgs::msg::CompressedImage>(
+            "camera/image/compressed", 10,
+            [this](const sensor_msgs::msg::CompressedImage::SharedPtr msg) { cameraCallback(msg); });
 
 
         heartbeat_pub_ = create_publisher<GcsHeartbeat>("in/gcs_heartbeat", qos);
@@ -149,9 +164,12 @@ public:
 
         uav_command_pub_ = create_publisher<asr_comms::msg::UAVCommand>("in/uav_command", 10);
 
+        camera_stream_pub_ = create_publisher<asr_comms::msg::CameraStreamRequest>("in/camera_stream", 1);
+
         require_checklist_ = declare_parameter<bool>("require_checklist", true);
         min_battery_percent_ = declare_parameter<double>("min_battery_percent", 40.0);
         min_satellites_ = declare_parameter<int>("min_satellites", 6);
+        
     }
     void start()
     {
@@ -233,7 +251,18 @@ public:
         std::lock_guard<std::mutex> lock(log_mutex_);
         log_lines_.clear();
     }
-    
+    cv::Mat getCameraFrame()
+    {
+        std::lock_guard<std::mutex> lock(camera_mutex_);
+        return latest_camera_frame_.clone();
+    }
+    void setCameraStreaming(bool enabled)
+    {
+        auto msg = asr_comms::msg::CameraStreamRequest();
+        msg.enabled = enabled;
+        camera_stream_pub_->publish(msg);
+        addLogLine(LogLevel::INFO, enabled ? "Camera stream start requested" : "Camera stream stop requested");
+    }
 private:
     StateManager state_manager_;
     Transformations transformations_;
@@ -256,6 +285,12 @@ private:
     rclcpp::TimerBase::SharedPtr heartbeat_timer_;
     rclcpp::Publisher<asr_comms::msg::UAVCommand>::SharedPtr uav_command_pub_;
     
+    cv::Mat latest_camera_frame_;
+    rclcpp::Subscription<sensor_msgs::msg::CompressedImage>::SharedPtr camera_sub_;
+    rclcpp::Publisher<asr_comms::msg::CameraStreamRequest>::SharedPtr camera_stream_pub_;
+    bool new_camera_frame_available_ = false;
+    mutable std::mutex camera_mutex_;
+      
 
     FlightMode current_flight_mode_ = FlightMode::STANDBY;
     mutable std::mutex flight_mode_mutex_;
@@ -273,6 +308,8 @@ private:
     std::vector<LogEntry> log_lines_;
     mutable std::mutex log_mutex_;
     static constexpr size_t MAX_LOG_LINES = 200;
+
+    
     
 
 
@@ -453,6 +490,16 @@ private:
         std::string log_message = msg->command_type + " -> " + MavResultToText(msg->result);
         addLogLine(level, log_message);
     }
+    void cameraCallback(const sensor_msgs::msg::CompressedImage::SharedPtr msg)
+    {
+        cv::Mat encoded(1, msg->data.size(), CV_8UC1, const_cast<uint8_t*>(msg->data.data()));
+        cv::Mat decoded = cv::imdecode(encoded, cv::IMREAD_COLOR);
+        if (decoded.empty()) return;
+    
+        std::lock_guard<std::mutex> lock(camera_mutex_);
+        latest_camera_frame_ = decoded;
+    }
+    
     
 };
 EulerAngles quaternionToEulerForDisplay(const Eigen::Quaterniond& q) //trying to do a fix..........
@@ -534,6 +581,10 @@ int main(int argc, char **argv) {
 
     std::atomic<bool> tiles_downloading{false};
     bool tiles_download_triggered = false;
+
+    GLuint camera_texture_ = 0; 
+
+     static bool camera_stream_requested = false;
     
 
     glfwSetErrorCallback([](int error, const char* description) {
@@ -597,7 +648,9 @@ int main(int argc, char **argv) {
         {"switch",      "switch.png"},
         {"send",        "send.png"},
         {"goto",        "goto.png"},
-        {"goto_white",   "goto_white.png"}
+        {"goto_white",   "goto_white.png"},
+        {"camera",          "camera.png"},
+        {"camera_white",          "camera_white.png"}
     };
     
     GLuint placeholderTile = location.display_map((package_path + "/images/tile_placeholder.png").c_str(), 1.0f);
@@ -710,6 +763,7 @@ int main(int argc, char **argv) {
         prearm_snapshot.satellites_used = Info.gps_status.satellites_used;
         prearm_snapshot.min_satellites = min_satellites;
         const std::vector<std::string> prearm_hard_issues = PreArmHardBlockIssues(prearm_snapshot);
+        bool actually_streaming = ground_control->getLinkStatus().camera_streaming;
         
         
         if (!mode_switch_pending) {   
@@ -752,6 +806,14 @@ int main(int argc, char **argv) {
             );
             draw_list->AddText(loading_pos, IM_COL32(0, 0, 0, 255), "Downloading map tiles...");
         }
+
+        cv::Mat frame = ground_control->getCameraFrame();
+        if (!frame.empty()) {
+            if (camera_texture_ != 0) glDeleteTextures(1, &camera_texture_);
+            camera_texture_ = UploadCameraFrameToGL(frame);
+        }
+
+   
 
          // --- ------------------------------------Side panel--------------------------------------------
 
@@ -808,8 +870,8 @@ int main(int argc, char **argv) {
             );
         }
         if (widgets.CustomButton(draw_list, ImVec2(30 * scale, 220 * scale),"Placeholder",scale, Placeholder_Icon, theme, 0, 2)) {
-           cout << "howdi" <<endl;
-           ground_control->addLogLine(LogLevel::ERROR,"Howdi");
+          // cout << "howdi" <<endl;
+          // ground_control->addLogLine(LogLevel::ERROR,"Howdi");
            panel = 2;
 
         }
@@ -824,21 +886,21 @@ int main(int argc, char **argv) {
         
         draw_list->AddImageRounded(
             (ImTextureID)(intptr_t)images.at("aau_logo"),
-            ImVec2(5 * scale, 5 * scale),  
+            ImVec2(8 * scale, 8 * scale),  
             ImVec2(55 * scale, 55 * scale),  // inset max
             ImVec2(0, 0), ImVec2(1, 1),
             IM_COL32(255, 255, 255, 200),
             12.0f
         );
-        for (int i = 0; i <= 200; i+=200){
+        for (int i = 0; i <= 208; i+=208){
             draw_list->AddLine(
-                ImVec2((60 + i) * scale, 10 * scale),
-                ImVec2((60 + i) * scale, 45 * scale),   
+                ImVec2((59 + i) * scale, 5 * scale),
+                ImVec2((59 + i) * scale, 50 * scale),   
                 colors.panelBorder(theme),
-                1.0f
+                2.0f
             );
         }
-        if (widgets.ArmButton(draw_list,ImVec2(340 * scale, 30 * scale), scale, theme, arming_state )){
+        if (widgets.ArmButton(draw_list,ImVec2(342 * scale, 30 * scale), scale, theme, arming_state )){
             if(!arming_state){
                 request_arm();
             } else {
@@ -853,7 +915,7 @@ int main(int argc, char **argv) {
                              static_cast<int>(prearm_hard_issues.size()));
         }
 
-        if (widgets.ModeToggle(draw_list, ImVec2(160 * scale, 30 * scale), scale, theme, is_manual)) {
+        if (widgets.ModeToggle(draw_list, ImVec2(164 * scale, 30 * scale), scale, theme, is_manual)) {
             if (is_manual) {
                 
                 if (js.connected) {
@@ -1171,6 +1233,14 @@ int main(int argc, char **argv) {
         break;
         case 2:
         {
+            
+ 
+        GLuint Camera_Icon = theme ? images.at("camera_white") : images.at("camera");
+            if (widgets.CustomButton(draw_list, ImVec2(1200 * scale, 500 * scale), "Camera", scale, Camera_Icon, theme, 2, 5)) {
+                camera_stream_requested = !camera_stream_requested;
+                ground_control->setCameraStreaming(camera_stream_requested);
+            }
+         CameraFeedPanel(ImVec2(500 * scale, 500 * scale), scale, theme, camera_texture_);
             //WeatherData data_test;
             //data_test = FetchWeather(Info.gps_status.latitude, Info.gps_status.longitude);
             //cout << data_test.temperature << " Cloud Cover: " << data_test.cloud_cover << " Windspeed: " << data_test.wind_speed_level << endl;

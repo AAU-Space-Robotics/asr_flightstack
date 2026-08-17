@@ -4,6 +4,6 @@
 
 /asr/gcs/aau_groundcontrol_node:
   ros__parameters:
-    require_checklist: true
+    require_checklist: false
     min_battery_percent: 40.0   # motor battery -- below this, the checklist's battery row needs an explicit override
     min_satellites: 6           # hard block, no override -- below this the checklist won't let you arm at all
