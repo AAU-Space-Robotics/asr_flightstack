@@ -34,7 +34,7 @@ target_include_directories(asr_mission_lib PUBLIC
 )
 target_link_libraries(asr_mission_lib
   nlohmann_json::nlohmann_json
-  yaml-cpp::yaml-cpp
+  yaml-cpp
   OpenSSL::Crypto
 )
 
