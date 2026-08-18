@@ -35,7 +35,7 @@ from asr_comms.msg import TelemetryPosition, TelemetryAttitude, TelemetryBattery
 from asr_comms.msg import GcsHeartbeat
 from asr_comms.msg import UAVCommand, CommandAck
 from asr_comms.msg import ServoCommand
-from asr_comms.msg import ProbeGlobalLocations
+from asr_comms.msg import ProbeLocations
 from dataclasses import dataclass
 from decimal import Decimal as _BaseDecimal
 import numpy as _np
@@ -216,7 +216,7 @@ position_timestamp = 0
 velocity_timestamp = 0
 probe_timestamp = 0
 takeoff_time = 0
-battery_voltage, battery_current, battery_percentage = 0.0, 0.0, 0.0
+battery_voltage, battery_current, battery_percentage, battery_voltage_2, battery_percentage_2 = 0.0, 0.0, 0.0, 0.0, 0.0
 battery_discharge_rate, battery_average_current = 0.0, 0.0
 arming_state = 0
 estop = 0
@@ -320,7 +320,7 @@ class DroneGuiNode(Node):
         )
         self.battery_sub = self.create_subscription(
             TelemetryBattery,
-            "telemetry/battery",
+            "telemetry/battery_main",
             self.battery_callback,
             10
         )
@@ -338,7 +338,7 @@ class DroneGuiNode(Node):
         )
         
         self.subscription = self.create_subscription(
-           ProbeGlobalLocations,
+           ProbeLocations,
            '/asr/probe_detector/global_probe_locations',
            self.probe_callback,
            qos
@@ -350,6 +350,12 @@ class DroneGuiNode(Node):
             "/fmu/out/distance_sensor",
             self.distance_sensor_callback,
             qos
+        )
+        self.battery_sub_2= self.create_subscription(
+            TelemetryBattery,
+            "telemetry/battery_compute",
+            self.battery_callback_2,
+            10
         )
         self.publisher_ = self.create_publisher(
             GcsHeartbeat, 'in/gcs_heartbeat', qos)
@@ -422,6 +428,12 @@ class DroneGuiNode(Node):
         battery_percentage = msg.percentage
         battery_discharge_rate = msg.discharged_mah
         battery_average_current = msg.average_current
+
+    def battery_callback_2(self, msg):
+        global battery_percentage_2, battery_voltage_2
+
+        battery_percentage_2 = msg.percentage
+        battery_voltage_2 = msg.voltage
 
     def gps_callback(self, msg):
         global longitude, latitude, satellites_used
@@ -917,19 +929,31 @@ def probe_Field(node, filename):
     imgui.set_cursor_pos((53, 900)); imgui.text(f" TS: {velocity_timestamp}")
     GUIButton.button_save(275, 650, font, "save", filename, probes, transformed_probes)
 def batteryGraph():
-    global battery_voltage, battery_current, battery_percentage, battery_average_current
+    global battery_voltage, battery_current, battery_percentage, battery_average_current, battery_voltage_2, battery_percentage_2
     battery_progressbar = map_value(battery_percentage, 0, 1, 109, 44)
+    battery_progressbar_2 = map_value(battery_percentage_2, 0, 1, 219, 154)
     graphs.battery_graph(1800, 40, 1840, 110, 1807, 31, 1832, 38)
+    graphs.battery_graph(1800, 150, 1840, 220, 1807, 141, 1832, 148)
     if(battery_percentage > 0.5):
         battery_color = imgui.get_color_u32_rgba(0.0, 1.0, 0.0, 1.0)
     elif(battery_percentage > 0.25):
         battery_color = imgui.get_color_u32_rgba(1.0, 1.0, 0.0, 1.0)
     else:
         battery_color = imgui.get_color_u32_rgba(1.0, 0.0, 0.0, 1.0)
+
+    if(battery_percentage_2 > 0.5):
+        battery_color_2 = imgui.get_color_u32_rgba(0.0, 1.0, 0.0, 1.0)
+    elif(battery_percentage_2 > 0.25):
+        battery_color_2 = imgui.get_color_u32_rgba(1.0, 1.0, 0.0, 1.0)
+    else:
+        battery_color_2 = imgui.get_color_u32_rgba(1.0, 0.0, 0.0, 1.0)
     imgui.set_cursor_pos((1799, 116)); imgui.text(f"{Decimal(100*battery_percentage).quantize(Decimal('0.00'))} %")
+    imgui.set_cursor_pos((1799, 226)); imgui.text(f"{Decimal(100*battery_percentage_2).quantize(Decimal('0.00'))} %")
     draw_list = imgui.get_window_draw_list()
     draw_list.add_rect_filled(1803,106,1837,(battery_progressbar),battery_color, rounding=1.0,flags=15)
+    draw_list.add_rect_filled(1803,216,1837,(battery_progressbar_2),battery_color_2, rounding=1.0,flags=15)
     imgui.set_cursor_pos((1595, 30)); imgui.text(f"Voltage:          {Decimal(battery_voltage).quantize(Decimal('0.0'))} V")
+    imgui.set_cursor_pos((1595, 150)); imgui.text(f"Voltage for Jetson: {Decimal(battery_voltage_2).quantize(Decimal('0.0'))} V")
     imgui.set_cursor_pos((1595, 60)); imgui.text(f"Current:          {-(Decimal(battery_current).quantize(Decimal('0.0')))} A")
     imgui.set_cursor_pos((1595, 90)); imgui.text(f"Discharge rate:   {Decimal(battery_discharge_rate).quantize(Decimal('0.0'))} mAh")
     imgui.set_cursor_pos((1595, 120)); imgui.text(f"Average current:  {-(Decimal(battery_average_current).quantize(Decimal('0.0')))} A")
@@ -948,7 +972,7 @@ def batteryGraph():
     end_x, end_y = 1585, 132      # Ending point of the line (x, y)
     color = imgui.get_color_u32_rgba(1.0, 1.0, 1.0, 1.0) 
     draw_list.add_line(start_x,start_y, end_x, end_y, color, 2.0)
-    imgui.set_cursor_pos((1655, 175)); imgui.text(f" TS:  {battery_state_timestamp}")
+    imgui.set_cursor_pos((1595, 175)); imgui.text(f" TS:  {battery_state_timestamp}")
 
 def map_value(value, in_min, in_max, out_min, out_max):
     return (value - in_min) * (out_max - out_min) / (in_max - in_min) + out_min

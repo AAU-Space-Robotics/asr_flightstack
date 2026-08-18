@@ -61,7 +61,6 @@ Eigen::Vector3d Controller::positionControl(double sample_time,
     return Eigen::Vector3d(vx, vy, vz);
 }
 
-
 Eigen::Vector4d Controller::velocityControl(double sample_time,
                                                 VelocityError& previous_velocity_error,
                                                 const Stamped3DVector& velocity_ned_earth,
@@ -114,6 +113,11 @@ Eigen::Vector4d Controller::velocityControl(double sample_time,
     thrust_cmd = constrainThrust(thrust_cmd);
     
     //thrust_cmd = EMA_filter(thrust_cmd, previous_control_signal.w());
+
+    // Tilt compensation applied after
+    Eigen::Vector3d body_z_ned = attitude.quaternion() * Eigen::Vector3d(0.0, 0.0, 1.0);
+    thrust_cmd /= std::max(body_z_ned.z(), std::cos(max_tilt_angle_));
+    thrust_cmd = constrainThrust(thrust_cmd);
 
     // Update previous error in FRD frame (consistent with derivative computation)
     previous_velocity_error.X.error = velocity_error_frd.x();

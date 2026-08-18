@@ -8,7 +8,7 @@
 #include "asr_comms/msg/telemetry_attitude.hpp"
 #include "asr_comms/msg/telemetry_battery.hpp"
 #include "asr_comms/msg/telemetry_status.hpp"
-#include "asr_comms/msg/drone_scope.hpp"
+#include "asr_comms/msg/uav_scope.hpp"
 #include "asr_comms/msg/trajectory_setpoint.hpp"
 #include "asr_comms/msg/control_detail.hpp"
 #include "asr_comms/msg/comms_health.hpp"
@@ -58,7 +58,7 @@ struct UlogStatus {
     // 1 byte tail padding possible — SimpleWriter handles sizeof >= expected
 };
 
-// DroneScope — only written in control_inspection mode
+// UAVScope — only written in control_inspection mode
 struct UlogControlScope {
     uint64_t timestamp;                          // us
     float    control_output_z;
@@ -110,7 +110,7 @@ private:
     void onAttitude(const asr_comms::msg::TelemetryAttitude& msg);
     void onBattery(const asr_comms::msg::TelemetryBattery& msg);
     void onStatus(const asr_comms::msg::TelemetryStatus& msg);
-    void onScope(const asr_comms::msg::DroneScope& msg);
+    void onScope(const asr_comms::msg::UAVScope& msg);
     void onTrajectorySetpoint(const asr_comms::msg::TrajectorySetpoint& msg);
     void onControlDetail(const asr_comms::msg::ControlDetail& msg);
     void onCommsHealth(const asr_comms::msg::CommsHealth& msg);
@@ -118,7 +118,9 @@ private:
 
     std::unique_ptr<ulog_cpp::SimpleWriter> writer_;
     std::string log_dir_;
-    std::string log_mode_;   // "general" | "control_inspection"
+    std::string log_mode_;    // "general" | "control_inspection"
+    std::string log_trigger_; // "always" | "armed" — armed: one log per flight (arm → disarm)
+    std::string sys_name_;    // written to the ulog header; identifies the vehicle
 
     uint16_t id_position_{};
     uint16_t id_attitude_{};
@@ -133,7 +135,7 @@ private:
     rclcpp::Subscription<asr_comms::msg::TelemetryAttitude>::SharedPtr attitude_sub_;
     rclcpp::Subscription<asr_comms::msg::TelemetryBattery>::SharedPtr battery_sub_;
     rclcpp::Subscription<asr_comms::msg::TelemetryStatus>::SharedPtr status_sub_;
-    rclcpp::Subscription<asr_comms::msg::DroneScope>::SharedPtr drone_scope_sub_;
+    rclcpp::Subscription<asr_comms::msg::UAVScope>::SharedPtr uav_scope_sub_;
     rclcpp::Subscription<asr_comms::msg::TrajectorySetpoint>::SharedPtr trajectory_setpoint_sub_;
     rclcpp::Subscription<asr_comms::msg::ControlDetail>::SharedPtr control_detail_sub_;
     rclcpp::Subscription<asr_comms::msg::CommsHealth>::SharedPtr comms_health_sub_;

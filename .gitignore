@@ -1,4 +1,6 @@
 *.json
+**/__pycache__/
+**/*.pyc
 .vscode/
 build/
 install/
@@ -13,17 +15,24 @@ drone_interfaces/log/
 saved_images/**
 src/serial-ros2
 src/px4_ros_com
-src/px4_msgs
-src/px4_msgs_thyra
+src/deps/
 imgui.ini
 src/realsense-ros
 src/matlab_msg_gen
 venv
 src/asr_sensors/script/neopixel-env/
 src/asr_sensors/script/.lgd-nfy0/
-
+src/asr_gcs/tiles
 
 .venv/
 
 **/rosbag*/
 probe_data/
+**/*.engine
+**/*.engine.meta
+**/*.onnx
+runs/
+
+.claude/
+
+attach_gz_gui.sh

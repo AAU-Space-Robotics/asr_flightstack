@@ -1,0 +1,151 @@
+# ============================================================================
+# GUNNHILD — copied from Thyra as a starting template.
+# Airframe-specific values are NOT yet measured for Gunnhild. Before flight,
+# revisit: controller gains, hover_thrust_setpoint, motion_constraints,
+# camera intrinsics + camera_to_drone_transform, motor_speed_min/max.
+# See the package README for the full bring-up checklist.
+# ============================================================================
+/asr/gunnhild/**:
+  ros__parameters:
+    # Controller Parameters
+    controller:
+      position_controller:
+        x:
+          Kp: 1.0
+          Ki: 0.0
+          Kd: 0.01
+        y:
+          Kp: 1.0
+          Ki: 0.0
+          Kd: 0.01
+        z:
+          Kp: 1.0
+          Ki: 0.0
+          Kd: 0.01
+
+      pid_gains:
+        roll:
+          Kp: 0.15
+          Ki: 0.01
+          Kd: 0.001
+        pitch:
+          Kp: 0.15
+          Ki: 0.01
+          Kd: 0.001
+        yaw:
+          Kp: 0.15
+          Ki: 0.0
+          Kd: 0.05
+        thrust:
+          Kp: 0.5
+          Ki: 0.1
+          Kd: 0.01
+        hover_thrust_setpoint:
+          base_value: -0.7        # Base value for hover thrust estimate
+          learned_value: -0.7      # Initial learned value for hover thrust estimate
+          learning_rate: 0.0001      # Learning rate for hover thrust adaptation
+      ema:
+        alpha: 0.15 # Exponential moving average factor for smoothing
+
+    # Motion Constraints - applies to both path planning and position control
+    motion_constraints:
+      default:
+        linear_velocity: 0.4    # Default linear velocity (m/s)
+        angular_velocity: 0.5   # Default angular velocity (rad/s)
+      limits:
+        min_linear_velocity: 0.1        # Minimum linear velocity (m/s)
+        min_angular_velocity: 0.1       # Minimum angular velocity (rad/s)
+        max_linear_velocity: 1.5        # Maximum linear velocity (m/s)
+        max_angular_velocity: 1.5       # Maximum angular velocity (rad/s)
+        max_tilt_angle: 20.0            # Maximum tilt angle in degrees (roll/pitch)
+
+    # Safety Parameters
+    safety:
+      check_gcs_timeout: true           # Check for ground control station timeout
+      check_position_timeout: false     # Check for position data timeout
+      check_geofence: false              # Check for geofence violations
+      check_battery: true               # Check battery status
+      battery_threshold: 0.05           # Battery threshold for safety (0-1 scale)
+      battery_timeout_threshold: 3.0    # Max age (s) of battery telemetry while armed before treating it as a fault
+      gcs_timeout_threshold: 15.0        # Timeout for ground control station input (seconds)
+      position_timeout_threshold: 0.2   # Timeout for position data (seconds)
+      safety_thrust_initial: -0.72      # Initial thrust for safety landing (negative for downward)
+      safety_thrust_final: -0.65        # Final thrust for safety landing (negative for downward)
+      safety_thrustdown_rate: 0.4       # Rate of thrust decrease during safety landing
+      geofence_radius: 20.0             # Geofence radius (meters)
+      geofence_height: 10.0             # Geofence height (meters)
+      do_mode_change_delay: false        # Enable mode change delay #! FIX, not for going to manual
+      mode_change_delay: 5.0            # Mode change delay (seconds)
+
+    # Terminal (console) logging
+    terminal_logging:
+      enabled: true
+      console_level: INFO # INFO, DEBUG, WARN, ERROR
+    # Flight logging (ulog)
+    log_mode: general        # general | control_inspection
+    log_trigger: armed       # always | armed — armed: log only while armed, one file per flight
+    log_dir: ~/flight_logs
+    sys_name: asr_gunnhild      # vehicle name written to the ulog header
+
+    # Setup Parameters
+    setup:
+      lidar_offset: 0.0 # Lidar offset for zero height calibration (meters)
+      takeoff_height: -1.5 # Default takeoff height (meters)
+      motor_speed_min: 1000.0 # Motor speed min expected value
+      motor_speed_max: 1900.0 # Motor speed max expected value
+
+    # System Parameters (consumed by the shared system_manager node in asr_drivers)
+    system:
+      autostart_flight_stack: false   # Set false to skip auto-start; use START_FLIGHT_STACK action to start manually
+      flight_stack_package: gunnhild     # ROS package holding the bringup launch file
+      flight_stack_launch: gunnhild      # Launch file basename (gunnhild.launch.py, found under launch/uav/)
+      service_name: gunnhild             # systemd service restarted by RESTART_NODES
+
+    # Camera Parameters
+    camera:
+      focal_length:
+        x: 910.7153
+        y: 910.8062
+      baseline: 0.05   # meters
+      principal_point:
+        x: 641.7375
+        y: 370.1866
+      image_size:
+        width: 1280
+        height: 720
+      Radial_distortion:
+        k1: 0
+        k2: 0
+        k3: 0
+      Tangential_distortion:
+        p1: 0
+        p2: 0
+      Skew: 0.0
+      K:
+        - [910.7153, 0.0, 641.7375,
+          0.0, 910.8062, 370.1866,
+          0.0, 0.0, 1.0]
+
+      # Camera-to-drone homogeneous transform (4x4, row-major).
+      # Transforms a point in camera frame to drone body frame.
+      camera_to_drone_transform:
+        - [ 0.0, -0.70710678,  0.70710678,  0.137751,
+            1.0,  0.0,         0.0,         -0.018467,
+            0.0,  0.70710678,  0.70710678,   0.12126,
+            0.0,  0.0,         0.0,          1.0]
+
+# Camera relay node — controls the fixed rate/quality for both perception and GCS streaming.
+# These are static: changing them requires a restart of the camera_relay node.
+/camera_relay:
+  ros__parameters:
+    fps: 5.0          # Target publish rate (Hz). 0 = every synced frame (up to camera max ~30 Hz).
+    jpeg_quality: 50  # JPEG quality 0–100 for the colour image sent to perception and GCS.
+
+# Probe detector node — YOLO-based 2D detection.
+# model: filename only (resolved to share/asr_perception/models/ at runtime).
+# On first run the .pt model is exported to a TensorRT .engine file (~2-5 min).
+# Subsequent runs load the .engine directly for full GPU performance.
+/probe_detector:
+  ros__parameters:
+    model: YOLO11m.pt
+    confidence_threshold: 0.75

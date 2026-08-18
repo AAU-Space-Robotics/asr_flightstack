@@ -1,0 +1,33 @@
+# Vehicle skill manifest — the contract between GCS authoring, the transport,
+# and the onboard executor.
+#
+# Each vehicle package ships its own copy as <vehicle_pkg>/config/skills.yaml
+# (installed to share/), listing only what that vehicle can actually do. The
+# GCS discovers all installed manifests via asr_mission.manifest.discover_manifests()
+# and matches the connected vehicle by name + manifest hash from the handshake.
+#
+# This file is a template; "example" is never a real vehicle.
+
+vehicle: example
+
+skills:
+  takeoff:
+    params:
+      alt: {type: float, min: 0.5, max: 30.0}
+  goto:
+    params:
+      pos: {type: point}
+      yaw: {type: float, required: false, min: -3.1416, max: 3.1416}
+  search_grid:
+    params:
+      polygon: {type: polygon}
+      spacing: {type: float, min: 0.5, max: 20.0}
+      alt: {type: float, min: 0.5, max: 30.0}
+  land:
+    params: {}
+
+conditions:
+  - probes_found
+  - grid_exhausted
+  - time_elapsed
+  - battery_below

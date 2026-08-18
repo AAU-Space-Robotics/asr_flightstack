@@ -3,10 +3,12 @@
 #include "udp_socket.h"
 
 #include <algorithm>
+#include <arpa/inet.h>
 #include <chrono>
 #include <cstring>
 #include <glob.h>
 #include <stdexcept>
+#include <thread>
 #include <rclcpp/rclcpp.hpp>
 
 using namespace std::chrono_literals;
@@ -27,7 +29,7 @@ static std::string auto_detect_serial()
         }
         globfree(&g);
     }
-    throw std::runtime_error("No serial radio found — is the USB radio module plugged in?");
+    return {};
 }
 
 CommsUav::CommsUav()
@@ -41,6 +43,8 @@ CommsUav::CommsUav()
     declare_parameter("system_id",    static_cast<int>(system_id_));
     declare_parameter("component_id", static_cast<int>(component_id_));
     declare_parameter("wifi_port",    static_cast<int>(wifi_port_));
+    declare_parameter("camera_topic", std::string{"out/cam/unsynced/color"});
+    declare_parameter("camera_port",  static_cast<int>(camera_port_));
 
     std::cout << "\n"
               << "=============================\n"
@@ -51,13 +55,32 @@ CommsUav::CommsUav()
     system_id_    = static_cast<uint8_t>(get_parameter("system_id").as_int());
     component_id_ = static_cast<uint8_t>(get_parameter("component_id").as_int());
     wifi_port_    = static_cast<uint16_t>(get_parameter("wifi_port").as_int());
+    camera_port_  = static_cast<uint16_t>(get_parameter("camera_port").as_int());
 
-    const auto serial_port = get_parameter("serial_port").as_string();
-    if (!serial_port.empty()) {
-        const auto dev  = (serial_port == "auto") ? auto_detect_serial() : serial_port;
-        const int  baud = static_cast<int>(get_parameter("baud_rate").as_int());
-        transport_ = std::make_unique<SerialPort>(dev, baud);
-        RCLCPP_INFO(get_logger(), "UAV comms — serial %s @ %d baud", dev.c_str(), baud);
+    serial_param_ = get_parameter("serial_port").as_string();
+    if (!serial_param_.empty()) {
+        const int baud = static_cast<int>(get_parameter("baud_rate").as_int());
+        // The radio may not have enumerated yet at boot — keep retrying
+        // instead of failing, but stay interruptible by Ctrl+C.
+        std::unique_ptr<SerialPort> serial;
+        while (!serial && rclcpp::ok()) {
+            try {
+                const auto dev = (serial_param_ == "auto") ? auto_detect_serial()
+                                                           : serial_param_;
+                if (dev.empty())
+                    throw std::runtime_error("no USB serial device present");
+                serial = std::make_unique<SerialPort>(dev, baud);
+                RCLCPP_INFO(get_logger(), "UAV comms — serial %s @ %d baud", dev.c_str(), baud);
+            } catch (const std::exception& e) {
+                RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 5000,
+                    "Waiting for serial port '%s' (%s)", serial_param_.c_str(), e.what());
+                std::this_thread::sleep_for(1s);
+            }
+        }
+        if (!serial)
+            throw std::runtime_error("Interrupted while waiting for serial port");
+        serial_    = serial.get();
+        transport_ = std::move(serial);
     } else {
         const auto bind_port   = static_cast<uint16_t>(get_parameter("bind_port").as_int());
         const auto target_ip   = get_parameter("target_ip").as_string();
@@ -76,6 +99,19 @@ CommsUav::CommsUav()
     gps_inject_pub_     = create_publisher<px4_msgs::msg::GpsInjectData>("/fmu/in/gps_inject_data", 10);
     manual_input_pub_   = create_publisher<asr_comms::msg::ManualControlInput>("in/manual_input", qos_be_tl);
     servo_command_pub_  = create_publisher<asr_comms::msg::ServoCommand>("in/servo_command", qos_be_vo);
+
+    // Mission bridge — see handle_mission_v2_extension / send_mission_blob.
+    // Reliable: must match mission_executor_node's subscription QoS, and an
+    // upload/start command silently dropped is worse than one queued briefly.
+    mission_upload_pub_ = create_publisher<std_msgs::msg::String>("in/mission_upload", rclcpp::QoS(4).reliable());
+    mission_start_pub_  = create_publisher<std_msgs::msg::String>("in/mission_start", rclcpp::QoS(4).reliable());
+    mission_abort_pub_  = create_publisher<std_msgs::msg::String>("in/mission_abort", rclcpp::QoS(4).reliable());
+    mission_validate_sub_ = create_subscription<std_msgs::msg::String>(
+        "out/mission_validate", rclcpp::QoS(4).reliable(),
+        std::bind(&CommsUav::on_mission_validate, this, std::placeholders::_1));
+    mission_status_sub_ = create_subscription<std_msgs::msg::String>(
+        "out/mission_status", rclcpp::QoS(1).best_effort(),
+        std::bind(&CommsUav::on_mission_status, this, std::placeholders::_1));
 
     // Outgoing to GCS — one subscription per telemetry topic.
     // best_effort + depth 1: only the latest sample matters; never queue stale data
@@ -115,6 +151,10 @@ CommsUav::CommsUav()
         "out/telemetry/battery", qos_rt,
         std::bind(&CommsUav::on_battery, this, std::placeholders::_1));
 
+    battery2_sub_ = create_subscription<asr_comms::msg::TelemetryBattery>(
+        "out/telemetry/battery2", qos_rt,
+        std::bind(&CommsUav::on_battery, this, std::placeholders::_1));
+
     gps_sub_ = create_subscription<asr_comms::msg::TelemetryGPS>(
         "out/telemetry/gps", qos_rt,
         std::bind(&CommsUav::on_gps, this, std::placeholders::_1));
@@ -123,8 +163,19 @@ CommsUav::CommsUav()
         "out/telemetry/status", qos_rt,
         std::bind(&CommsUav::on_status, this, std::placeholders::_1));
 
+    distance_sub_ = create_subscription<px4_msgs::msg::DistanceSensor>(
+        "/fmu/out/distance_sensor", qos_rt,
+        std::bind(&CommsUav::on_distance, this, std::placeholders::_1));
+
     // Action client — forwards COMMAND_LONG from GCS to the autopilot action server
-    action_client_ = rclcpp_action::create_client<DroneCommand>(this, "in/drone_command");
+    action_client_ = rclcpp_action::create_client<UAVCommand>(this, "in/uav_command");
+
+    // Camera subscription — store latest compressed frame; sends only when streaming is active
+    const auto camera_topic = get_parameter("camera_topic").as_string();
+    camera_sub_ = create_subscription<sensor_msgs::msg::CompressedImage>(
+        camera_topic, rclcpp::QoS(1).best_effort(),
+        std::bind(&CommsUav::on_camera_frame, this, std::placeholders::_1));
+    RCLCPP_INFO(get_logger(), "Camera source: '%s' (streaming off by default)", camera_topic.c_str());
 
     // Open WiFi server socket — peer address latched from first incoming packet,
     // or set immediately when a PEER_BEACON arrives via SiK.
@@ -160,7 +211,12 @@ void CommsUav::recv_loop()
 
     while (running_) {
         const ssize_t n = transport_->recv(buf, sizeof(buf));
-        if (n <= 0) continue;
+        if (n <= 0) {
+            // 0 is a normal VMIN/VTIME timeout — but a USB unplug hangs up
+            // the tty and reads look identical, so probe the fd to tell.
+            if (serial_ && !serial_->alive() && !reconnect_serial()) break;
+            continue;
+        }
 
         rx_bytes_ += static_cast<size_t>(n);
         last_gcs_msg_us_.store(std::chrono::duration_cast<std::chrono::microseconds>(
@@ -174,6 +230,26 @@ void CommsUav::recv_loop()
             }
         }
     }
+}
+
+// Blocks the receive thread until the radio re-enumerates, then re-points the
+// existing SerialPort at it. The rest of the node keeps running meanwhile:
+// sends fail silently on the dead fd, WiFi still delivers, and the 1 Hz
+// CommsHealth publisher keeps reporting the (dis)connected state.
+// Returns false when shut down while waiting.
+bool CommsUav::reconnect_serial()
+{
+    RCLCPP_WARN(get_logger(), "Serial link lost — waiting for '%s' to come back",
+                serial_param_.c_str());
+    while (running_ && rclcpp::ok()) {
+        const auto dev = (serial_param_ == "auto") ? auto_detect_serial() : serial_param_;
+        if (!dev.empty() && serial_->reopen(dev)) {
+            RCLCPP_INFO(get_logger(), "Serial link restored on %s", dev.c_str());
+            return true;
+        }
+        std::this_thread::sleep_for(1s);
+    }
+    return false;
 }
 
 void CommsUav::wifi_recv_loop()
@@ -254,6 +330,10 @@ void CommsUav::handle_message(const mavlink_message_t& msg)
             servo_command_pub_->publish(out);
         } else if (ext.message_type == ASR_MSG_PEER_BEACON) {
             handle_peer_beacon(ext);
+        } else if (ext.message_type == ASR_MSG_MISSION_UPLOAD ||
+                   ext.message_type == ASR_MSG_MISSION_START ||
+                   ext.message_type == ASR_MSG_MISSION_ABORT) {
+            handle_mission_v2_extension(ext);
         }
         break;
     }
@@ -290,7 +370,26 @@ void CommsUav::handle_message(const mavlink_message_t& msg)
 
 void CommsUav::forward_command(const mavlink_command_long_t& cmd)
 {
-    DroneCommand::Goal goal{};
+    // Camera streaming commands are handled locally — not forwarded to autopilot.
+    auto ack_cmd = [&](uint8_t result) {
+        mavlink_message_t mav{};
+        mavlink_msg_command_ack_pack(system_id_, component_id_, &mav,
+            cmd.command, result, 255, 0, 0, 0);
+        send_mavlink(mav);
+    };
+
+    if (cmd.command == MAV_CMD_VIDEO_START_STREAMING) {
+        start_camera_stream();
+        ack_cmd(MAV_RESULT_ACCEPTED);
+        return;
+    }
+    if (cmd.command == MAV_CMD_VIDEO_STOP_STREAMING) {
+        stop_camera_stream();
+        ack_cmd(MAV_RESULT_ACCEPTED);
+        return;
+    }
+
+    UAVCommand::Goal goal{};
 
     switch (cmd.command) {
     case MAV_CMD_COMPONENT_ARM_DISARM:
@@ -353,9 +452,9 @@ void CommsUav::forward_command(const mavlink_command_long_t& cmd)
     }
 
     const uint16_t cmd_id = cmd.command;
-    auto opts = rclcpp_action::Client<DroneCommand>::SendGoalOptions{};
+    auto opts = rclcpp_action::Client<UAVCommand>::SendGoalOptions{};
 
-    opts.goal_response_callback = [this, cmd_id](const GoalHandleDroneCmd::SharedPtr& handle) {
+    opts.goal_response_callback = [this, cmd_id](const GoalHandleUAVCmd::SharedPtr& handle) {
         if (!handle) {
             mavlink_message_t mav{};
             mavlink_msg_command_ack_pack(system_id_, component_id_, &mav,
@@ -364,7 +463,7 @@ void CommsUav::forward_command(const mavlink_command_long_t& cmd)
         }
     };
 
-    opts.result_callback = [this, cmd_id](const GoalHandleDroneCmd::WrappedResult& res) {
+    opts.result_callback = [this, cmd_id](const GoalHandleUAVCmd::WrappedResult& res) {
         uint8_t mav_result;
         if (res.code == rclcpp_action::ResultCode::SUCCEEDED && res.result->success)
             mav_result = MAV_RESULT_ACCEPTED;
@@ -424,7 +523,7 @@ void CommsUav::publish_gps_inject(const uint8_t* data, size_t len)
         px4_msgs::msg::GpsInjectData out{};
         out.timestamp = static_cast<uint64_t>(get_clock()->now().nanoseconds() / 1000);
         out.len       = static_cast<uint16_t>(chunk);
-        out.flags     = (len > 300u) ? 1u : 0u;
+        out.flags     = (offset + chunk < len) ? 1u : 0u;
         std::memcpy(out.data.data(), data + offset, chunk);
 
         gps_inject_pub_->publish(out);
@@ -444,18 +543,89 @@ void CommsUav::handle_peer_beacon(const mavlink_v2_extension_t& ext)
     wifi_transport_->set_target(beacon.ip, port);
     char ip_str[INET_ADDRSTRLEN];
     inet_ntop(AF_INET, &beacon.ip, ip_str, sizeof(ip_str));
-    RCLCPP_INFO(get_logger(), "WiFi path to GCS: %s:%u", ip_str, port);
+    RCLCPP_DEBUG(get_logger(), "WiFi path to GCS: %s:%u", ip_str, port);
+
+    gcs_wifi_ip_.store(beacon.ip);
+
+    // If a stream was already requested before WiFi came up, start it now.
+    std::lock_guard<std::mutex> lock(camera_mutex_);
+    if (camera_streaming_.load() && !camera_transport_) {
+        setup_camera_transport(beacon.ip);
+    }
+}
+
+// --- Mission bridge ---
+//
+// comms_uav never parses plan JSON — it only reassembles the fragmented
+// blob and republishes it on in/mission_upload / in/mission_start for
+// mission_executor_node to consume, mirroring how COMMAND_LONG is decoded
+// here but actually executed by asr_autopilot over a ROS action. Status and
+// validation results flow back the same way: mission_executor_node
+// publishes plain JSON strings, comms_uav fragments and forwards them.
+
+void CommsUav::handle_mission_v2_extension(const mavlink_v2_extension_t& ext)
+{
+    MissionReassembler* reassembler;
+    rclcpp::Publisher<std_msgs::msg::String>* pub;
+
+    if (ext.message_type == ASR_MSG_MISSION_UPLOAD) {
+        reassembler = &upload_reassembler_;
+        pub = mission_upload_pub_.get();
+    } else if (ext.message_type == ASR_MSG_MISSION_START) {
+        reassembler = &start_reassembler_;
+        pub = mission_start_pub_.get();
+    } else {
+        reassembler = &abort_reassembler_;
+        pub = mission_abort_pub_.get();
+    }
+
+    auto blob = reassembler->feed(ext.payload, sizeof(ext.payload));
+    if (!blob) return;
+
+    std_msgs::msg::String out{};
+    out.data.assign(blob->begin(), blob->end());
+    pub->publish(out);
+}
+
+void CommsUav::send_mission_blob(uint16_t message_type, uint32_t& transfer_id, const std::string& blob)
+{
+    if (!wifi_transport_ || !wifi_transport_->peer_known()) {
+        RCLCPP_WARN(get_logger(), "Mission blob dropped — WiFi peer not connected");
+        return;
+    }
+
+    std::vector<uint8_t> data(blob.begin(), blob.end());
+    for (auto& frag : mission_fragment(transfer_id, data)) {
+        mavlink_message_t mav{};
+        uint8_t payload[249]{};
+        std::memcpy(payload, frag.data(), frag.size());
+        mavlink_msg_v2_extension_pack(system_id_, component_id_, &mav,
+            0, 0, 0, message_type, payload);
+        send_mavlink(mav, LinkTarget::WifiOnly);
+    }
+    ++transfer_id;
+}
+
+void CommsUav::on_mission_validate(const std_msgs::msg::String::SharedPtr msg)
+{
+    send_mission_blob(ASR_MSG_MISSION_VALIDATE, validate_transfer_id_, msg->data);
+}
+
+void CommsUav::on_mission_status(const std_msgs::msg::String::SharedPtr msg)
+{
+    send_mission_blob(ASR_MSG_MISSION_STATUS, status_transfer_id_, msg->data);
 }
 
 // --- Send path ---
 
-void CommsUav::send_mavlink(mavlink_message_t& msg)
+void CommsUav::send_mavlink(mavlink_message_t& msg, LinkTarget target)
 {
     uint8_t buf[MAVLINK_MAX_PACKET_LEN];
     const uint16_t len = mavlink_msg_to_send_buffer(buf, &msg);
     std::lock_guard<std::mutex> lock(send_mutex_);
-    transport_->send(buf, len);
-    if (wifi_transport_)
+    if (target != LinkTarget::WifiOnly)
+        transport_->send(buf, len);
+    if (target != LinkTarget::RadioOnly && wifi_transport_)
         wifi_transport_->send(buf, len);
 }
 
@@ -468,10 +638,11 @@ void CommsUav::send_radio_stats()
             name, val);
         send_mavlink(msg);
     };
-    send_nv("uav_txbuf", static_cast<float>(uav_radio_txbuf_.load()));
-    send_nv("uav_rssi",  static_cast<float>(uav_radio_rssi_.load()));
-    send_nv("uav_noise", static_cast<float>(uav_radio_noise_.load()));
-    send_nv("uav_rxerr", static_cast<float>(uav_radio_rxerrors_.load()));
+    send_nv("uav_txbuf",   static_cast<float>(uav_radio_txbuf_.load()));
+    send_nv("uav_rssi",    static_cast<float>(uav_radio_rssi_.load()));
+    send_nv("uav_noise",   static_cast<float>(uav_radio_noise_.load()));
+    send_nv("uav_rxerr",   static_cast<float>(uav_radio_rxerrors_.load()));
+    send_nv("cam_stream",  camera_streaming_.load() ? 1.0f : 0.0f);
 }
 
 void CommsUav::send_rx_kbps()
@@ -503,6 +674,27 @@ void CommsUav::on_position(const asr_comms::msg::TelemetryPosition::SharedPtr ms
     send_mavlink(mav);
 }
 
+void CommsUav::on_distance(const px4_msgs::msg::DistanceSensor::SharedPtr msg)
+{
+    const auto to_cm = [](float m) {
+        return static_cast<uint16_t>(std::clamp(m * 100.0f, 0.0f, 65535.0f));
+    };
+    const float q[4] = {msg->q[0], msg->q[1], msg->q[2], msg->q[3]};
+    mavlink_message_t mav{};
+    mavlink_msg_distance_sensor_pack(system_id_, component_id_, &mav,
+        static_cast<uint32_t>(msg->timestamp / 1000),  // µs since boot → ms
+        to_cm(msg->min_distance),
+        to_cm(msg->max_distance),
+        to_cm(msg->current_distance),
+        msg->type,
+        static_cast<uint8_t>(msg->device_id),
+        msg->orientation,
+        UINT8_MAX,  // covariance unknown
+        msg->h_fov, msg->v_fov, q,
+        msg->signal_quality > 0 ? static_cast<uint8_t>(msg->signal_quality) : 0);
+    send_mavlink(mav);
+}
+
 void CommsUav::on_attitude(const asr_comms::msg::TelemetryAttitude::SharedPtr msg)
 {
     // Angular rates not available in TelemetryAttitude — send zero
@@ -524,7 +716,7 @@ void CommsUav::on_battery(const asr_comms::msg::TelemetryBattery::SharedPtr msg)
 
     mavlink_message_t mav{};
     mavlink_msg_battery_status_pack(system_id_, component_id_, &mav,
-        0, MAV_BATTERY_FUNCTION_ALL, MAV_BATTERY_TYPE_LIPO,
+        msg->id, MAV_BATTERY_FUNCTION_ALL, MAV_BATTERY_TYPE_LIPO,
         INT16_MAX,
         cell_voltages,
         static_cast<int16_t>(msg->current * 100.0f),
@@ -596,10 +788,80 @@ void CommsUav::on_status(const asr_comms::msg::TelemetryStatus::SharedPtr msg)
     send_mavlink(mav);
 }
 
+// --- Camera streaming (WiFi-only) ---
+
+void CommsUav::setup_camera_transport(uint32_t gcs_ip_net)
+{
+    // Called under camera_mutex_.
+    char ip_str[INET_ADDRSTRLEN];
+    inet_ntop(AF_INET, &gcs_ip_net, ip_str, sizeof(ip_str));
+    camera_transport_ = std::make_unique<UdpSocket>(0u, std::string(ip_str), camera_port_);
+    RCLCPP_INFO(get_logger(), "Camera streaming to %s:%u", ip_str, camera_port_);
+}
+
+void CommsUav::start_camera_stream()
+{
+    std::lock_guard<std::mutex> lock(camera_mutex_);
+    camera_transport_.reset();
+    camera_streaming_ = true;
+
+    const uint32_t gcs_ip = gcs_wifi_ip_.load();
+    if (gcs_ip != 0) {
+        setup_camera_transport(gcs_ip);
+    } else {
+        RCLCPP_INFO(get_logger(), "Camera stream enabled — will start once WiFi peer is known");
+    }
+}
+
+void CommsUav::stop_camera_stream()
+{
+    std::lock_guard<std::mutex> lock(camera_mutex_);
+    camera_streaming_ = false;
+    camera_transport_.reset();
+    RCLCPP_INFO(get_logger(), "Camera streaming stopped");
+}
+
+void CommsUav::on_camera_frame(const sensor_msgs::msg::CompressedImage::SharedPtr msg)
+{
+    if (!camera_streaming_.load()) return;
+
+    std::lock_guard<std::mutex> lock(camera_mutex_);
+    if (!camera_transport_) return;
+
+    const auto&    data        = msg->data;
+    const size_t   total       = data.size();
+    const uint16_t total_frags = static_cast<uint16_t>(
+        (total + CAMERA_MAX_FRAG_PAYLOAD - 1) / CAMERA_MAX_FRAG_PAYLOAD);
+    const uint32_t frame_id = ++camera_frame_id_;
+
+    std::vector<uint8_t> buf(sizeof(VideoFrameHeader) + CAMERA_MAX_FRAG_PAYLOAD);
+
+    for (uint16_t i = 0; i < total_frags; ++i) {
+        const size_t   offset       = i * CAMERA_MAX_FRAG_PAYLOAD;
+        const uint32_t payload_size = static_cast<uint32_t>(
+            std::min(CAMERA_MAX_FRAG_PAYLOAD, total - offset));
+
+        VideoFrameHeader hdr{};
+        hdr.frame_id     = frame_id;
+        hdr.frag_idx     = i;
+        hdr.total_frags  = total_frags;
+        hdr.frame_size   = static_cast<uint32_t>(total);
+        hdr.payload_size = payload_size;
+
+        std::memcpy(buf.data(), &hdr, sizeof(hdr));
+        std::memcpy(buf.data() + sizeof(hdr), data.data() + offset, payload_size);
+        camera_transport_->send(buf.data(), sizeof(hdr) + payload_size);
+    }
+}
+
 int main(int argc, char* argv[])
 {
     rclcpp::init(argc, argv);
-    rclcpp::spin(std::make_shared<CommsUav>());
+    try {
+        rclcpp::spin(std::make_shared<CommsUav>());
+    } catch (const std::exception& e) {
+        std::cerr << "comms_uav: " << e.what() << std::endl;
+    }
     rclcpp::shutdown();
     return 0;
 }

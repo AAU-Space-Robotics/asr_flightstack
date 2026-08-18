@@ -4,6 +4,7 @@
 #include <eigen3/Eigen/Dense>
 #include "transformations.h"
 #include <vector>
+#include <mutex>
 
 struct TrajectoryPoint {
     double position;
@@ -140,6 +141,10 @@ private:
     float calculateDuration(float distance, float velocity, float min_velocity, float max_velocity) const;
 
     Transformations transformations_;
+
+    // Serialises trajectory generation (command thread) against trajectory evaluation
+    // (100 Hz control loop). Recursive because checkConstraints() calls getTrajectoryPoint().
+    mutable std::recursive_mutex planner_mutex_;
 };
 
 #endif // PATHPLANNER_H

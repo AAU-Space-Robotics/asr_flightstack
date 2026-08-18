@@ -42,8 +42,7 @@ install(TARGETS
 )
 
 install(PROGRAMS
-  script/camera/image_republisher.py
-  script/camera/image_republisher_pose.py
+  script/camera/camera_relay.py
   script/camera/px4_to_cam.py
   script/camera/static_rgbd_test_node.py
   script/camera/probe_republisher.py
@@ -58,6 +57,13 @@ install(PROGRAMS
 
 install(PROGRAMS
   script/rtk_base/rtcm_reader.py
+  script/rtk_base/ublox_diag.py
+  DESTINATION lib/${PROJECT_NAME}
+)
+
+install(PROGRAMS
+  script/gimbal/gimbal.py
+  script/system/system_manager.py
   DESTINATION lib/${PROJECT_NAME}
 )
 

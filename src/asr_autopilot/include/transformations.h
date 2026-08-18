@@ -6,7 +6,15 @@
 #include <eigen3/Eigen/Geometry>
 #include <cmath>
 #include <rclcpp/rclcpp.hpp>
-#include "state_manager.h" 
+#include "state_manager.h"
+
+// Euler angles in radians, with named fields (not an indexed vector) so callers cannot
+// accidentally swap roll/yaw — the historical source of attitude-command bugs.
+struct EulerAngles {
+    double roll  = 0.0;
+    double pitch = 0.0;
+    double yaw   = 0.0;
+};
 
 class Transformations {
 public:
@@ -25,7 +33,7 @@ public:
 
     // Attitude Conversions
     Eigen::Quaterniond eulerToQuaternion(double roll, double pitch, double yaw) const;
-    Eigen::Vector3d quaternionToEuler(const Eigen::Quaterniond& q) const;
+    EulerAngles quaternionToEuler(const Eigen::Quaterniond& q) const;
 
     // Geodetic Transformations
     Eigen::Vector3d errorGlobalToLocal(const Eigen::Vector3d& error_ned_earth, 

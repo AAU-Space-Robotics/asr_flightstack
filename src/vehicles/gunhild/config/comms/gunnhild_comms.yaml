@@ -1,0 +1,8 @@
+# UAV-side comms parameters (comms_uav node).
+# serial_port: explicit device path, or "auto" to pick the first /dev/ttyUSB* or /dev/ttyACM*
+
+/asr/gunnhild/comms_uav:
+  ros__parameters:
+    serial_port: "/dev/sik"
+    baud_rate: 115200
+    wifi_port: 14553
