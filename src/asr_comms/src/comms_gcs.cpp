@@ -120,6 +120,7 @@ CommsGcs::CommsGcs() : Node("comms_gcs")
     battery_pub_  = create_publisher<asr_comms::msg::TelemetryBattery>( "telemetry/battery_main",  10);
     battery2_pub_ = create_publisher<asr_comms::msg::TelemetryBattery>( "telemetry/battery_compute", 10);
     gps_pub_      = create_publisher<asr_comms::msg::TelemetryGPS>(     "telemetry/gps",      10);
+    origin_gps_pub_ = create_publisher<asr_comms::msg::TelemetryOriginGPS>("telemetry/origin_gps", 10);
     status_pub_   = create_publisher<asr_comms::msg::TelemetryStatus>(  "telemetry/status",   10);
     // Same topic + QoS profile the GUI already subscribes with (best-effort, transient-local)
     distance_pub_ = create_publisher<px4_msgs::msg::DistanceSensor>("/fmu/out/distance_sensor",
@@ -331,11 +332,19 @@ void CommsGcs::handle_message(const mavlink_message_t& msg)
         mavlink_msg_local_position_ned_decode(&msg, &p);
 
         asr_comms::msg::TelemetryPosition out{};
-        out.timestamp    = p.time_boot_ms / 1e3;
-        out.position     = {p.x, p.y, p.z};
-        out.velocity     = {p.vx, p.vy, p.vz};
-        // target_position not carried in LOCAL_POSITION_NED — left at default zero
+        out.timestamp       = p.time_boot_ms / 1e3;
+        out.position        = {p.x, p.y, p.z};
+        out.velocity        = {p.vx, p.vy, p.vz};
+        out.target_position = latest_target_position_;  // from the last POSITION_TARGET_LOCAL_NED packet
+        out.distance_sensor = latest_distance_sensor_;  // from the last DISTANCE_SENSOR packet
         position_pub_->publish(out);
+        break;
+    }
+
+    case MAVLINK_MSG_ID_POSITION_TARGET_LOCAL_NED: {
+        mavlink_position_target_local_ned_t t{};
+        mavlink_msg_position_target_local_ned_decode(&msg, &t);
+        latest_target_position_ = {t.x, t.y, t.z};
         break;
     }
 
@@ -387,6 +396,7 @@ void CommsGcs::handle_message(const mavlink_message_t& msg)
         out.v_fov            = d.vertical_fov;
         for (size_t i = 0; i < out.q.size(); ++i) out.q[i] = d.quaternion[i];
         out.orientation      = d.orientation;
+        latest_distance_sensor_ = out.current_distance;
         distance_pub_->publish(out);
         break;
     }
@@ -411,6 +421,27 @@ void CommsGcs::handle_message(const mavlink_message_t& msg)
         if (ext.message_type == ASR_MSG_MISSION_VALIDATE ||
             ext.message_type == ASR_MSG_MISSION_STATUS) {
             handle_mission_v2_extension(ext);
+            break;
+        }
+        if (ext.message_type == ASR_MSG_TELEMETRY_ORIGIN_GPS) {
+#pragma pack(push, 1)
+            struct OriginGpsPod {
+                double timestamp;
+                double latitude;
+                double longitude;
+                double altitude;
+            };
+#pragma pack(pop)
+
+            OriginGpsPod pod{};
+            std::memcpy(&pod, ext.payload, sizeof(pod));
+
+            asr_comms::msg::TelemetryOriginGPS out{};
+            out.timestamp = pod.timestamp;
+            out.latitude  = pod.latitude;
+            out.longitude = pod.longitude;
+            out.altitude  = pod.altitude;
+            origin_gps_pub_->publish(out);
             break;
         }
         if (ext.message_type != ASR_MSG_TELEMETRY_STATUS) break;
@@ -727,9 +758,9 @@ void CommsGcs::on_manual_input(const asr_comms::msg::ManualControlInput::SharedP
     const int16_t z = static_cast<int16_t>(msg->thrust       * 1000.0f);
     const int16_t r = static_cast<int16_t>(msg->yaw_velocity * 1000.0f);
     const uint16_t buttons =
-          static_cast<uint16_t>(msg->arm          & 0x01u)
-        | static_cast<uint16_t>((msg->estop        & 0x01u) << 1)
-        | static_cast<uint16_t>((msg->selfdestruct & 0x01u) << 2);
+          static_cast<uint16_t>(msg->arm           & 0x01u)
+        | static_cast<uint16_t>((msg->estop         & 0x01u) << 1)
+        | static_cast<uint16_t>((msg->manual_engage & 0x01u) << 2);
 
     mavlink_message_t mav{};
     mavlink_msg_manual_control_pack(system_id_, component_id_, &mav,

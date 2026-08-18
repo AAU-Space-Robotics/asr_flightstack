@@ -1,15 +1,5 @@
-// Disposable CLI test harness for the mission upload/start/status pipeline.
-//
-// Stands in for the real GCS UI (asr_gcs, developed on another branch)
-// until that integrates directly -- delete this once it does. C++ (not the
-// earlier Python version) specifically so it can link asr_mission_lib and
-// call validate() locally before ever touching the network: a plan that's
-// broken on its face (empty sequence, bad schema_version, unknown skill
-// name if --vehicle is given) gets rejected here, with zero ROS traffic
-// and no vehicle involved at all.
-//
-// Usage:
-//   ros2 run asr_mission mission_cli <plan_file.json> [--vehicle NAME] [--abort-after SECONDS]
+// CLI test harness for the mission upload/start/status pipeline -- validates locally before touching the network.
+// Usage: ros2 run asr_mission mission_cli <plan_file.json> [--vehicle NAME] [--abort-after SECONDS]
 #include <chrono>
 #include <fstream>
 #include <iostream>
@@ -28,8 +18,7 @@ using json = nlohmann::json;
 
 namespace {
 
-// Publishing before DDS discovers a matching subscriber silently drops the
-// message -- spin briefly until one is seen, or give up.
+// Publishing before DDS discovers a subscriber silently drops the message -- spin until one is seen.
 bool wait_for_subscriber(const rclcpp::Node::SharedPtr &node, rclcpp::PublisherBase::SharedPtr pub,
                          double timeout_sec = 5.0) {
     const auto start = std::chrono::steady_clock::now();
@@ -83,7 +72,7 @@ public:
 
 private:
     void on_validate(const std::string &data) {
-        json issues = json::parse(data);
+        json issues = json::parse(data).value("issues", json::array());
         bool has_error = false;
         if (issues.empty()) {
             std::cout << "Vehicle validation: OK, no issues\n";
@@ -181,9 +170,7 @@ int main(int argc, char **argv) {
         return 1;
     }
 
-    // Local validation -- entirely offline. If --vehicle names a package
-    // installed on this machine, its skills.yaml is used too (capability
-    // checks, not just structural ones); otherwise structural checks only.
+    // Local validation, entirely offline -- structural only unless --vehicle names an installed package.
     std::unique_ptr<VehicleCapabilities> capabilities;
     if (!vehicle.empty()) {
         auto all_caps = discover_capabilities();

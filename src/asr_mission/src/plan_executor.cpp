@@ -102,6 +102,21 @@ Status PlanExecutor::tick_node(const PlanNode &node, const std::string &path) {
             }
             return tick_node(*run_until.child, path + ".child");
         }
+
+        case NodeKind::Repeat: {
+            const auto &repeat = static_cast<const RepeatNode &>(node);
+            if (!state_map_.count(&node)) { state_map_[&node] = RepeatState{}; }
+            auto &state = std::get<RepeatState>(state_map_.at(&node));
+
+            Status child_status = tick_node(*repeat.child, path + ".child");
+            // Aborts on failure rather than masking it -- that's retry's job, not repeat's.
+            if (child_status != Status::Success) { return child_status; }
+
+            state.completed++;
+            if (state.completed >= repeat.count) { return Status::Success; }
+            reset_node(*repeat.child);
+            return Status::Running;
+        }
     }
 
     return Status::Failure;
@@ -133,6 +148,12 @@ void PlanExecutor::reset_node(const PlanNode &node) {
         case NodeKind::RunUntil: {
             const auto &run_until = static_cast<const RunUntilNode &>(node);
             reset_node(*run_until.child);
+            state_map_.erase(&node);
+            break;
+        }
+        case NodeKind::Repeat: {
+            const auto &repeat = static_cast<const RepeatNode &>(node);
+            reset_node(*repeat.child);
             state_map_.erase(&node);
             break;
         }

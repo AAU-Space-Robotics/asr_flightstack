@@ -74,6 +74,14 @@ json RunUntilNode::to_json() const {
     return j;
 }
 
+json RepeatNode::to_json() const {
+    json j;
+    j["type"] = "repeat";
+    j["count"] = count;
+    j["child"] = child->to_json();
+    return j;
+}
+
 PlanNodePtr node_from_json(const json &j, const std::string &path) {
     if (!j.contains("type")) {
         throw PlanFormatError(path, "node missing 'type'");
@@ -118,7 +126,18 @@ PlanNodePtr node_from_json(const json &j, const std::string &path) {
         }
         PlanNodePtr child = node_from_json(j.at("child"), path + ".child");
         node->child = std::move(child);
-  
+
+        return node;
+    } else if (type == "repeat") {
+        if (!j.contains("count")) {
+            throw PlanFormatError(path, "repeat missing 'count'");
+        }
+
+        auto node = std::make_unique<RepeatNode>();
+        node->count = j.at("count").get<int>();
+        PlanNodePtr child = node_from_json(j.at("child"), path + ".child");
+        node->child = std::move(child);
+
         return node;
     } else {
         throw PlanFormatError(path, "unknown node type: " + type);
@@ -126,9 +145,13 @@ PlanNodePtr node_from_json(const json &j, const std::string &path) {
 }
 
 json Plan::to_json() const {
+    if (!root) {
+        throw std::runtime_error("Plan::to_json: plan has no root -- add at least one task first");
+    }
     json j;
     j["plan_id"] = plan_id;
     j["schema_version"] = schema_version;
+    j["vehicle"] = vehicle;
     j["root"] = root->to_json();
     return j;
 }
@@ -148,6 +171,9 @@ Plan Plan::from_json(const json &j) {
     }
     if (j.contains("schema_version")) {
         plan.schema_version = j.at("schema_version").get<int>();
+    }
+    if (j.contains("vehicle")) {
+        plan.vehicle = j.at("vehicle").get<std::string>();
     }
     plan.root = node_from_json(j.at("root"), "root");
     return plan;

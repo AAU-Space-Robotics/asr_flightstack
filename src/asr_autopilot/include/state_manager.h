@@ -57,6 +57,20 @@ enum class FlightModeTrait {
     AUTONOMOUS = 2
 };
 
+enum class RTK_STATUS {
+    INACTIVE = 0,
+    SURVEY_IN = 1,
+    STREAMING = 2
+};
+
+struct BaseStateInfo {
+    bool bs_connected = false;
+    RTK_STATUS bs_status = RTK_STATUS::INACTIVE;
+    double rtk_accuracy = 0.0;
+    double rtk_accuracy_target = 0.0;
+    double rtk_survey_duration = 0.0;
+};
+
 // Example mapping (can be used in a function or static const array)
 static const std::unordered_map<FlightMode, std::vector<FlightModeTrait>> flight_mode_traits_map = {
     {FlightMode::EMERGENCY_STOP, {FlightModeTrait::ESTOP}},
@@ -282,6 +296,13 @@ struct GPSState{
     float longitude;
     int32_t satellites_used;
 };
+struct Probe {
+    float x = 0.0f, y = 0.0f, z = 0.0f;
+    float sigma_x = 0.0f, sigma_y = 0.0f, sigma_z = 0.0f;
+};
+struct ProbeData{
+    std::vector<Probe> probes;
+};
 
 struct VelocityError {
     PIDError X;
@@ -312,8 +333,14 @@ public:
     void setGlobalPosition(const Stamped3DVector& new_data);
     Stamped3DVector getGlobalPosition();
 
+    void setGPSPosition(const Stamped3DVector& new_data);
+    Stamped3DVector getGPSPosition();
+
     void setOrigin(const Stamped3DVector& new_data);
     Stamped3DVector getOrigin();
+
+    void setOriginGPS(const Stamped3DVector& new_data);
+    Stamped3DVector getOriginGPS();
 
     void setGlobalVelocity(const Stamped3DVector& new_data);
     Stamped3DVector getGlobalVelocity();
@@ -373,6 +400,9 @@ public:
     void setGlobalProbeLocations(const GlobalProbeLocations& new_data);
     GlobalProbeLocations getGlobalProbeLocations();
 
+    void setInterfaceProbeLocations(const ProbeData& new_data);
+    ProbeData getInterfaceProbeLocations();
+
     void setGPSState(const GPSState& new_data);
     GPSState getGPSState();
 
@@ -382,12 +412,20 @@ public:
     void setGimbalPriority(const bool priority);
     bool getGimbalPriority();
 
+    void setArminState(const bool state);
+    bool getArminState();
+
+    void setRTKstatus(const BaseStateInfo& new_data);
+    BaseStateInfo getRTKstatus();
+
 private:
     
     // Mutexes for thread safety
     std::mutex heartbeat_mutex_;
 
     std::mutex position_global_mutex_;
+    std::mutex position_gps_mutex_;
+    std::mutex origin_gps_mutex_;
     std::mutex origin_mutex_;
     std::mutex velocity_global_mutex_;
     std::mutex acceleration_global_mutex_;
@@ -408,15 +446,22 @@ private:
     std::mutex battery_state_mutex_;
     std::mutex actuator_speeds_mutex_;
     std::mutex probe_global_locations_mutex_;
+    std::mutex probe_interface_locations_mutex_;
     std::mutex gps_state_mutex_;
+    std::mutex arming_state_mutex_;
+    std::mutex rtk_data_mutex_;
 
     std::mutex gimbal_priority_mutex_;
     bool gimbal_priority_;
+    bool arming_state;
+
     // Data structures to store state information
     GCSHeartbeat gcs_heartbeat_;
 
     Stamped3DVector position_global_;
+    Stamped3DVector position_gps_;
     Stamped3DVector origin_;
+    Stamped3DVector origin_gps_;
     Stamped3DVector velocity_global_;
     Stamped3DVector acceleration_global_;
     
@@ -436,7 +481,9 @@ private:
     Eigen::Vector4d latest_control_signal_velocity_ = Eigen::Vector4d::Zero(); // Initialize to zero
     Stamped4DVector actuator_speeds_ = Stamped4DVector(rclcpp::Time(0, 0), 0.0, 0.0, 0.0, 0.0);
     GlobalProbeLocations probe_global_locations_;
+    ProbeData probe_interface_locations_;
     GPSState gps_state_;
+    BaseStateInfo rtk_data_;
 };
 
 #endif // STATE_MANAGER_H

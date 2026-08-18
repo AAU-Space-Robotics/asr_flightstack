@@ -105,3 +105,22 @@ source ./.venv/bin/activate
 
 
 rosdep install --from-paths src --ignore-src -r -y
+
+
+
+# Camera stuff :
+ps aux | grep camera_relay
+
+kill the 18xx
+
+cd drone-software and source
+
+run:
+python3 /home/thyra/drone-software/install/asr_drivers/lib/asr_drivers/camera_relay.py \
+  --ros-args \
+  -r __node:=camera_relay \
+  -r __ns:=/asr/thyra \
+  --params-file /home/thyra/drone-software/install/thyra/share/thyra/config/uav/thyra_params.yaml
+
+This is what interface should send:
+ros2 topic pub --once /asr/gcs/in/camera_stream asr_comms/msg/CameraStreamRequest "{enabled: true}"

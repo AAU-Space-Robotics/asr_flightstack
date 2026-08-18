@@ -59,6 +59,7 @@ VehicleCapabilities VehicleCapabilities::from_yaml(const std::string &path) {
         std::string skill_name = skill_entry.first.as<std::string>();
         SkillSpec spec;
         spec.name = skill_name;
+        if (skill_entry.second["description"]) { spec.description = skill_entry.second["description"].as<std::string>(); }
 
         YAML::Node params_node = skill_entry.second["params"];
         for (const auto &param_entry : params_node) {

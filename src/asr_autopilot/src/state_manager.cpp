@@ -12,6 +12,17 @@ Stamped3DVector StateManager::getGlobalPosition() {
     return position_global_;   
 }
 
+void StateManager::setGPSPosition(const Stamped3DVector& new_data) {
+    std::lock_guard<std::mutex> lock(position_gps_mutex_);
+    position_gps_ = new_data;   
+}
+
+Stamped3DVector StateManager::getGPSPosition() {
+    std::lock_guard<std::mutex> lock(position_gps_mutex_);
+    return position_gps_;   
+}
+
+
 // ---
 
 void StateManager::setOrigin(const Stamped3DVector& new_data) {
@@ -22,6 +33,16 @@ void StateManager::setOrigin(const Stamped3DVector& new_data) {
 Stamped3DVector StateManager::getOrigin() {
     std::lock_guard<std::mutex> lock(origin_mutex_);
     return origin_;   
+}
+
+void StateManager::setOriginGPS(const Stamped3DVector& new_data) {
+    std::lock_guard<std::mutex> lock(origin_gps_mutex_);
+    origin_gps_ = new_data;   
+}
+
+Stamped3DVector StateManager::getOriginGPS() {
+    std::lock_guard<std::mutex> lock(origin_gps_mutex_);
+    return origin_gps_;   
 }
 
 // ---
@@ -248,6 +269,16 @@ GlobalProbeLocations StateManager::getGlobalProbeLocations() {
     return probe_global_locations_;
 }
 
+void StateManager::setInterfaceProbeLocations(const ProbeData& new_data){
+    std::lock_guard<std::mutex> lock(probe_interface_locations_mutex_);
+    probe_interface_locations_ = new_data;
+}
+
+ProbeData StateManager::getInterfaceProbeLocations(){
+    std::lock_guard<std::mutex> lock(probe_interface_locations_mutex_);
+    return probe_interface_locations_;
+}
+
 void StateManager::setGimbalPriority(const bool priority) {
     std::lock_guard<std::mutex> lock(gimbal_priority_mutex_);
     gimbal_priority_ = priority;
@@ -256,6 +287,16 @@ void StateManager::setGimbalPriority(const bool priority) {
 bool StateManager::getGimbalPriority() {
     std::lock_guard<std::mutex> lock(gimbal_priority_mutex_);
     return gimbal_priority_;
+}
+
+void StateManager::setRTKstatus(const BaseStateInfo& new_data){
+    std::lock_guard<std::mutex> lock(rtk_data_mutex_);
+    rtk_data_ = new_data;
+}
+
+BaseStateInfo StateManager::getRTKstatus(){
+    std::lock_guard<std::mutex> lock(rtk_data_mutex_);
+    return rtk_data_;
 }
 
 // Get bundled trajectory initialization state
@@ -279,6 +320,16 @@ TrajectoryInitState StateManager::getTrajectoryInitState() {
         .acceleration = acceleration_global_.data,
         .yaw = euler.yaw
     };
+}
+
+void StateManager::setArminState(const bool state){
+    std::lock_guard<std::mutex> lock(arming_state_mutex_);
+    arming_state = state;
+}
+
+bool StateManager::getArminState(){
+    std::lock_guard<std::mutex> lock(arming_state_mutex_);
+    return arming_state;
 }
 
 // End of Setters & Getters

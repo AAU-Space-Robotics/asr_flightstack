@@ -1,0 +1,39 @@
+vehicle: gunhild
+
+# alt and pos.z are NED (metres, up is negative) -- same frame asr_autopilot uses natively, no sign conversion anywhere.
+skills:
+  takeoff:
+    description: "Arms if needed, then climbs straight up to the given altitude."
+    params:
+      alt: {type: float, min: -10.0, max: -0.5}
+
+  land:
+    description: "Descends straight down at the current position and disarms on touchdown."
+    params: {}
+
+  goto:
+    description: "Flies in a straight line to the given north/east/down position."
+    params:
+      pos: {type: point}
+      yaw: {type: float, required: false, min: -3.1416, max: 3.1416}
+
+  rth:
+    description: "Flies back to the launch origin and holds there -- does not land."
+    params: {}
+
+  rtl:
+    description: "Flies back to the launch origin, then lands automatically."
+    params: {}
+
+  # arm/disarm are not planner-facing skills -- mission_executor_node arms
+  # automatically before the first takeoff/goto/spin/rth/rtl if the vehicle
+  # isn't already armed (see AutoArmSkillHandle in mission_executor_node.cpp).
+
+  # search_grid not yet implemented in asr_autopilot.
+  # Add here when the corresponding UAVCommand command_type exists.
+
+conditions:
+  - probes_found
+  - grid_exhausted
+  - battery_low
+  - time_elapsed

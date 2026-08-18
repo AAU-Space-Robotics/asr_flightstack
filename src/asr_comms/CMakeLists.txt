@@ -34,6 +34,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "ros/msg/comms/LinkStats.msg"
   "ros/msg/comms/GcsHeartbeat.msg"
   "ros/msg/comms/CameraStreamRequest.msg"
+  "ros/msg/comms/BaseStationStats.msg"
   # control
   "ros/msg/control/ControlDetail.msg"
   "ros/msg/control/UAVScope.msg"
@@ -49,6 +50,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "ros/msg/telemetry/TelemetryAttitude.msg"
   "ros/msg/telemetry/TelemetryBattery.msg"
   "ros/msg/telemetry/TelemetryGPS.msg"
+  "ros/msg/telemetry/TelemetryOriginGPS.msg"
   "ros/msg/telemetry/TelemetryStatus.msg"
   "ros/action/UAVCommand.action"
   "ros/action/MissionComand.action"

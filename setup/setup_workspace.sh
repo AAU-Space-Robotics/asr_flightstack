@@ -29,6 +29,26 @@ else
     echo "ros-$ROS_DISTRO-asio-cmake-module is already installed."
 fi
 
+# Install deps for mission planner.
+
+if ! dpkg -l | grep -q "libyaml-cpp-dev"; then
+    if ! sudo apt-get install -y "libyaml-cpp-dev"; then
+        echo "Error: Failed to install libyaml-cpp-dev"
+        exit 1
+    fi
+else
+    echo "libyaml-cpp-dev is already installed."
+fi
+
+if ! dpkg -l | grep -q "nlohmann-json3-dev"; then
+    if ! sudo apt-get install -y "nlohmann-json3-dev"; then
+        echo "Error: Failed to install nlohmann-json3-dev"
+        exit 1
+    fi
+else
+    echo "nlohmann-json3-dev is already installed."
+fi
+
 # 2. Check if the src directory exists, create it if it doesn't
 if [ ! -d "$SRC_DIR" ]; then
   echo "Creating src directory at $SRC_DIR..."

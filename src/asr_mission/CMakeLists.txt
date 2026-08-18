@@ -16,6 +16,9 @@ find_package(std_msgs REQUIRED)
 find_package(asr_comms REQUIRED)
 find_package(nlohmann_json REQUIRED)
 find_package(yaml-cpp REQUIRED)
+if(NOT TARGET yaml-cpp::yaml-cpp)
+  add_library(yaml-cpp::yaml-cpp ALIAS yaml-cpp)
+endif()
 find_package(OpenSSL REQUIRED)
 
 # --- asr_mission library: plan schema, capabilities, validator, executor ---
@@ -80,9 +83,9 @@ install(DIRECTORY include/
 install(DIRECTORY config/
   DESTINATION share/${PROJECT_NAME}/config
 )
-install(DIRECTORY plans/
-  DESTINATION share/${PROJECT_NAME}/plans
-)
+#install(DIRECTORY plans/
+#  DESTINATION share/${PROJECT_NAME}/plans
+#)
 
 ament_export_targets(export_${PROJECT_NAME} HAS_LIBRARY_TARGET)
 ament_export_dependencies(nlohmann_json yaml-cpp)

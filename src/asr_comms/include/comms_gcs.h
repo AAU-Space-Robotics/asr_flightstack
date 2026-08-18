@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <atomic>
 #include <chrono>
 #include <thread>
@@ -14,6 +15,7 @@
 #include <asr_comms/msg/telemetry_attitude.hpp>
 #include <asr_comms/msg/telemetry_battery.hpp>
 #include <asr_comms/msg/telemetry_gps.hpp>
+#include <asr_comms/msg/telemetry_origin_gps.hpp>
 #include <asr_comms/msg/telemetry_status.hpp>
 #include <asr_comms/msg/uav_command.hpp>
 #include <asr_comms/msg/command_ack.hpp>
@@ -102,8 +104,11 @@ private:
     rclcpp::Publisher<asr_comms::msg::TelemetryBattery>::SharedPtr  battery_pub_;
     rclcpp::Publisher<asr_comms::msg::TelemetryBattery>::SharedPtr  battery2_pub_;
     rclcpp::Publisher<asr_comms::msg::TelemetryGPS>::SharedPtr      gps_pub_;
+    rclcpp::Publisher<asr_comms::msg::TelemetryOriginGPS>::SharedPtr origin_gps_pub_;
     rclcpp::Publisher<asr_comms::msg::TelemetryStatus>::SharedPtr   status_pub_;
     rclcpp::Publisher<px4_msgs::msg::DistanceSensor>::SharedPtr     distance_pub_;
+    float latest_distance_sensor_{0.0f};                       // cached for TelemetryPosition.distance_sensor
+    std::array<float, 3> latest_target_position_{0.0f, 0.0f, 0.0f};  // cached for TelemetryPosition.target_position
 
     // Send side
     rclcpp::TimerBase::SharedPtr heartbeat_timer_;
@@ -202,6 +207,7 @@ private:
     static constexpr uint16_t ASR_MSG_MISSION_START    = 0x9006u;
     static constexpr uint16_t ASR_MSG_MISSION_STATUS   = 0x9007u;
     static constexpr uint16_t ASR_MSG_MISSION_ABORT    = 0x9008u;
+    static constexpr uint16_t ASR_MSG_TELEMETRY_ORIGIN_GPS = 0x9009u;
 
     // ASR custom MAVLink command IDs (local experiment range ≥ 32768)
     static constexpr uint16_t ASR_CMD_GOTO              = 32768u;

@@ -1,31 +1,35 @@
 vehicle: thyra
 
-# alt and pos.z are positive-up (metres above the takeoff point) --
-# mission_executor_node negates them internally before sending to
-# asr_autopilot, which works in NED (up is negative Z).
+# alt and pos.z are NED (metres, up is negative) -- same frame asr_autopilot uses natively, no sign conversion anywhere.
 skills:
   takeoff:
+    description: "Arms if needed, then climbs straight up to the given altitude."
     params:
-      alt: {type: float, min: 0.5, max: 10.0}
+      alt: {type: float, min: -10.0, max: -0.5}
 
   land:
+    description: "Descends straight down at the current position and disarms on touchdown."
     params: {}
 
   goto:
+    description: "Flies in a straight line to the given north/east/down position."
     params:
       pos: {type: point}
       yaw: {type: float, required: false, min: -3.1416, max: 3.1416}
 
   spin:
+    description: "Rotates in place to the given yaw, optionally through extra full rotations."
     params:
       yaw: {type: float, min: -3.1416, max: 3.1416}
       rotations: {type: float, min: 0.0}
       longest_path: {type: bool, required: false}
 
   rth:
+    description: "Flies back to the launch origin and holds there -- does not land."
     params: {}
 
   rtl:
+    description: "Flies back to the launch origin, then lands automatically."
     params: {}
 
   # arm/disarm are not planner-facing skills -- mission_executor_node arms

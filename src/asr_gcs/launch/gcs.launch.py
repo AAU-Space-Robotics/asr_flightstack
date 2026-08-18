@@ -1,5 +1,6 @@
 from launch import LaunchDescription
-from launch.actions import Shutdown
+from launch.actions import RegisterEventHandler, Shutdown
+from launch.event_handlers import OnProcessExit
 from launch.substitutions import PathJoinSubstitution
 from launch_ros.actions import Node
 from launch_ros.substitutions import FindPackageShare
@@ -8,6 +9,17 @@ from launch_ros.substitutions import FindPackageShare
 def generate_launch_description():
     gcs_pkg_share = FindPackageShare('asr_gcs')
     comms_path = PathJoinSubstitution([gcs_pkg_share, 'config', 'gcs_comms.yaml'])
+    checklist_path = PathJoinSubstitution([gcs_pkg_share, 'config', 'checklist.yaml'])
+
+    # Ground control station GUI
+    interface_node = Node(
+        package='asr_gcs',
+        executable='interface',
+        name='aau_groundcontrol_node',
+        namespace='asr/gcs',
+        output='screen',
+        parameters=[checklist_path],
+    )
 
     return LaunchDescription([
         # MAVLink bridge — GCS side
@@ -41,13 +53,12 @@ def generate_launch_description():
             parameters=[comms_path],
         ),
 
-        # Ground control station GUI
-        Node(
-            package='asr_gcs',
-            executable='GUI.py',
-            name='gcs_gui',
-            namespace='asr/gcs',
-            output='screen',
-            on_exit=Shutdown(),
+        interface_node,
+
+        RegisterEventHandler(
+            OnProcessExit(
+                target_action=interface_node,
+                on_exit=[Shutdown(reason='GCS GUI exited')],
+            )
         ),
     ])
