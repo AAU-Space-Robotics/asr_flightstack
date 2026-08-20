@@ -71,7 +71,7 @@ void CollectAltitudes(const PlanNode &node, std::optional<double> &carry, std::v
 
 } // namespace
 
-void DrawHeightChart(const Plan &plan, ImVec2 pos, ImVec2 size, float scale, bool theme)
+void DrawHeightChart(const Plan &plan, ImVec2 pos, ImVec2 size, const UiScale& scale, bool theme)
 {
     BeginFixedPanel("HeightChartPanel", pos, size, scale, theme, 0, ImVec2(8, 8));
 
@@ -134,7 +134,7 @@ void DrawHeightChart(const Plan &plan, ImVec2 pos, ImVec2 size, float scale, boo
                     std::snprintf(label, sizeof(label), "repeat %dx", band.count);
                     const ImVec2 label_size = ImGui::CalcTextSize(label);
                     plot_draw_list->AddText(
-                        ImVec2((x_left + x_right) * 0.5f - label_size.x * 0.5f, y_bottom - label_size.y - 4.0f * scale),
+                        ImVec2((x_left + x_right) * 0.5f - label_size.x * 0.5f, y_bottom - label_size.y - 4.0f * scale.y),
                         IM_COL32(90, 150, 255, 255), label);
                 }
                 ImPlot::PopPlotClipRect();

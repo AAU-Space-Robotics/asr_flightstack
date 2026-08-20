@@ -1,6 +1,7 @@
 #pragma once
 
 #include <imgui.h>
+#include "app_window.h"
 
 namespace asr_mission { class Plan; }
 class Location;
@@ -16,10 +17,10 @@ struct MapTaskClick {
 MapTaskClick DrawPlanRouteOverlay(Location &location, const asr_mission::Plan &plan,
                                   double home_lat, double home_lon,
                                   double center_lat, double center_lon, int zoom,
-                                  ImVec2 widget_pos, float width, float height, float visible_h, float scale,
+                                  ImVec2 widget_pos, float width, float height, float visible_h, const UiScale& scale,
                                   int highlighted_top_level, int highlighted_nested);
 
 // Draws a single marker for the vehicle's live GPS position -- same widget_pos/width/height/center convention as DrawPlanRouteOverlay, so it lines up on a view centered on something other than the vehicle itself (e.g. a fixed origin).
 void DrawUavPositionMarker(Location &location, double uav_lat, double uav_lon,
                            double center_lat, double center_lon, int zoom,
-                           ImVec2 widget_pos, float width, float height, float visible_h, float scale);
+                           ImVec2 widget_pos, float width, float height, float visible_h, const UiScale& scale);

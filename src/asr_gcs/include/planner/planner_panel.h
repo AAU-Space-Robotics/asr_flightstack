@@ -8,6 +8,7 @@
 
 #include <imgui.h>
 
+#include "app_window.h"
 #include "planner/planner.h"
 #include "planner/save_load_dialog.h"
 
@@ -15,7 +16,7 @@ class PlannerPanel {
 public:
     explicit PlannerPanel(Planner &planner);
 
-    void Draw(float scale, bool theme, float window_height);
+    void Draw(const UiScale& scale, bool theme, float window_height);
 
     // (top_level_index, nested_index) of the currently expanded row, or (-1, -1) -- feeds the map overlay's markers.
     std::pair<int, int> highlighted_task() const;
@@ -47,11 +48,11 @@ private:
     static constexpr double kHoverTooltipDelay = 1.5;
 
     // Vehicle dropdown + skill palette, one panel.
-    void DrawVehicleAndPalette(float scale, bool theme);
+    void DrawVehicleAndPalette(const UiScale& scale, bool theme);
 
     // Bottom-right toast with the hovered palette button's description, once hovered_skill_ has been held long enough.
-    void DrawPaletteHoverToast(float scale, bool theme, const std::string &description);
+    void DrawPaletteHoverToast(const UiScale& scale, bool theme, const std::string &description);
 
     // The numbered task list, with per-row reorder/remove/param-edit.
-    void DrawTaskList(float scale, bool theme, float window_height);
+    void DrawTaskList(const UiScale& scale, bool theme, float window_height);
 };

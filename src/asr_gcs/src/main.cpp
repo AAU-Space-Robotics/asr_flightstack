@@ -693,10 +693,11 @@ int main(int argc, char **argv) {
             continue;
         }
 
-        float scale = max(static_cast<float>(x_sc) / screen_width, 
-                               static_cast<float>(y_sc) / screen_height);
-        scale = max(scale, 0.01f); 
-        ImGui::GetIO().FontGlobalScale = scale;
+        UiScale scale{
+            max(static_cast<float>(x_sc) / screen_width, 0.01f),
+            max(static_cast<float>(y_sc) / screen_height, 0.01f)
+        };
+        ImGui::GetIO().FontGlobalScale = scale.uniform();
         // Set the GLFW window size
         //winInit.UpdateWindowSize(scale);
         //glfwSetWindowSize(window, windowVar::display_w, windowVar::display_h);
@@ -798,11 +799,11 @@ int main(int argc, char **argv) {
         //string infolat = "Long and Lat: " + to_string(Info.gps_status.latitude) + " " + to_string(Info.gps_status.longitude);
         //std::cout << infolat << std::endl;
         if (tiles_downloading.load()) {
-            ImVec2 loading_pos = ImVec2(x_sc / 2.0f - 100 * scale, 90 * scale);
+            ImVec2 loading_pos = ImVec2(x_sc / 2.0f - 100 * scale.x, 90 * scale.y);
             draw_list->AddRectFilled(
-                ImVec2(loading_pos.x - 10 * scale, loading_pos.y - 5 * scale),
-                ImVec2(loading_pos.x + 210 * scale, loading_pos.y + 25 * scale),
-                IM_COL32(230, 126, 34, 220), 8.0f * scale
+                ImVec2(loading_pos.x - 10 * scale.x, loading_pos.y - 5 * scale.y),
+                ImVec2(loading_pos.x + 210 * scale.x, loading_pos.y + 25 * scale.y),
+                IM_COL32(230, 126, 34, 220), 8.0f * scale.uniform()
             );
             draw_list->AddText(loading_pos, IM_COL32(0, 0, 0, 255), "Downloading map tiles...");
         }
@@ -817,19 +818,19 @@ int main(int argc, char **argv) {
 
          // --- ------------------------------------Side panel--------------------------------------------
 
-        BeginFixedPanel("SidePanel", ImVec2(-20 * scale, -80 * scale), ImVec2(80 * scale, y_sc + 1000 * scale),
+        BeginFixedPanel("SidePanel", ImVec2(-20 * scale.x, -80 * scale.y), ImVec2(80 * scale.x, y_sc + 1000 * scale.y),
                 scale, theme, 0, ImVec2(0, 0));
-   
+
         GLuint Day_Night_Icon = theme ? images.at("sun") : images.at("moon");
 
-        if (widgets.CustomButton(draw_list, ImVec2(30 * scale, 980 * scale),"Day Night",scale, Day_Night_Icon, theme, 0, 0)) {
+        if (widgets.CustomButton(draw_list, ImVec2(30 * scale.x, 980 * scale.y),"Day Night",scale, Day_Night_Icon, theme, 0, 0)) {
             theme = !theme;
-            
+
         }
         GLuint Flight_icon = theme ? images.at("f_mode_white") : images.at("f_mode");
         if (panel == 0) {
-            ImVec2 highlight_center = ImVec2(30 * scale, 100 * scale);
-            float highlight_size = (26 + 2) * scale;  // match the button's own size_x/size_y (but_size=0, img_size=2 here)
+            ImVec2 highlight_center = ImVec2(30 * scale.x, 100 * scale.y);
+            float highlight_size = (26 + 2) * scale.uniform();  // match the button's own size_x/size_y (but_size=0, img_size=2 here)
             draw_list->AddRectFilled(
                 ImVec2(highlight_center.x - highlight_size, highlight_center.y - highlight_size),
                 ImVec2(highlight_center.x + highlight_size, highlight_center.y + highlight_size),
@@ -837,15 +838,15 @@ int main(int argc, char **argv) {
                 12.0f  // match rounding used inside CustomButton
             );
         }
-        if (widgets.CustomButton(draw_list, ImVec2(30 * scale, 100 * scale),"FlightMode",scale, Flight_icon, theme, 0, 2)) {
+        if (widgets.CustomButton(draw_list, ImVec2(30 * scale.x, 100 * scale.y),"FlightMode",scale, Flight_icon, theme, 0, 2)) {
             panel = 0;
-            
+
         }
         GLuint MissionPlanner_Icon = theme ? images.at("job_white") : images.at("job");
 
         if (panel == 1) {
-            ImVec2 highlight_center = ImVec2(30 * scale, 160 * scale);
-            float highlight_size = (26 + 2) * scale;
+            ImVec2 highlight_center = ImVec2(30 * scale.x, 160 * scale.y);
+            float highlight_size = (26 + 2) * scale.uniform();
             draw_list->AddRectFilled(
                 ImVec2(highlight_center.x - highlight_size, highlight_center.y - highlight_size),
                 ImVec2(highlight_center.x + highlight_size, highlight_center.y + highlight_size),
@@ -853,15 +854,15 @@ int main(int argc, char **argv) {
                 12.0f
             );
         }
-        if (widgets.CustomButton(draw_list, ImVec2(30 * scale, 160 * scale),"Mission Planner",scale, MissionPlanner_Icon, theme, 0, 2)) {
+        if (widgets.CustomButton(draw_list, ImVec2(30 * scale.x, 160 * scale.y),"Mission Planner",scale, MissionPlanner_Icon, theme, 0, 2)) {
             panel = 1;
 
         }
         GLuint Placeholder_Icon = images.at("drone");  // no light-theme variant yet -- same icon either way
 
         if (panel == 2) {
-            ImVec2 highlight_center = ImVec2(30 * scale, 220 * scale);
-            float highlight_size = (26 + 2) * scale;
+            ImVec2 highlight_center = ImVec2(30 * scale.x, 220 * scale.y);
+            float highlight_size = (26 + 2) * scale.uniform();
             draw_list->AddRectFilled(
                 ImVec2(highlight_center.x - highlight_size, highlight_center.y - highlight_size),
                 ImVec2(highlight_center.x + highlight_size, highlight_center.y + highlight_size),
@@ -869,7 +870,7 @@ int main(int argc, char **argv) {
                 12.0f
             );
         }
-        if (widgets.CustomButton(draw_list, ImVec2(30 * scale, 220 * scale),"Placeholder",scale, Placeholder_Icon, theme, 0, 2)) {
+        if (widgets.CustomButton(draw_list, ImVec2(30 * scale.x, 220 * scale.y),"Placeholder",scale, Placeholder_Icon, theme, 0, 2)) {
           // cout << "howdi" <<endl;
           // ground_control->addLogLine(LogLevel::ERROR,"Howdi");
            panel = 2;
@@ -881,26 +882,26 @@ int main(int argc, char **argv) {
 
         
         // ----------------------------------------Top Panel-----------------------------------------
-        BeginFixedPanel("TopPanel", ImVec2(-20 * scale, -20 * scale), ImVec2(x_sc + 1000 * scale, 80 * scale),
+        BeginFixedPanel("TopPanel", ImVec2(-20 * scale.x, -20 * scale.y), ImVec2(x_sc + 1000 * scale.x, 80 * scale.y),
                 scale, theme, 0, ImVec2(0, 0));
-        
+
         draw_list->AddImageRounded(
             (ImTextureID)(intptr_t)images.at("aau_logo"),
-            ImVec2(8 * scale, 8 * scale),  
-            ImVec2(55 * scale, 55 * scale),  // inset max
+            ImVec2(8 * scale.uniform(), 8 * scale.uniform()),
+            ImVec2(55 * scale.uniform(), 55 * scale.uniform()),  // inset max (kept square)
             ImVec2(0, 0), ImVec2(1, 1),
             IM_COL32(255, 255, 255, 200),
             12.0f
         );
         for (int i = 0; i <= 208; i+=208){
             draw_list->AddLine(
-                ImVec2((59 + i) * scale, 5 * scale),
-                ImVec2((59 + i) * scale, 50 * scale),   
+                ImVec2((59 + i) * scale.x, 5 * scale.y),
+                ImVec2((59 + i) * scale.x, 50 * scale.y),
                 colors.panelBorder(theme),
                 2.0f
             );
         }
-        if (widgets.ArmButton(draw_list,ImVec2(342 * scale, 30 * scale), scale, theme, arming_state )){
+        if (widgets.ArmButton(draw_list,ImVec2(342 * scale.x, 30 * scale.y), scale, theme, arming_state )){
             if(!arming_state){
                 request_arm();
             } else {
@@ -911,11 +912,11 @@ int main(int argc, char **argv) {
         }
 
         if (require_checklist && !arming_state) {
-            DrawIssuesBadge(draw_list, ImVec2(400 * scale, 12 * scale), scale,
+            DrawIssuesBadge(draw_list, ImVec2(400 * scale.x, 12 * scale.y), scale,
                              static_cast<int>(prearm_hard_issues.size()));
         }
 
-        if (widgets.ModeToggle(draw_list, ImVec2(164 * scale, 30 * scale), scale, theme, is_manual)) {
+        if (widgets.ModeToggle(draw_list, ImVec2(164 * scale.x, 30 * scale.y), scale, theme, is_manual)) {
             if (is_manual) {
                 
                 if (js.connected) {
@@ -968,80 +969,80 @@ int main(int argc, char **argv) {
 
         case 0:
         {
-        const float mission_bar_top_y = mission_control_bar.PanelTopY(scale, 70 * scale, 800 * scale);
+        const float mission_bar_top_y = mission_control_bar.PanelTopY(scale, 70 * scale.y, 800 * scale.y);
 
         //--------------------------MAP--------------------------------------------------------------
         if(sat_map){
-            BeginFixedPanel("MapPanel", ImVec2(70 * scale, 70 * scale), ImVec2(1500 * scale, map_size_x * scale),
+            BeginFixedPanel("MapPanel", ImVec2(70 * scale.x, 70 * scale.y), ImVec2(1500 * scale.x, map_size_x * scale.y),
                 scale, theme, 0, ImVec2(0, 0));
-            ImVec2 front_map_pos = location.MapWidget(origin_gps.x(), origin_gps.y(), 1500 * scale, 900 * scale, scale, map_zoom, placeholderTile, theme);
+            ImVec2 front_map_pos = location.MapWidget(origin_gps.x(), origin_gps.y(), 1500 * scale.x, 900 * scale.y, scale, map_zoom, placeholderTile, theme);
             // No task list here to sync selection with, so no highlight and the click result is unused.
-            const float overlay_h = std::max(80.0f * scale, mission_bar_top_y - front_map_pos.y);
+            const float overlay_h = std::max(80.0f * scale.y, mission_bar_top_y - front_map_pos.y);
             // Foreground-drawn, so it renders above modals too -- skip while Load/Save is up, or it bleeds through.
             if (!mission_control_bar.IsDialogOpen()) {
                 DrawPlanRouteOverlay(location, planner.plan(), origin_gps.x(), origin_gps.y(),
                                      origin_gps.x(), origin_gps.y(), map_zoom,
-                                     front_map_pos, 1500 * scale, 900 * scale, overlay_h, scale, -1, -1);
+                                     front_map_pos, 1500 * scale.x, 900 * scale.y, overlay_h, scale, -1, -1);
                 DrawUavPositionMarker(location, Info.gps_status.latitude, Info.gps_status.longitude,
                                       origin_gps.x(), origin_gps.y(), map_zoom,
-                                      front_map_pos, 1500 * scale, 900 * scale, overlay_h, scale);
+                                      front_map_pos, 1500 * scale.x, 900 * scale.y, overlay_h, scale);
             }
 
 
-            if (widgets.DrawCircleGradientButton(draw_list, winInit.getFont(24), 1.0f, ImVec2(130 * scale, 125 * scale), 50.0f * scale, "ESTOP", 40.0f * scale)) {
-                ground_control->send_command("estop"); 
+            if (widgets.DrawCircleGradientButton(draw_list, winInit.getFont(24), UiScale{1.0f, 1.0f}, ImVec2(130 * scale.x, 125 * scale.y), 50.0f * scale.uniform(), "ESTOP", 40.0f * scale.uniform())) {
+                ground_control->send_command("estop");
                 auto now = ground_control->get_time();
-                if ((now - last_estop_log_time).seconds() > 1.0) {   
+                if ((now - last_estop_log_time).seconds() > 1.0) {
                     ground_control->addLogLine(LogLevel::WARN, "Estop command sent");
                     last_estop_log_time = now;
                 }
             }
 
-            ImGui::SetCursorPos(ImVec2(1440 * scale, 670 * scale));
+            ImGui::SetCursorPos(ImVec2(1440 * scale.x, 670 * scale.y));
             widgets.AltitudeTape(1, Info.ground_distance, 0.5f, theme, scale);
 
             widgets.GyroScopeIndicator(draw_list,
-                                    ImVec2(1320 * scale, 810 * scale),
-                                    Info.orientation, 
+                                    ImVec2(1320 * scale.x, 810 * scale.y),
+                                    Info.orientation,
                                     theme, scale);
 
             widgets.Compas(draw_list,
-                                    ImVec2(1440 * scale, 810 * scale),
-                                    Info.orientation, 
-                                    theme, scale);                   
+                                    ImVec2(1440 * scale.x, 810 * scale.y),
+                                    Info.orientation,
+                                    theme, scale);
 
             EndFixedPanel();
         } else{
-            BeginFixedPanel("NoSatMapPanel", ImVec2(70 * scale, 70 * scale), ImVec2(1500 * scale, map_size_x * scale),
+            BeginFixedPanel("NoSatMapPanel", ImVec2(70 * scale.x, 70 * scale.y), ImVec2(1500 * scale.x, map_size_x * scale.y),
                 scale, theme, 0, ImVec2(0, 0));
-            location.NoSatMap(Info, 1500 * scale, map_size_x * scale, scale, map_zoom, theme);
-             if (widgets.DrawCircleGradientButton(draw_list, winInit.getFont(24), 1.0f, ImVec2(130 * scale, 125 * scale), 50.0f * scale, "ESTOP", 40.0f * scale)) {
-                ground_control->send_command("estop"); 
+            location.NoSatMap(Info, 1500 * scale.x, map_size_x * scale.y, scale, map_zoom, theme);
+             if (widgets.DrawCircleGradientButton(draw_list, winInit.getFont(24), UiScale{1.0f, 1.0f}, ImVec2(130 * scale.x, 125 * scale.y), 50.0f * scale.uniform(), "ESTOP", 40.0f * scale.uniform())) {
+                ground_control->send_command("estop");
                 auto now = ground_control->get_time();
-                if ((now - last_estop_log_time).seconds() > 1.0) {   
+                if ((now - last_estop_log_time).seconds() > 1.0) {
                     ground_control->addLogLine(LogLevel::WARN, "Estop command sent");
                     last_estop_log_time = now;
                 }
             }
 
-            ImGui::SetCursorPos(ImVec2(1440 * scale, 670 * scale));
+            ImGui::SetCursorPos(ImVec2(1440 * scale.x, 670 * scale.y));
             widgets.AltitudeTape(1, Info.ground_distance, 0.5f, theme, scale);
 
             widgets.GyroScopeIndicator(draw_list,
-                                    ImVec2(1320 * scale, 810 * scale),
-                                    Info.orientation, 
+                                    ImVec2(1320 * scale.x, 810 * scale.y),
+                                    Info.orientation,
                                     theme, scale);
 
             widgets.Compas(draw_list,
-                                    ImVec2(1440 * scale, 810 * scale),
-                                    Info.orientation, 
-                                    theme, scale); 
+                                    ImVec2(1440 * scale.x, 810 * scale.y),
+                                    Info.orientation,
+                                    theme, scale);
             EndFixedPanel();
         }
             //----------------------------------- Map utils panel-----------------------------------
-        int Map_Upanel_x = 1510 * scale;
-        int Map_Upanel_y = 80 * scale;
-        BeginOverlayPanel(draw_list, "MapUtilsPanel", ImVec2(Map_Upanel_x, Map_Upanel_y), ImVec2(49 * scale, 150 * scale), scale, theme);
+        int Map_Upanel_x = 1510 * scale.x;
+        int Map_Upanel_y = 80 * scale.y;
+        BeginOverlayPanel(draw_list, "MapUtilsPanel", ImVec2(Map_Upanel_x, Map_Upanel_y), ImVec2(49 * scale.x, 150 * scale.y), scale, theme);
 
         GLuint Plus_Icon = theme ? images.at("plus_white") : images.at("plus");
         if (widgets.CustomButton(draw_list, ImVec2(Map_Upanel_x + 24, Map_Upanel_y + 25 ), "Plus", scale, Plus_Icon, theme, -5, -3)) {
@@ -1068,52 +1069,52 @@ int main(int argc, char **argv) {
         
 
         mission_control_bar.Draw(planner, scale, theme,
-                                 70 * scale, 70 * scale, 1500 * scale, 800 * scale,
+                                 70 * scale.x, 70 * scale.y, 1500 * scale.x, 800 * scale.y,
                                  guard_with_checklist);
 
          // -----------------------------------Control Panel-----------------------------
 
-        BeginOverlayPanel(draw_list, "ControlPanel", ImVec2(90 * scale, 305 * scale), ImVec2(60 * scale, 370 * scale), scale, theme);
+        BeginOverlayPanel(draw_list, "ControlPanel", ImVec2(90 * scale.x, 305 * scale.y), ImVec2(60 * scale.x, 370 * scale.y), scale, theme);
 
-        
+
         GLuint Up_Icon = theme ? images.at("up_white") : images.at("up");
-        if (widgets.CustomButton(draw_list, ImVec2(120 * scale, 335 * scale), "Up", scale, Up_Icon, theme, -1, 5)) {
-            ground_control->send_command("takeoff", vector<double>{-1.5}); 
+        if (widgets.CustomButton(draw_list, ImVec2(120 * scale.x, 335 * scale.y), "Up", scale, Up_Icon, theme, -1, 5)) {
+            ground_control->send_command("takeoff", vector<double>{-1.5});
             ground_control->addLogLine(LogLevel::INFO,"Takeoff command sent");
         }
         ImGui::PushFont(winInit.getFont(14));
-        draw_list->AddText(ImVec2(100 * scale, 362 * scale), colors.white_black(theme), "TakeOff");
+        draw_list->AddText(ImVec2(100 * scale.x, 362 * scale.y), colors.white_black(theme), "TakeOff");
 
         GLuint Goto_Icon = theme ? images.at("goto_white") : images.at("goto");
-        if (widgets.CustomButton(draw_list, ImVec2(120 * scale, 405 * scale), "Goto", scale, Goto_Icon, theme, -1, 5)) {
+        if (widgets.CustomButton(draw_list, ImVec2(120 * scale.x, 405 * scale.y), "Goto", scale, Goto_Icon, theme, -1, 5)) {
             //ground_control->send_command("set_origin"); //!!! Make the goto function
             //ground_control->addLogLine(LogLevel::INFO, "Goto (something something something) command sent");
         }
-        draw_list->AddText(ImVec2(106 * scale, 432 * scale), colors.white_black(theme), "Goto");
-        
+        draw_list->AddText(ImVec2(106 * scale.x, 432 * scale.y), colors.white_black(theme), "Goto");
+
 
         GLuint Down_Icon = theme ? images.at("down_white") : images.at("down");
-        if (widgets.CustomButton(draw_list, ImVec2(120 * scale, 475 * scale), "Down", scale, Down_Icon, theme, -1, 5)) {
+        if (widgets.CustomButton(draw_list, ImVec2(120 * scale.x, 475 * scale.y), "Down", scale, Down_Icon, theme, -1, 5)) {
             ground_control->send_command("land");
             ground_control->addLogLine(LogLevel::INFO, "Land command sent");
         }
-        draw_list->AddText(ImVec2(107 * scale, 502 * scale), colors.white_black(theme), "Land");
+        draw_list->AddText(ImVec2(107 * scale.x, 502 * scale.y), colors.white_black(theme), "Land");
 
         GLuint Home_Icon = theme ? images.at("home_white") : images.at("home");
-        if (widgets.CustomButton(draw_list, ImVec2(120 * scale, 545 * scale), "Home", scale, Home_Icon, theme, -1, 5)) {
-            ground_control->send_command("rth"); 
+        if (widgets.CustomButton(draw_list, ImVec2(120 * scale.x, 545 * scale.y), "Home", scale, Home_Icon, theme, -1, 5)) {
+            ground_control->send_command("rth");
             ground_control->addLogLine(LogLevel::INFO, "Return to home command sent");
         }
-        draw_list->AddText(ImVec2(106 * scale, 572 * scale), colors.white_black(theme), "Home");
+        draw_list->AddText(ImVec2(106 * scale.x, 572 * scale.y), colors.white_black(theme), "Home");
 
         GLuint Origin_Icon = theme ? images.at("origin_white") : images.at("origin");
-        if (widgets.CustomButton(draw_list, ImVec2(120 * scale, 615 * scale), "Origin", scale, Origin_Icon, theme, -1, 5)) {
-            ground_control->send_command("set_origin"); 
+        if (widgets.CustomButton(draw_list, ImVec2(120 * scale.x, 615 * scale.y), "Origin", scale, Origin_Icon, theme, -1, 5)) {
+            ground_control->send_command("set_origin");
             char origin_txt[64];
             snprintf(origin_txt, sizeof(origin_txt), "Origin set at previously: %.2f , %.2f", Info.xyz_pos[0], Info.xyz_pos[1]);
             ground_control->addLogLine(LogLevel::INFO, origin_txt);
         }
-        draw_list->AddText(ImVec2(106 * scale, 642 * scale), colors.white_black(theme), "Origin");
+        draw_list->AddText(ImVec2(106 * scale.x, 642 * scale.y), colors.white_black(theme), "Origin");
 
         ImGui::PopFont();
         EndOverlayPanel();
@@ -1167,67 +1168,67 @@ int main(int argc, char **argv) {
             planner_panel.Draw(scale, theme, static_cast<float>(y_sc));
 
             // Reuses the 10px rhythm already established between VehicleAndPalettePanel and MissionPlannerPanel.
-            const float map_gap = 10.0f * scale;
-            const float planner_right_edge = (70.0f + 450.0f) * scale;  // matches DrawTaskList's panel rect
+            const float map_gap = 10.0f * scale.x;
+            const float planner_right_edge = (70.0f + 450.0f) * scale.x;  // matches DrawTaskList's panel rect
             const float map_x = planner_right_edge + map_gap;
             const float map_right_margin = map_gap;
-            const float map_w = std::max(200.0f * scale, static_cast<float>(x_sc) - map_x - map_right_margin);
+            const float map_w = std::max(200.0f * scale.x, static_cast<float>(x_sc) - map_x - map_right_margin);
             if(sat_map){
-                BeginFixedPanel("PlannerMapPanel", ImVec2(map_x, 70 * scale), ImVec2(map_w, map_size_x * scale),
+                BeginFixedPanel("PlannerMapPanel", ImVec2(map_x, 70 * scale.y), ImVec2(map_w, map_size_x * scale.y),
                         scale, theme, 0, ImVec2(0, 0));
-                ImVec2 planner_map_pos = location.MapWidget(origin_gps.x(), origin_gps.y(), map_w, 800 * scale, scale, map_zoom, placeholderTile, theme);
+                ImVec2 planner_map_pos = location.MapWidget(origin_gps.x(), origin_gps.y(), map_w, 800 * scale.y, scale, map_zoom, placeholderTile, theme);
                 const auto [highlighted_top, highlighted_nested] = planner_panel.highlighted_task();
                 // Foreground-drawn, so it renders above modals too -- skip while Load/Save is up, or it bleeds through.
                 MapTaskClick map_click;
                 if (!mission_control_bar.IsDialogOpen()) {
                     map_click = DrawPlanRouteOverlay(location, planner.plan(), origin_gps.x(), origin_gps.y(),
                                          origin_gps.x(), origin_gps.y(), map_zoom,
-                                         planner_map_pos, map_w, 800 * scale, 800 * scale, scale, highlighted_top, highlighted_nested);
+                                         planner_map_pos, map_w, 800 * scale.y, 800 * scale.y, scale, highlighted_top, highlighted_nested);
                     DrawUavPositionMarker(location, Info.gps_status.latitude, Info.gps_status.longitude,
                                           origin_gps.x(), origin_gps.y(), map_zoom,
-                                          planner_map_pos, map_w, 800 * scale, 800 * scale, scale);
+                                          planner_map_pos, map_w, 800 * scale.y, 800 * scale.y, scale);
                 }
                 if (map_click.clicked) {
                     planner_panel.SelectTask(map_click.top_level_index, map_click.nested_index);
                 }
                 EndFixedPanel();
 
-                
+
 
             }
             else{
-                BeginFixedPanel("PlannerSatMapPanel", ImVec2(map_x, 70 * scale), ImVec2(map_w, map_size_x * scale),
+                BeginFixedPanel("PlannerSatMapPanel", ImVec2(map_x, 70 * scale.y), ImVec2(map_w, map_size_x * scale.y),
                         scale, theme, 0, ImVec2(0, 0));
-               location.NoSatMap(Info, map_w, map_size_x * scale, scale, map_zoom, theme); 
+               location.NoSatMap(Info, map_w, map_size_x * scale.y, scale, map_zoom, theme);
                EndFixedPanel();
 
             }
-            float PlannerMap_Upanel_x = map_x + map_w - 60.0f * scale;  
-            float PlannerMap_Upanel_y = 70.0f * scale + 10.0f * scale;   
+            float PlannerMap_Upanel_x = map_x + map_w - 60.0f * scale.x;
+            float PlannerMap_Upanel_y = 70.0f * scale.y + 10.0f * scale.y;
 
-            BeginOverlayPanel(draw_list, "PlannerMapUtilsPanel", ImVec2(PlannerMap_Upanel_x, PlannerMap_Upanel_y), ImVec2(49 * scale, 150 * scale), scale, theme);
+            BeginOverlayPanel(draw_list, "PlannerMapUtilsPanel", ImVec2(PlannerMap_Upanel_x, PlannerMap_Upanel_y), ImVec2(49 * scale.x, 150 * scale.y), scale, theme);
 
             GLuint PlannerPlus_Icon = theme ? images.at("plus_white") : images.at("plus");
-            if (widgets.CustomButton(draw_list, ImVec2(PlannerMap_Upanel_x + 24.0f * scale, PlannerMap_Upanel_y + 25.0f * scale), "Plus", scale, PlannerPlus_Icon, theme, -5, -3)) {
+            if (widgets.CustomButton(draw_list, ImVec2(PlannerMap_Upanel_x + 24.0f * scale.x, PlannerMap_Upanel_y + 25.0f * scale.y), "Plus", scale, PlannerPlus_Icon, theme, -5, -3)) {
                 if (map_zoom < 20) {
                     map_zoom += 1;
                 }
             }
             GLuint PlannerMinus_Icon = theme ? images.at("minus_white") : images.at("minus");
-            if (widgets.CustomButton(draw_list, ImVec2(PlannerMap_Upanel_x + 24.0f * scale, PlannerMap_Upanel_y + 69.0f * scale), "Minus", scale, PlannerMinus_Icon, theme, -5, -3)) {
+            if (widgets.CustomButton(draw_list, ImVec2(PlannerMap_Upanel_x + 24.0f * scale.x, PlannerMap_Upanel_y + 69.0f * scale.y), "Minus", scale, PlannerMinus_Icon, theme, -5, -3)) {
                 if (map_zoom > 13) {
                     map_zoom -= 1;
                 }
             }
             GLuint PlannerSwitch_Icon = theme ? images.at("switch_white") : images.at("switch");
-            if (widgets.CustomButton(draw_list, ImVec2(PlannerMap_Upanel_x + 24.0f * scale, PlannerMap_Upanel_y + 113.0f * scale), "Switch", scale, PlannerSwitch_Icon, theme, -5, -3)) {
+            if (widgets.CustomButton(draw_list, ImVec2(PlannerMap_Upanel_x + 24.0f * scale.x, PlannerMap_Upanel_y + 113.0f * scale.y), "Switch", scale, PlannerSwitch_Icon, theme, -5, -3)) {
                 sat_map = !sat_map;
             }
             EndOverlayPanel();
 
             // Height fills to the real window edge rather than a fixed 150*scale.
-            const float chart_y = 880.0f * scale;
-            const float chart_h = std::max(80.0f * scale, static_cast<float>(y_sc) - chart_y - map_gap);
+            const float chart_y = 880.0f * scale.y;
+            const float chart_h = std::max(80.0f * scale.y, static_cast<float>(y_sc) - chart_y - map_gap);
             DrawHeightChart(planner.plan(), ImVec2(map_x, chart_y), ImVec2(map_w, chart_h), scale, theme);
         }
         break;
@@ -1236,11 +1237,11 @@ int main(int argc, char **argv) {
             
  
         GLuint Camera_Icon = theme ? images.at("camera_white") : images.at("camera");
-            if (widgets.CustomButton(draw_list, ImVec2(1200 * scale, 500 * scale), "Camera", scale, Camera_Icon, theme, 2, 5)) {
+            if (widgets.CustomButton(draw_list, ImVec2(1200 * scale.x, 500 * scale.y), "Camera", scale, Camera_Icon, theme, 2, 5)) {
                 camera_stream_requested = !camera_stream_requested;
                 ground_control->setCameraStreaming(camera_stream_requested);
             }
-         CameraFeedPanel(ImVec2(500 * scale, 500 * scale), scale, theme, camera_texture_);
+         CameraFeedPanel(ImVec2(500 * scale.x, 500 * scale.y), scale, theme, camera_texture_);
             //WeatherData data_test;
             //data_test = FetchWeather(Info.gps_status.latitude, Info.gps_status.longitude);
             //cout << data_test.temperature << " Cloud Cover: " << data_test.cloud_cover << " Windspeed: " << data_test.wind_speed_level << endl;
@@ -1252,7 +1253,7 @@ int main(int argc, char **argv) {
         }
         ImGui::End();
    
-        prearm_checklist.Draw(draw_list, ImVec2(450 * scale, 62 * scale), scale, theme,
+        prearm_checklist.Draw(draw_list, ImVec2(450 * scale.x, 62 * scale.y), scale, theme,
                                prearm_snapshot, prearm_hard_issues);
 
         // Rendering

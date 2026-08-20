@@ -5,11 +5,11 @@ typedef void (APIENTRY *PFNGLGENERATEMIPMAPPROC)(unsigned int target);
 static PFNGLGENERATEMIPMAPPROC glGenerateMipmap_ptr = nullptr;
 
 
-bool Widgets::ModeToggle(ImDrawList* draw_list, ImVec2 center, float scale, bool theme, bool& is_manual)
+bool Widgets::ModeToggle(ImDrawList* draw_list, ImVec2 center, const UiScale& scale, bool theme, bool& is_manual)
 {
-    float seg_w = 90.0f * scale;    // half-width of EACH segment
-    float seg_h = 18.0f * scale;
-    float rounding = 6.0f * scale;
+    float seg_w = 90.0f * scale.x;    // half-width of EACH segment
+    float seg_h = 18.0f * scale.y;
+    float rounding = 6.0f * scale.uniform();
 
     ImVec2 outer_min = ImVec2(center.x - seg_w, center.y - seg_h);
     ImVec2 outer_max = ImVec2(center.x + seg_w, center.y + seg_h);
@@ -18,7 +18,7 @@ bool Widgets::ModeToggle(ImDrawList* draw_list, ImVec2 center, float scale, bool
     draw_list->AddRectFilled(outer_min, outer_max,
         ImGui::ColorConvertFloat4ToU32(Color::panelColor(theme)), rounding);
     draw_list->AddRect(outer_min, outer_max,
-        Color::panelBorder(theme), rounding, 0, 1.5f * scale);
+        Color::panelBorder(theme), rounding, 0, 1.5f * scale.uniform());
 
     // Each half's bounding box
     ImVec2 auto_min   = outer_min;
@@ -78,15 +78,15 @@ bool Widgets::costum_round_button(ImVec2 center, float radius, int segments, ImU
 }
 
 bool Widgets::CustomButton(ImDrawList* draw_list, ImVec2 center,
-                            const char* label,float scale, 
+                            const char* label,const UiScale& scale,
                             GLuint tex, bool theme, int but_size, int img_size){
-    float size_x = (26 + but_size) * scale;
-    float size_y = (26 + but_size) * scale;
+    float size_x = (26 + but_size) * scale.uniform();
+    float size_y = (26 + but_size) * scale.uniform();
     ImVec2 bb_min = ImVec2(center.x - size_x, center.y - size_y);
     ImVec2 bb_max = ImVec2(center.x + size_x, center.y + size_y);
     float rounding = 12.0f;
-    ImVec2 image_bb_min = ImVec2(center.x - (13 * scale + img_size), center.y - (13 * scale + img_size));
-    ImVec2 image_bb_max = ImVec2(center.x + (13 * scale + img_size), center.y + (13 * scale + img_size));
+    ImVec2 image_bb_min = ImVec2(center.x - (13 * scale.uniform() + img_size), center.y - (13 * scale.uniform() + img_size));
+    ImVec2 image_bb_max = ImVec2(center.x + (13 * scale.uniform() + img_size), center.y + (13 * scale.uniform() + img_size));
     bool hovered = ImGui::IsMouseHoveringRect(bb_min, bb_max);
     bool active = hovered && ImGui::IsMouseDown(0);
     bool released = hovered && ImGui::IsMouseReleased(0);
@@ -108,7 +108,7 @@ bool Widgets::CustomButton(ImDrawList* draw_list, ImVec2 center,
     ImVec4 base_color = active ? active_color :
                         hovered ? hovered_color : normal_color;
 
-    float padding = 5.0f * scale;
+    float padding = 5.0f * scale.uniform();
 
     draw_list->AddRectFilled(bb_min, bb_max, ImGui::ColorConvertFloat4ToU32(base_color), rounding);
 
@@ -123,13 +123,13 @@ bool Widgets::CustomButton(ImDrawList* draw_list, ImVec2 center,
 
     return released;
 }
-bool Widgets::DrawSmallRedButton(ImDrawList* draw_list, ImVec2 center, float scale, const char* label)
+bool Widgets::DrawSmallRedButton(ImDrawList* draw_list, ImVec2 center, const UiScale& scale, const char* label)
 {
-    float size_x = 40 * scale;
-    float size_y = 15 * scale;
+    float size_x = 40 * scale.x;
+    float size_y = 15 * scale.y;
     ImVec2 bb_min = ImVec2(center.x - size_x, center.y - size_y);
     ImVec2 bb_max = ImVec2(center.x + size_x, center.y + size_y);
-    float rounding = 6.0f * scale;
+    float rounding = 6.0f * scale.uniform();
 
     bool hovered = ImGui::IsMouseHoveringRect(bb_min, bb_max);
     bool active = hovered && ImGui::IsMouseDown(0);
@@ -160,10 +160,10 @@ bool Widgets::DrawSmallRedButton(ImDrawList* draw_list, ImVec2 center, float sca
     return released;
 }
 
-bool Widgets::ArmButton(ImDrawList* draw_list, ImVec2 center, float scale, bool theme, bool arming_state){
+bool Widgets::ArmButton(ImDrawList* draw_list, ImVec2 center, const UiScale& scale, bool theme, bool arming_state){
     float rounding = 8.0f;
-    float size_x = 60 * scale;
-    float size_y = 20 * scale;
+    float size_x = 60 * scale.x;
+    float size_y = 20 * scale.y;
     ImVec2 bb_min = ImVec2(center.x - size_x, center.y - size_y);
     ImVec2 bb_max = ImVec2(center.x + size_x, center.y + size_y);
     bool hovered = ImGui::IsMouseHoveringRect(bb_min, bb_max);
@@ -183,11 +183,11 @@ bool Widgets::ArmButton(ImDrawList* draw_list, ImVec2 center, float scale, bool 
         normal_color.w
     );
 
-    int displace_txt = 18 * scale;
+    int displace_txt = 18 * scale.x;
     const char* arming_txt;
     if(arming_state){
         arming_txt = "Disarm";
-        displace_txt = 32 * scale;
+        displace_txt = 32 * scale.x;
     } else {
         arming_txt = "Arm";
     }
@@ -196,12 +196,12 @@ bool Widgets::ArmButton(ImDrawList* draw_list, ImVec2 center, float scale, bool 
 
     draw_list->AddRectFilled(bb_min, bb_max, ImGui::ColorConvertFloat4ToU32(base_color), rounding);
     ImGui::PushFont(winInit.getFont(24));
-    draw_list->AddText(ImVec2(center.x - displace_txt, center.y - 12 * scale), IM_COL32(0,0,0,255), arming_txt);
+    draw_list->AddText(ImVec2(center.x - displace_txt, center.y - 12 * scale.y), IM_COL32(0,0,0,255), arming_txt);
     ImGui::PopFont();
     return released;
 }
 
-bool Widgets::DrawCircleGradientButton(ImDrawList* draw_list, ImFont* font, float scale, ImVec2 center, float radius,const char* label, float font_size)
+bool Widgets::DrawCircleGradientButton(ImDrawList* draw_list, ImFont* font, const UiScale& scale, ImVec2 center, float radius,const char* label, float font_size)
 {
     ImVec2 bb_min = ImVec2(center.x - radius, center.y - radius);
     ImVec2 bb_max = ImVec2(center.x + radius, center.y + radius);
@@ -244,7 +244,7 @@ bool Widgets::DrawCircleGradientButton(ImDrawList* draw_list, ImFont* font, floa
         radius,
         IM_COL32(0, 0, 0, 255),
         64,
-        3.0f * scale
+        3.0f * scale.uniform()
     );
 
     ImGui::PushFont(font);
@@ -262,13 +262,13 @@ bool Widgets::DrawCircleGradientButton(ImDrawList* draw_list, ImFont* font, floa
     return active;
 }
 
-void Widgets::AltitudeTape(int direction, float altitude, float numStep, bool theme, float scale)
+void Widgets::AltitudeTape(int direction, float altitude, float numStep, bool theme, const UiScale& scale)
 {
     switch (direction)
     {
     case 1:
     {
-        ImGui::BeginChild("AltitudeTape_V", ImVec2(50 * scale, 120 *scale), true,
+        ImGui::BeginChild("AltitudeTape_V", ImVec2(50 * scale.x, 120 * scale.y), true,
                             ImGuiWindowFlags_NoScrollbar|
                             ImGuiWindowFlags_NoScrollWithMouse);
 
@@ -303,7 +303,7 @@ void Widgets::AltitudeTape(int direction, float altitude, float numStep, bool th
 
             draw->AddText(
                 ImGui::GetFont(),
-                10.0f * scale,
+                10.0f * scale.uniform(),
                 ImVec2(pos.x + size.x * 0.34f + 2, y - textSize.y / 2),
                 Color::white_black(theme),
                 buf
@@ -314,8 +314,8 @@ void Widgets::AltitudeTape(int direction, float altitude, float numStep, bool th
         snprintf(centerBuf, sizeof(centerBuf), "%.1f", altitude);
         ImVec2 centerTextSize = ImGui::GetFont()->CalcTextSizeA(14.0f, FLT_MAX, 0.0f, centerBuf);
 
-        float boxPadX = 8.0f * scale;
-        float boxPadY = 4.0f * scale;
+        float boxPadX = 8.0f * scale.x;
+        float boxPadY = 4.0f * scale.y;
         ImVec2 boxMin = ImVec2(pos.x + size.x * 0.25f, centerY - centerTextSize.y / 2 - boxPadY);
         ImVec2 boxMax = ImVec2(pos.x + size.x, centerY + centerTextSize.y / 2 + boxPadY);
 
@@ -323,7 +323,7 @@ void Widgets::AltitudeTape(int direction, float altitude, float numStep, bool th
 
         draw->AddText(
             ImGui::GetFont(),
-            14.0f * scale,
+            14.0f * scale.uniform(),
             ImVec2(boxMin.x + boxPadX, centerY - centerTextSize.y / 2),
             IM_COL32(0, 0, 0, 255),
             centerBuf
@@ -395,9 +395,9 @@ std::vector<ImVec2> Widgets::ArcPoints(float radius, float angleStart, float ang
     return pts;
 }
 
-void Widgets::GyroScopeIndicator(ImDrawList* draw_list,ImVec2 center, const EulerAngles& orientation, bool theme, float scale){
+void Widgets::GyroScopeIndicator(ImDrawList* draw_list,ImVec2 center, const EulerAngles& orientation, bool theme, const UiScale& scale){
 
-    const float radius = 50 * scale;
+    const float radius = 50 * scale.uniform();
     const int segments = 32;
 
     ImU32 sky_color    = IM_COL32(40, 80, 150, 255);
@@ -468,14 +468,14 @@ void Widgets::GyroScopeIndicator(ImDrawList* draw_list,ImVec2 center, const Eule
         );
     };
 
-    draw_list->AddLine(rotatePoint(-(radius - 35 * scale), -30.0f * scale), rotatePoint(radius - 35 * scale, -30.0f * scale), white, 1.5f * scale);
-    draw_list->AddLine(rotatePoint(-(radius - 45 * scale), -15.0f * scale), rotatePoint(radius - 45 * scale, -15.0f * scale), white, 1.5f * scale);
-    draw_list->AddLine(rotatePoint(-(radius - 35 * scale),  30.0f * scale), rotatePoint(radius - 35 * scale,  30.0f * scale), white, 1.5f * scale);
-    draw_list->AddLine(rotatePoint(-(radius - 45 * scale),  15.0f * scale), rotatePoint(radius - 45 * scale,  15.0f * scale), white, 1.5f * scale);
+    draw_list->AddLine(rotatePoint(-(radius - 35 * scale.uniform()), -30.0f * scale.uniform()), rotatePoint(radius - 35 * scale.uniform(), -30.0f * scale.uniform()), white, 1.5f * scale.uniform());
+    draw_list->AddLine(rotatePoint(-(radius - 45 * scale.uniform()), -15.0f * scale.uniform()), rotatePoint(radius - 45 * scale.uniform(), -15.0f * scale.uniform()), white, 1.5f * scale.uniform());
+    draw_list->AddLine(rotatePoint(-(radius - 35 * scale.uniform()),  30.0f * scale.uniform()), rotatePoint(radius - 35 * scale.uniform(),  30.0f * scale.uniform()), white, 1.5f * scale.uniform());
+    draw_list->AddLine(rotatePoint(-(radius - 45 * scale.uniform()),  15.0f * scale.uniform()), rotatePoint(radius - 45 * scale.uniform(),  15.0f * scale.uniform()), white, 1.5f * scale.uniform());
 
     const float tickSpacingDeg = 15.0f;
-    const float shortTick = 5.0f * scale;
-    const float longTick  = 10.0f * scale;
+    const float shortTick = 5.0f * scale.uniform();
+    const float longTick  = 10.0f * scale.uniform();
 
     for (int i = 1; i <= 4; ++i) {
         float tickLen = (i % 2 == 0) ? longTick : shortTick;
@@ -492,14 +492,14 @@ void Widgets::GyroScopeIndicator(ImDrawList* draw_list,ImVec2 center, const Eule
         }
     }
     ImVec2 start_line = toScreenYaw(ImVec2(0.0f, -radius));
-    ImVec2 end_line = toScreenYaw(ImVec2(0.0f, -radius + 10.0f * scale));
+    ImVec2 end_line = toScreenYaw(ImVec2(0.0f, -radius + 10.0f * scale.uniform()));
     draw_list->AddLine(start_line, end_line, white, 1.5f);
 
-    ImVec2 tip_yaw = ImVec2(center.x, center.y - radius + 2.0f * scale);
-    ImVec2 baseL_yaw = ImVec2(center.x - 6.0f * scale, center.y - radius + 10.0f * scale);
-    ImVec2 baseR_yaw = ImVec2(center.x + 6.0f * scale, center.y - radius + 10.0f * scale);
+    ImVec2 tip_yaw = ImVec2(center.x, center.y - radius + 2.0f * scale.uniform());
+    ImVec2 baseL_yaw = ImVec2(center.x - 6.0f * scale.uniform(), center.y - radius + 10.0f * scale.uniform());
+    ImVec2 baseR_yaw = ImVec2(center.x + 6.0f * scale.uniform(), center.y - radius + 10.0f * scale.uniform());
 
-    float wing = 30.0f * scale, gap = 6.0f * scale;
+    float wing = 30.0f * scale.uniform(), gap = 6.0f * scale.uniform();
     draw_list->AddLine(ImVec2(center.x - wing, center.y), ImVec2(center.x - gap, center.y), wing_color, 3.5f);
     draw_list->AddLine(ImVec2(center.x + gap, center.y), ImVec2(center.x + wing, center.y), wing_color, 3.5f);
     draw_list->AddCircleFilled(center, 2.0f, wing_color);
@@ -507,9 +507,9 @@ void Widgets::GyroScopeIndicator(ImDrawList* draw_list,ImVec2 center, const Eule
     draw_list->AddCircle(center, radius, IM_COL32(0, 0, 0, 255), 64, 3.0f);
 }
 
-void Widgets::Compas(ImDrawList* draw_list,ImVec2 center, const EulerAngles& orientation, bool theme, float scale){
+void Widgets::Compas(ImDrawList* draw_list,ImVec2 center, const EulerAngles& orientation, bool theme, const UiScale& scale){
 
-    const float radius = 50 * scale;
+    const float radius = 50 * scale.uniform();
     float yawTheta = orientation.yaw * (IM_PI / 180.0f);
     ImU32 pointer_color = IM_COL32(255, 130, 30, 255);
 
@@ -574,7 +574,7 @@ void Widgets::Compas(ImDrawList* draw_list,ImVec2 center, const EulerAngles& ori
     snprintf(headingStr, sizeof(headingStr), "%.0f°", fmodf(orientation.yaw + 360.0f, 360.0f));
 
     ImVec2 textSize = ImGui::CalcTextSize(headingStr);
-    ImVec2 textPos = ImVec2((center.x - textSize.x * 0.5f) + 2 * scale, (center.y - textSize.y * 0.5f) + 10 * scale);
+    ImVec2 textPos = ImVec2((center.x - textSize.x * 0.5f) + 2 * scale.uniform(), (center.y - textSize.y * 0.5f) + 10 * scale.uniform());
 
     draw_list->AddText(textPos, Color::white_black(theme), headingStr);
     draw_list->AddCircle(center, radius, IM_COL32(0, 0, 0, 255), 64, 3.0f);
@@ -631,15 +631,15 @@ GLuint Widgets::LoadButtonImage(const char* path)
     return UploadButtonImageToGL(img, path);
 }
 
-void Widgets::GotoPanel(ImVec2 pos, float scale, bool theme, std::string& goto_text){ 
+void Widgets::GotoPanel(ImVec2 pos, const UiScale& scale, bool theme, std::string& goto_text){
 
-    ImVec2 size =ImVec2(420 * scale, 160 * scale);
-    ImGui::SetCursorPos(ImVec2(pos.x * scale, pos.y * scale)); 
+    ImVec2 size =ImVec2(420 * scale.x, 160 * scale.y);
+    ImGui::SetCursorPos(ImVec2(pos.x * scale.x, pos.y * scale.y));
     ImGui::PushStyleColor(ImGuiCol_ChildBg, Color::panelColor(theme));
     ImGui::PushStyleColor(ImGuiCol_Border, Color::panelBorder(theme));
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(8 * scale, 8 * scale));
-    ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, 12.0f * scale);
-    ImGui::PushStyleVar(ImGuiStyleVar_ChildBorderSize, 2.0f * scale);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(8 * scale.x, 8 * scale.y));
+    ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, 12.0f * scale.uniform());
+    ImGui::PushStyleVar(ImGuiStyleVar_ChildBorderSize, 2.0f * scale.uniform());
     ImGui::BeginChild("GotoPanel", size, true,
                         ImGuiWindowFlags_NoScrollbar |
                         ImGuiWindowFlags_NoScrollWithMouse);
@@ -647,15 +647,15 @@ void Widgets::GotoPanel(ImVec2 pos, float scale, bool theme, std::string& goto_t
     ImVec2 windowPos = ImGui::GetWindowPos();
 
     ImGui::PushFont(winInit.getFont(181));
-    draw->AddText(ImVec2((windowPos.x + 10 * scale), (windowPos.y + 10 * scale)), Color::white_black(theme), "Command");
+    draw->AddText(ImVec2((windowPos.x + 10 * scale.x), (windowPos.y + 10 * scale.y)), Color::white_black(theme), "Command");
     ImGui::PopFont();
 
-    draw->AddText(ImVec2(windowPos.x + 10 * scale, windowPos.y + 50 * scale),
+    draw->AddText(ImVec2(windowPos.x + 10 * scale.x, windowPos.y + 50 * scale.y),
         Color::dwhite_lblack(theme), "Position");
-    
-    ImGui::SetCursorPos(ImVec2(10 * scale, 75 * scale));   
-    goto_text = GotoField(scale, theme); 
-    
+
+    ImGui::SetCursorPos(ImVec2(10 * scale.x, 75 * scale.y));
+    goto_text = GotoField(scale, theme);
+
 
     ImGui::EndChild();
     ImGui::PopStyleVar(3);
@@ -663,33 +663,33 @@ void Widgets::GotoPanel(ImVec2 pos, float scale, bool theme, std::string& goto_t
 
 }
 
-std::string Widgets::GotoField(float scale, bool theme)
+std::string Widgets::GotoField(const UiScale& scale, bool theme)
 {
     static char text_buffer[64] = "";
     ImGui::PushStyleColor(ImGuiCol_FrameBg, Color::bgColor(theme));   // matches your other panels' background convention
     ImGui::PushStyleColor(ImGuiCol_FrameBgHovered, Color::bgColor(theme));
     ImGui::PushStyleColor(ImGuiCol_FrameBgActive, Color::bgColor(theme));
     ImGui::PushStyleColor(ImGuiCol_Border, Color::panelBorder(theme));
-    ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 1.5f * scale);
-    
-    ImGui::SetNextItemWidth(250 * scale);
+    ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 1.5f * scale.uniform());
+
+    ImGui::SetNextItemWidth(250 * scale.x);
     ImGui::InputTextWithHint("##goto_input", "     x    y    z    yaw", text_buffer, sizeof(text_buffer));
 
 
     ImGui::PopStyleVar();
     ImGui::PopStyleColor(4);
 
-    return std::string(text_buffer);   
+    return std::string(text_buffer);
 }
 
-bool Widgets::GotoButton(ImDrawList* draw_list, ImVec2 center, float scale, bool theme, GLuint tex){
-    float size_x = 35 * scale;
-    float size_y = 15 * scale;
+bool Widgets::GotoButton(ImDrawList* draw_list, ImVec2 center, const UiScale& scale, bool theme, GLuint tex){
+    float size_x = 35 * scale.x;
+    float size_y = 15 * scale.y;
     ImVec2 bb_min = ImVec2(center.x - size_x, center.y - size_y);
     ImVec2 bb_max = ImVec2(center.x + size_x, center.y + size_y);
     float rounding = 12.0f;
-    ImVec2 image_bb_min = ImVec2(center.x - (13 * scale), center.y - (13 * scale));
-    ImVec2 image_bb_max = ImVec2(center.x + (13 * scale ), center.y + (13 * scale));
+    ImVec2 image_bb_min = ImVec2(center.x - (13 * scale.uniform()), center.y - (13 * scale.uniform()));
+    ImVec2 image_bb_max = ImVec2(center.x + (13 * scale.uniform() ), center.y + (13 * scale.uniform()));
     bool hovered = ImGui::IsMouseHoveringRect(bb_min, bb_max);
     bool active = hovered && ImGui::IsMouseDown(0);
     bool released = hovered && ImGui::IsMouseReleased(0);
@@ -710,7 +710,7 @@ bool Widgets::GotoButton(ImDrawList* draw_list, ImVec2 center, float scale, bool
     );
     ImVec4 base_color = active ? active_color : hovered ? hovered_color : normal_color;
     draw_list->AddRectFilled(bb_min, bb_max, ImGui::ColorConvertFloat4ToU32(base_color), rounding);
-    float icon_size = 13.0f * scale;
+    float icon_size = 13.0f * scale.uniform();
     draw_list->AddImageRounded(
         (ImTextureID)(intptr_t)tex,
         ImVec2(center.x - icon_size, center.y - icon_size),
@@ -725,7 +725,7 @@ bool Widgets::GotoButton(ImDrawList* draw_list, ImVec2 center, float scale, bool
 }
 
 
-void Widgets::SurveyPanel(ImDrawList* draw_list, ImVec2 pos, float scale, bool theme, RTK_STATUS rtk_survey, bool bs_connected, JoystickState js, const LinkStatus& link_status){
+void Widgets::SurveyPanel(ImDrawList* draw_list, ImVec2 pos, const UiScale& scale, bool theme, RTK_STATUS rtk_survey, bool bs_connected, JoystickState js, const LinkStatus& link_status){
 
     ImVec4 inactive_color     = ImVec4(0.5f, 0.5f, 0.5f, 1.0f);  // grey — inactive/not connected
     ImVec4 survey_color       = ImVec4(0.9f, 0.6f, 0.0f, 1.0f);  // orange — survey in progress
@@ -738,14 +738,14 @@ void Widgets::SurveyPanel(ImDrawList* draw_list, ImVec2 pos, float scale, bool t
 
     float cursor_x = 0.0f;
     auto StatusDot = [&](ImVec4 color, const char* label) {
-        ImVec2 center((pos.x + cursor_x) * scale, (pos.y + 8) * scale);
-        draw_list->AddCircleFilled(center, 6.0f * scale, ImGui::ColorConvertFloat4ToU32(color));
-        draw_list->AddCircle(center, 6.0f * scale, IM_COL32(0, 0, 0, 255), 0, 1.5f * scale);
+        ImVec2 center((pos.x + cursor_x) * scale.x, (pos.y + 8) * scale.y);
+        draw_list->AddCircleFilled(center, 6.0f * scale.uniform(), ImGui::ColorConvertFloat4ToU32(color));
+        draw_list->AddCircle(center, 6.0f * scale.uniform(), IM_COL32(0, 0, 0, 255), 0, 1.5f * scale.uniform());
 
         const float text_x = cursor_x + kDotToLabelGap;
-        draw_list->AddText(ImVec2((pos.x + text_x) * scale, pos.y * scale), Color::white_black(theme), label);
+        draw_list->AddText(ImVec2((pos.x + text_x) * scale.x, pos.y * scale.y), Color::white_black(theme), label);
 
-        const float label_width = ImGui::CalcTextSize(label).x / scale;
+        const float label_width = ImGui::CalcTextSize(label).x / scale.x;
         cursor_x = text_x + label_width + kEntryGap;
     };
 

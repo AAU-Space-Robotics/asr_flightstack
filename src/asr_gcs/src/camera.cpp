@@ -34,9 +34,9 @@ GLuint UploadCameraFrameToGL(const cv::Mat& img)
     return tex;
 }
 
-void CameraFeedPanel(ImVec2 pos, float scale, bool theme, GLuint camera_tex)
+void CameraFeedPanel(ImVec2 pos, const UiScale& scale, bool theme, GLuint camera_tex)
 {
-    ImVec2 size = ImVec2(640 * scale, 480 * scale);
+    ImVec2 size = ImVec2(640 * scale.x, 480 * scale.y);
     BeginFixedPanel("CameraFeedPanel", pos, size, scale, theme, 0, ImVec2(0, 0));
 
     if (camera_tex != 0) {

@@ -109,7 +109,7 @@ ImVec2 Location::latLonToTileOffset(double lat, double lon, int zoom)
 }
 
 ImVec2 Location::latLonToScreenPos(double lat, double lon, double centerLat, double centerLon,
-                                    ImVec2 widgetPos, float width, float height, float scale, int zoom)
+                                    ImVec2 widgetPos, float width, float height, const UiScale& scale, int zoom)
 {
     TileCoord pointTile = latLonToTile(lat, lon, zoom);
     ImVec2 pointOffset = latLonToTileOffset(lat, lon, zoom);
@@ -119,8 +119,9 @@ ImVec2 Location::latLonToScreenPos(double lat, double lon, double centerLat, dou
     float dxPixels = (pointTile.x - centerTile.x) * 256.0f + (pointOffset.x - centerOffset.x);
     float dyPixels = (pointTile.y - centerTile.y) * 256.0f + (pointOffset.y - centerOffset.y);
 
-    return ImVec2(widgetPos.x + width / 2.0f + dxPixels * scale,
-                   widgetPos.y + height / 2.0f + dyPixels * scale);
+    // Kept isotropic (scale.uniform()) so map tiles/imagery never stretch non-uniformly.
+    return ImVec2(widgetPos.x + width / 2.0f + dxPixels * scale.uniform(),
+                   widgetPos.y + height / 2.0f + dyPixels * scale.uniform());
 }
 
 GLuint Location::loadTileCached(int zoom, int x, int y)
@@ -154,7 +155,7 @@ GLuint Location::loadTileCached(int zoom, int x, int y)
     return tex;
 }
 
-ImVec2 Location::MapWidget(double lat, double lon, float width, float height, float scale, int zoom, GLuint placeholderTile, bool theme)
+ImVec2 Location::MapWidget(double lat, double lon, float width, float height, const UiScale& scale, int zoom, GLuint placeholderTile, bool theme)
 {
     ImGui::BeginChild("MapWidget", ImVec2(width, height), false,
                         ImGuiWindowFlags_NoScrollbar |
@@ -162,7 +163,8 @@ ImVec2 Location::MapWidget(double lat, double lon, float width, float height, fl
     ImDrawList* draw = ImGui::GetWindowDrawList();
     ImVec2 pos = ImGui::GetWindowPos();
 
-    float tileSize = 256.0f * scale;
+    // Kept isotropic (scale.uniform()) -- map tiles are square and would visibly distort otherwise.
+    float tileSize = 256.0f * scale.uniform();
 
     TileCoord center = latLonToTile(lat, lon, zoom);
     ImVec2 offset = latLonToTileOffset(lat, lon, zoom);
@@ -175,8 +177,8 @@ ImVec2 Location::MapWidget(double lat, double lon, float width, float height, fl
     {
         int tx = center.x + dx;
         int ty = center.y + dy;
-        float sx = pos.x + width  / 2.0f + dx * tileSize - offset.x * scale;
-        float sy = pos.y + height / 2.0f + dy * tileSize - offset.y * scale;
+        float sx = pos.x + width  / 2.0f + dx * tileSize - offset.x * scale.uniform();
+        float sy = pos.y + height / 2.0f + dy * tileSize - offset.y * scale.uniform();
         GLuint tex = loadTileCached(zoom, tx, ty);
         if (tex) {
             draw->AddImage((ImTextureID)(intptr_t)tex,
@@ -185,7 +187,7 @@ ImVec2 Location::MapWidget(double lat, double lon, float width, float height, fl
         }
     }
 
-    float roundRadius = 12.0f * scale;
+    float roundRadius = 12.0f * scale.uniform();
     ImU32 maskColor = ImGui::ColorConvertFloat4ToU32(Color::panelColor(theme));
     ImVec2 p_min = pos;
     ImVec2 p_max = ImVec2(pos.x + width, pos.y + height);
@@ -222,7 +224,7 @@ ImVec2 Location::MapWidget(double lat, double lon, float width, float height, fl
     return pos;
 }
 
-void Location::NoSatMap(const DroneInformation& Info, float width, float height, float scale, int zoom, bool theme){
+void Location::NoSatMap(const DroneInformation& Info, float width, float height, const UiScale& scale, int zoom, bool theme){
     ImGui::BeginChild("NoSatMapWidget", ImVec2(width, height), false,
                         ImGuiWindowFlags_NoScrollbar |
                         ImGuiWindowFlags_NoScrollWithMouse);
@@ -263,10 +265,10 @@ void Location::NoSatMap(const DroneInformation& Info, float width, float height,
             Color::panelBorder(theme), 1.0f);
     }
 
-    draw->AddCircleFilled(dot_pos, 6.0f * scale, IM_COL32(255, 50, 50, 255));
+    draw->AddCircleFilled(dot_pos, 6.0f * scale.uniform(), IM_COL32(255, 50, 50, 255));
 
 
-    float roundRadius = 12.0f * scale;
+    float roundRadius = 12.0f * scale.uniform();
     ImU32 maskColor = ImGui::ColorConvertFloat4ToU32(Color::panelColor(theme));
     ImVec2 p_min = pos;
     ImVec2 p_max = ImVec2(pos.x + width, pos.y + height);

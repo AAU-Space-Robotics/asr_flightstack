@@ -24,7 +24,7 @@ constexpr float kRowButtonW = 110.0f;   // unscaled, per-row Confirm button
 constexpr float kRowButtonH = 28.0f;
 constexpr float kRowButtonGap = 16.0f;  // between label text and its Confirm button
 
-bool DrawChecklistButton(ImDrawList* draw_list, ImVec2 center, ImVec2 half_size, float scale,
+bool DrawChecklistButton(ImDrawList* draw_list, ImVec2 center, ImVec2 half_size, const UiScale& scale,
                           const char* label, bool enabled, ImVec4 base) {
     ImVec2 bb_min(center.x - half_size.x, center.y - half_size.y);
     ImVec2 bb_max(center.x + half_size.x, center.y + half_size.y);
@@ -42,7 +42,7 @@ bool DrawChecklistButton(ImDrawList* draw_list, ImVec2 center, ImVec2 half_size,
         color = ImVec4(base.x + 0.15f, base.y + 0.15f, base.z + 0.15f, base.w);
     }
 
-    draw_list->AddRectFilled(bb_min, bb_max, ImGui::ColorConvertFloat4ToU32(color), 8.0f * scale);
+    draw_list->AddRectFilled(bb_min, bb_max, ImGui::ColorConvertFloat4ToU32(color), 8.0f * scale.uniform());
 
     ImVec2 text_size = ImGui::CalcTextSize(label);
     draw_list->AddText(ImVec2(center.x - text_size.x / 2, center.y - text_size.y / 2),
@@ -51,7 +51,7 @@ bool DrawChecklistButton(ImDrawList* draw_list, ImVec2 center, ImVec2 half_size,
     return released;
 }
 
-bool DrawCheckRow(ImDrawList* draw_list, ImVec2 row_min, ImVec2 row_max, float scale, bool theme,
+bool DrawCheckRow(ImDrawList* draw_list, ImVec2 row_min, ImVec2 row_max, const UiScale& scale, bool theme,
                    bool checked, bool interactive, const char* label, float wrap_width) {
     const float row_h = row_max.y - row_min.y;
 
@@ -60,8 +60,8 @@ bool DrawCheckRow(ImDrawList* draw_list, ImVec2 row_min, ImVec2 row_max, float s
     ImVec2 text_pos(row_min.x, row_min.y + (row_h - text_size.y) * 0.5f);
     draw_list->AddText(ImGui::GetFont(), ImGui::GetFontSize(), text_pos, text_color, label, nullptr, wrap_width);
 
-    const float button_w = kRowButtonW * scale;
-    const float button_h = kRowButtonH * scale;
+    const float button_w = kRowButtonW * scale.x;
+    const float button_h = kRowButtonH * scale.y;
     ImVec2 button_center(row_max.x - button_w * 0.5f, row_min.y + row_h * 0.5f);
     ImVec2 button_half(button_w * 0.5f, button_h * 0.5f);
 
@@ -74,9 +74,9 @@ bool DrawCheckRow(ImDrawList* draw_list, ImVec2 row_min, ImVec2 row_max, float s
 }
 
 // Row height needed for `label` wrapped to `wrap_width`, at least tall enough for its Confirm button.
-float CheckRowHeight(const char* label, float scale, float wrap_width) {
+float CheckRowHeight(const char* label, const UiScale& scale, float wrap_width) {
     ImVec2 text_size = ImGui::CalcTextSize(label, nullptr, false, wrap_width);
-    return std::max(kRowButtonH * scale, text_size.y);
+    return std::max(kRowButtonH * scale.y, text_size.y);
 }
 
 constexpr float kPanelW = 460.0f;
@@ -104,11 +104,11 @@ std::vector<std::string> PreArmHardBlockIssues(const PreArmSnapshot& snapshot) {
     return issues;
 }
 
-void DrawIssuesBadge(ImDrawList* draw_list, ImVec2 center, float scale, int issue_count) {
+void DrawIssuesBadge(ImDrawList* draw_list, ImVec2 center, const UiScale& scale, int issue_count) {
     if (issue_count <= 0) { return; }
-    const float radius = 12.0f * scale;
+    const float radius = 12.0f * scale.uniform();
     draw_list->AddCircleFilled(center, radius, IM_COL32(220, 60, 60, 255));
-    draw_list->AddCircle(center, radius, IM_COL32(0, 0, 0, 255), 0, 1.5f * scale);
+    draw_list->AddCircle(center, radius, IM_COL32(0, 0, 0, 255), 0, 1.5f * scale.uniform());
     char label[16];
     std::snprintf(label, sizeof(label), "%d", issue_count);
     ImVec2 text_size = ImGui::CalcTextSize(label);
@@ -129,7 +129,7 @@ void PreArmChecklist::Close() {
     open_ = false;
 }
 
-void PreArmChecklist::Draw(ImDrawList* draw_list, ImVec2 anchor, float scale, bool theme,
+void PreArmChecklist::Draw(ImDrawList* draw_list, ImVec2 anchor, const UiScale& scale, bool theme,
                             const PreArmSnapshot& snapshot, const std::vector<std::string>& hard_issues) {
     if (!open_) { return; }
 
@@ -166,15 +166,15 @@ void PreArmChecklist::Draw(ImDrawList* draw_list, ImVec2 anchor, float scale, bo
         {rtk_label, &rtk_confirmed_, !rtk_streaming},
     };
 
-    const float wrap_width = kPanelW * scale - 2 * kPadding * scale
-                            - kRowButtonW * scale - kRowButtonGap * scale;
+    const float wrap_width = kPanelW * scale.x - 2 * kPadding * scale.x
+                            - kRowButtonW * scale.x - kRowButtonGap * scale.x;
 
     float row_heights[kRowCount];
     float rows_total = 0.0f;
     for (int i = 0; i < kRowCount; ++i) {
         row_heights[i] = CheckRowHeight(rows[i].label, scale, wrap_width);
         rows_total += row_heights[i];
-        if (i + 1 < kRowCount) { rows_total += kRowGap * scale; }
+        if (i + 1 < kRowCount) { rows_total += kRowGap * scale.y; }
     }
 
     // Hard-block issues (no override) get their own lines under the confirm rows.
@@ -184,35 +184,35 @@ void PreArmChecklist::Draw(ImDrawList* draw_list, ImVec2 anchor, float scale, bo
         std::string text = "Cannot arm: " + hard_issues[i];
         issue_heights[i] = ImGui::CalcTextSize(text.c_str(), nullptr, false, wrap_width).y;
         issues_total += issue_heights[i];
-        if (i + 1 < hard_issues.size()) { issues_total += kIssueLineGap * scale; }
+        if (i + 1 < hard_issues.size()) { issues_total += kIssueLineGap * scale.y; }
     }
     if (!hard_issues.empty()) {
-        issues_total += kIssuesSectionGap * scale;
+        issues_total += kIssuesSectionGap * scale.y;
     }
 
-    const float panel_h = 2 * kPadding * scale + kTitleH * scale + kGapAfterTitle * scale
-                         + rows_total + issues_total + kGapBeforeButtons * scale
-                         + kButtonH * scale;
+    const float panel_h = 2 * kPadding * scale.y + kTitleH * scale.y + kGapAfterTitle * scale.y
+                         + rows_total + issues_total + kGapBeforeButtons * scale.y
+                         + kButtonH * scale.y;
 
-    ImVec2 panel_min(anchor.x - kPanelW * 0.5f * scale, anchor.y);
-    ImVec2 panel_size(kPanelW * scale, panel_h);
+    ImVec2 panel_min(anchor.x - kPanelW * 0.5f * scale.x, anchor.y);
+    ImVec2 panel_size(kPanelW * scale.x, panel_h);
 
     // Soft drop shadow so it reads as floating above the map/panels behind it.
-    draw_list->AddRectFilled(ImVec2(panel_min.x + 3.0f * scale, panel_min.y + 4.0f * scale),
-                              ImVec2(panel_min.x + panel_size.x + 3.0f * scale, panel_min.y + panel_size.y + 4.0f * scale),
-                              IM_COL32(0, 0, 0, 90), 16.0f * scale);
+    draw_list->AddRectFilled(ImVec2(panel_min.x + 3.0f * scale.x, panel_min.y + 4.0f * scale.y),
+                              ImVec2(panel_min.x + panel_size.x + 3.0f * scale.x, panel_min.y + panel_size.y + 4.0f * scale.y),
+                              IM_COL32(0, 0, 0, 90), 16.0f * scale.uniform());
     DrawPanelBackground(draw_list, panel_min, panel_size,
                          ImGui::ColorConvertFloat4ToU32(Color::panelColor(theme)),
-                         Color::panelBorder(theme), 16.0f * scale, 2.0f * scale);
+                         Color::panelBorder(theme), 16.0f * scale.uniform(), 2.0f * scale.uniform());
 
-    float cursor_y = panel_min.y + kPadding * scale;
-    const float content_x = panel_min.x + kPadding * scale;
-    const float content_right = panel_min.x + panel_size.x - kPadding * scale;
+    float cursor_y = panel_min.y + kPadding * scale.y;
+    const float content_x = panel_min.x + kPadding * scale.x;
+    const float content_right = panel_min.x + panel_size.x - kPadding * scale.x;
 
     ImGui::PushFont(winInit.getFont(181));  // bold 18
     draw_list->AddText(ImVec2(content_x, cursor_y), Color::white_black(theme), "PRE-ARM CHECKLIST");
     ImGui::PopFont();
-    cursor_y += kTitleH * scale + kGapAfterTitle * scale;
+    cursor_y += kTitleH * scale.y + kGapAfterTitle * scale.y;
 
     for (int i = 0; i < kRowCount; ++i) {
         ImVec2 row_min(content_x, cursor_y);
@@ -222,28 +222,28 @@ void PreArmChecklist::Draw(ImDrawList* draw_list, ImVec2 anchor, float scale, bo
             *rows[i].value = !*rows[i].value;
         }
         cursor_y += row_heights[i];
-        if (i + 1 < kRowCount) { cursor_y += kRowGap * scale; }
+        if (i + 1 < kRowCount) { cursor_y += kRowGap * scale.y; }
     }
 
     if (!hard_issues.empty()) {
-        cursor_y += kIssuesSectionGap * scale;
+        cursor_y += kIssuesSectionGap * scale.y;
         for (size_t i = 0; i < hard_issues.size(); ++i) {
             std::string text = "Cannot arm: " + hard_issues[i];
             draw_list->AddText(ImGui::GetFont(), ImGui::GetFontSize(), ImVec2(content_x, cursor_y),
                                 IM_COL32(255, 92, 92, 255), text.c_str(), nullptr, wrap_width);
             cursor_y += issue_heights[i];
-            if (i + 1 < hard_issues.size()) { cursor_y += kIssueLineGap * scale; }
+            if (i + 1 < hard_issues.size()) { cursor_y += kIssueLineGap * scale.y; }
         }
     }
 
-    cursor_y += kGapBeforeButtons * scale;
+    cursor_y += kGapBeforeButtons * scale.y;
 
     const bool can_arm = inspection_confirmed_ && area_clear_confirmed_ && battery_confirmed_
                         && rtk_confirmed_ && hard_issues.empty();
-    const float total_gap = kButtonGap * scale * (kBottomButtonCount - 1);
-    const float bottom_button_w = (panel_size.x - 2 * kPadding * scale - total_gap) / kBottomButtonCount;
-    ImVec2 button_half(bottom_button_w * 0.5f, kButtonH * 0.5f * scale);
-    const float button_y = cursor_y + kButtonH * 0.5f * scale;
+    const float total_gap = kButtonGap * scale.x * (kBottomButtonCount - 1);
+    const float bottom_button_w = (panel_size.x - 2 * kPadding * scale.x - total_gap) / kBottomButtonCount;
+    ImVec2 button_half(bottom_button_w * 0.5f, kButtonH * 0.5f * scale.y);
+    const float button_y = cursor_y + kButtonH * 0.5f * scale.y;
 
     float button_x = content_x + bottom_button_w * 0.5f;
     if (DrawChecklistButton(draw_list, ImVec2(button_x, button_y), button_half, scale, "Cancel", true,
@@ -252,7 +252,7 @@ void PreArmChecklist::Draw(ImDrawList* draw_list, ImVec2 anchor, float scale, bo
         return;
     }
 
-    button_x += bottom_button_w + kButtonGap * scale;
+    button_x += bottom_button_w + kButtonGap * scale.x;
     if (DrawChecklistButton(draw_list, ImVec2(button_x, button_y), button_half, scale, "Reset", true,
                              ImVec4(0.25f, 0.35f, 0.55f, 1.0f))) {
         inspection_confirmed_ = false;
@@ -262,7 +262,7 @@ void PreArmChecklist::Draw(ImDrawList* draw_list, ImVec2 anchor, float scale, bo
         return;
     }
 
-    button_x += bottom_button_w + kButtonGap * scale;
+    button_x += bottom_button_w + kButtonGap * scale.x;
     if (DrawChecklistButton(draw_list, ImVec2(button_x, button_y), button_half, scale, "Confirm & Arm", can_arm,
                              ImVec4(0.902f, 0.494f, 0.133f, 1.0f))) {
         auto on_confirm = std::move(on_confirm_);

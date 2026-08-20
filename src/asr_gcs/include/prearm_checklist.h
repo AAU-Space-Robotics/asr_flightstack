@@ -16,6 +16,7 @@
 #include <imgui.h>
 
 #include "state_manager.h"
+#include "app_window.h"
 
 // Live telemetry the checklist reads each frame, plus the configured thresholds
 // (min_battery_percent/min_satellites -- see checklist.yaml) it checks them against.
@@ -35,7 +36,7 @@ struct PreArmSnapshot {
 std::vector<std::string> PreArmHardBlockIssues(const PreArmSnapshot& snapshot);
 
 // Small red count badge, e.g. pinned to the corner of the Arm button. No-op if issue_count <= 0.
-void DrawIssuesBadge(ImDrawList* draw_list, ImVec2 center, float scale, int issue_count);
+void DrawIssuesBadge(ImDrawList* draw_list, ImVec2 center, const UiScale& scale, int issue_count);
 
 class PreArmChecklist {
 public:
@@ -48,7 +49,7 @@ public:
     // scaled, same convention as ArmButton's `center` param) -- typically just
     // below the Arm button. `hard_issues` should be PreArmHardBlockIssues(snapshot),
     // computed once by the caller and shared with the issues badge.
-    void Draw(ImDrawList* draw_list, ImVec2 anchor, float scale, bool theme,
+    void Draw(ImDrawList* draw_list, ImVec2 anchor, const UiScale& scale, bool theme,
               const PreArmSnapshot& snapshot, const std::vector<std::string>& hard_issues);
 
     bool IsOpen() const { return open_; }

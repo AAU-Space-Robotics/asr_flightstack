@@ -88,15 +88,15 @@ void SaveLoadDialog::Close()
     ImGui::CloseCurrentPopup();
 }
 
-void SaveLoadDialog::Draw(float scale, bool theme)
+void SaveLoadDialog::Draw(const UiScale& scale, bool theme)
 {
     if (!open_) { return; }
 
     // Fixed width narrower than the viewport -- the modal's dim background reads as clear gutters either side.
     ImGuiViewport *viewport = ImGui::GetMainViewport();
-    const float margin_y = 60.0f * scale;
+    const float margin_y = 60.0f * scale.y;
     ImGui::SetNextWindowPos(viewport->GetCenter(), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
-    ImGui::SetNextWindowSize(ImVec2(520.0f * scale, viewport->Size.y - margin_y * 2.0f), ImGuiCond_Always);
+    ImGui::SetNextWindowSize(ImVec2(520.0f * scale.x, viewport->Size.y - margin_y * 2.0f), ImGuiCond_Always);
 
     ImGui::PushStyleColor(ImGuiCol_PopupBg, Color::panelColor(theme));
     ImGui::PushStyleColor(ImGuiCol_Border, Color::panelBorder(theme));
@@ -105,8 +105,8 @@ void SaveLoadDialog::Draw(float scale, bool theme)
     ImGui::PushStyleColor(ImGuiCol_FrameBgHovered, Color::panelBorder(theme));
     ImGui::PushStyleColor(ImGuiCol_FrameBgActive, Color::panelBorder(theme));
     ImGui::PushStyleColor(ImGuiCol_Separator, Color::panelBorder(theme));
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 16.0f * scale);
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(24.0f * scale, 20.0f * scale));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 16.0f * scale.uniform());
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(24.0f * scale.x, 20.0f * scale.y));
 
     if (ImGui::BeginPopupModal("SaveLoadDialog", nullptr,
                                ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove)) {
@@ -138,12 +138,12 @@ void SaveLoadDialog::Draw(float scale, bool theme)
         }
 
         // Entries scroll in their own region, leaving room for Cancel below.
-        const float footer_h = ImGui::GetFrameHeightWithSpacing() + 8.0f * scale;
+        const float footer_h = ImGui::GetFrameHeightWithSpacing() + 8.0f * scale.y;
         ImGui::BeginChild("SaveLoadEntries", ImVec2(0, ImGui::GetContentRegionAvail().y - footer_h), false);
         for (size_t idx = 0; idx < entries_.size(); ++idx) {
             const Entry &entry = entries_[idx];
             ImGui::PushID(static_cast<int>(idx));
-            const float delete_w = 90.0f * scale;
+            const float delete_w = 90.0f * scale.x;
 
             ImGui::BeginGroup();
             ImGui::PushFont(winInit.getFont(181));
@@ -156,7 +156,7 @@ void SaveLoadDialog::Draw(float scale, bool theme)
             const bool row_clicked = ImGui::IsItemClicked(ImGuiMouseButton_Left);
             if (ImGui::IsItemHovered()) {
                 ImGui::GetWindowDrawList()->AddRectFilled(
-                    ImGui::GetItemRectMin(), ImGui::GetItemRectMax(), IM_COL32(255, 255, 255, 15), 6.0f * scale);
+                    ImGui::GetItemRectMin(), ImGui::GetItemRectMax(), IM_COL32(255, 255, 255, 15), 6.0f * scale.uniform());
             }
 
             ImGui::SameLine();

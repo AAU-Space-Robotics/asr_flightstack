@@ -33,11 +33,11 @@ public:
     GLuint display_map(const char* path, float scale);
     ImVec2 latLonToTileOffset(double lat, double lon, int zoom);
     GLuint loadTileCached(int zoom, int x, int y);
-    ImVec2 MapWidget(double lat, double lon, float width, float height, float scale, int zoom = 12, GLuint placeholdetTile = 0, bool theme = 0);
-    void NoSatMap(const DroneInformation& Info, float width, float height, float scale, int zoom, bool theme);
+    ImVec2 MapWidget(double lat, double lon, float width, float height, const UiScale& scale, int zoom = 12, GLuint placeholdetTile = 0, bool theme = 0);
+    void NoSatMap(const DroneInformation& Info, float width, float height, const UiScale& scale, int zoom, bool theme);
 
     ImVec2 latLonToScreenPos(double lat, double lon, double centerLat, double centerLon,
-        ImVec2 widgetPos, float width, float height, float scale, int zoom);
+        ImVec2 widgetPos, float width, float height, const UiScale& scale, int zoom);
 
 private:
     struct TileCoord { int x, y; };

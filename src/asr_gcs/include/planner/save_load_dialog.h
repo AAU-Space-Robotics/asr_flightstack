@@ -8,6 +8,8 @@
 #include <string>
 #include <vector>
 
+#include "app_window.h"
+
 class SaveLoadDialog {
 public:
     enum class Mode { Save, Load };
@@ -17,7 +19,7 @@ public:
               std::function<void(const std::string &path)> on_confirm);
 
     // No-op if not currently open. Call every frame.
-    void Draw(float scale, bool theme);
+    void Draw(const UiScale& scale, bool theme);
 
     bool IsOpen() const { return open_; }
 

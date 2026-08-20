@@ -67,7 +67,7 @@ void CollectPositions(const Plan &plan, std::vector<RoutePoint> &points) {
 MapTaskClick DrawPlanRouteOverlay(Location &location, const Plan &plan,
                                   double home_lat, double home_lon,
                                   double center_lat, double center_lon, int zoom,
-                                  ImVec2 widget_pos, float width, float height, float visible_h, float scale,
+                                  ImVec2 widget_pos, float width, float height, float visible_h, const UiScale& scale,
                                   int highlighted_top_level, int highlighted_nested)
 {
     MapTaskClick click;
@@ -90,7 +90,7 @@ MapTaskClick DrawPlanRouteOverlay(Location &location, const Plan &plan,
 
     if (screen_points.size() > 1) {
         draw_list->AddPolyline(screen_points.data(), static_cast<int>(screen_points.size()),
-                               IM_COL32(255, 130, 30, 220), 2.0f * scale);
+                               IM_COL32(255, 130, 30, 220), 2.0f * scale.uniform());
     }
 
     const ImVec2 widget_min = widget_pos;
@@ -111,11 +111,11 @@ MapTaskClick DrawPlanRouteOverlay(Location &location, const Plan &plan,
             return;
         }
 
-        const float radius = (highlighted[i] ? 13.0f : 10.0f) * scale;
+        const float radius = (highlighted[i] ? 13.0f : 10.0f) * scale.uniform();
         draw_list->AddCircleFilled(screen_points[i], radius,
                                    highlighted[i] ? IM_COL32(255, 130, 30, 255) : IM_COL32(35, 35, 35, 230));
         draw_list->AddCircle(screen_points[i], radius, IM_COL32(255, 130, 30, 255), 0,
-                             (highlighted[i] ? 2.5f : 1.5f) * scale);
+                             (highlighted[i] ? 2.5f : 1.5f) * scale.uniform());
 
         char label[16];
         std::snprintf(label, sizeof(label), "%d", static_cast<int>(i) + 1);
@@ -147,7 +147,7 @@ MapTaskClick DrawPlanRouteOverlay(Location &location, const Plan &plan,
 
 void DrawUavPositionMarker(Location &location, double uav_lat, double uav_lon,
                            double center_lat, double center_lon, int zoom,
-                           ImVec2 widget_pos, float width, float height, float visible_h, float scale)
+                           ImVec2 widget_pos, float width, float height, float visible_h, const UiScale& scale)
 {
     ImVec2 screen_pos = location.latLonToScreenPos(uav_lat, uav_lon, center_lat, center_lon,
                                                     widget_pos, width, height, scale, zoom);
@@ -157,6 +157,6 @@ void DrawUavPositionMarker(Location &location, double uav_lat, double uav_lon,
     }
 
     ImDrawList *draw_list = ImGui::GetForegroundDrawList();
-    draw_list->AddCircleFilled(screen_pos, 6.0f * scale, IM_COL32(255, 50, 50, 255));
-    draw_list->AddCircle(screen_pos, 6.0f * scale, IM_COL32(255, 255, 255, 255), 12, 1.5f * scale);
+    draw_list->AddCircleFilled(screen_pos, 6.0f * scale.uniform(), IM_COL32(255, 50, 50, 255));
+    draw_list->AddCircle(screen_pos, 6.0f * scale.uniform(), IM_COL32(255, 255, 255, 255), 12, 1.5f * scale.uniform());
 }

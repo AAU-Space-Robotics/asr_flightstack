@@ -156,7 +156,7 @@ PlannerPanel::PlannerPanel(Planner &planner)
 {
 }
 
-void PlannerPanel::Draw(float scale, bool theme, float window_height)
+void PlannerPanel::Draw(const UiScale& scale, bool theme, float window_height)
 {
     DrawVehicleAndPalette(scale, theme);
     DrawTaskList(scale, theme, window_height);
@@ -185,9 +185,9 @@ void PlannerPanel::SelectTask(size_t top_level_index, int nested_index)
     scroll_to_expanded_ = true;
 }
 
-void PlannerPanel::DrawVehicleAndPalette(float scale, bool theme)
+void PlannerPanel::DrawVehicleAndPalette(const UiScale& scale, bool theme)
 {
-    BeginFixedPanel("VehicleAndPalettePanel", ImVec2(70 * scale, 70 * scale), ImVec2(450 * scale, 140 * scale),
+    BeginFixedPanel("VehicleAndPalettePanel", ImVec2(70 * scale.x, 70 * scale.y), ImVec2(450 * scale.x, 140 * scale.y),
                      scale, theme, 0, ImVec2(8, 8));
 
     // --- Vehicle dropdown ------------------------------------------------
@@ -204,7 +204,7 @@ void PlannerPanel::DrawVehicleAndPalette(float scale, bool theme)
     ImGui::PushStyleColor(ImGuiCol_Header, IM_COL32(255, 130, 30, 255));
     ImGui::PushStyleColor(ImGuiCol_HeaderHovered, IM_COL32(255, 130, 30, 180));
     ImGui::PushStyleColor(ImGuiCol_HeaderActive, IM_COL32(255, 130, 30, 255));
-    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(14.0f * scale, 12.0f * scale));
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(14.0f * scale.x, 12.0f * scale.y));
     ImGui::PushFont(winInit.getFont(24));  // bold 24 -- this is the plan's primary identity control
     ImGui::SetNextItemWidth(-1.0f);
     if (ImGui::BeginCombo("##VehicleSelect", preview_text.c_str())) {
@@ -242,7 +242,7 @@ void PlannerPanel::DrawVehicleAndPalette(float scale, bool theme)
         }
 
         const float window_right_edge = ImGui::GetWindowPos().x + ImGui::GetWindowContentRegionMax().x;
-        ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(14.0f * scale, 8.0f * scale));
+        ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(14.0f * scale.x, 8.0f * scale.y));
         bool any_hovered = false;
         for (size_t i = 0; i < skill_names.size(); ++i) {
             PushThemedButtonStyle(theme, false);
@@ -260,7 +260,7 @@ void PlannerPanel::DrawVehicleAndPalette(float scale, bool theme)
                 hovered_button_max_ = ImGui::GetItemRectMax();
                 if (ImGui::GetTime() - hover_start_time_ >= kHoverTooltipDelay) {
                     ImGui::GetWindowDrawList()->AddRect(ImGui::GetItemRectMin(), ImGui::GetItemRectMax(),
-                        IM_COL32(255, 130, 30, 255), 12.0f, 0, 2.5f * scale);
+                        IM_COL32(255, 130, 30, 255), 12.0f, 0, 2.5f * scale.uniform());
                 }
             }
 
@@ -285,7 +285,7 @@ void PlannerPanel::DrawVehicleAndPalette(float scale, bool theme)
     }
 }
 
-void PlannerPanel::DrawPaletteHoverToast(float scale, bool theme, const std::string &description)
+void PlannerPanel::DrawPaletteHoverToast(const UiScale& scale, bool theme, const std::string &description)
 {
     if (description.empty()) { return; }
 
@@ -294,45 +294,45 @@ void PlannerPanel::DrawPaletteHoverToast(float scale, bool theme, const std::str
     const float title_font_size = title_font->LegacySize;
     const float body_font_size = ImGui::GetFontSize();
 
-    const float pad_x = 16.0f * scale;
-    const float pad_y = 12.0f * scale;
-    const float toast_w = 340.0f * scale;
+    const float pad_x = 16.0f * scale.x;
+    const float pad_y = 12.0f * scale.y;
+    const float toast_w = 340.0f * scale.x;
     const float wrap_w = toast_w - pad_x * 2.0f;
     const std::string title = ToUpper(hovered_skill_);
 
     const ImVec2 title_size = title_font->CalcTextSizeA(title_font_size, 9999.0f, wrap_w, title.c_str());
     const ImVec2 body_size = body_font->CalcTextSizeA(body_font_size, 9999.0f, wrap_w, description.c_str());
-    const float toast_h = pad_y * 2.0f + title_size.y + 4.0f * scale + body_size.y;
+    const float toast_h = pad_y * 2.0f + title_size.y + 4.0f * scale.y + body_size.y;
 
     // Anchored to the hovered button's own bottom-right corner, extending down-right from it.
-    const ImVec2 toast_min(hovered_button_max_.x + 6.0f * scale, hovered_button_max_.y + 6.0f * scale);
+    const ImVec2 toast_min(hovered_button_max_.x + 6.0f * scale.x, hovered_button_max_.y + 6.0f * scale.y);
     const ImVec2 toast_max(toast_min.x + toast_w, toast_min.y + toast_h);
 
     // Foreground-drawn -- later-drawn sibling panels (height chart, planner map) would otherwise cover it.
     ImDrawList *draw_list = ImGui::GetForegroundDrawList();
-    draw_list->AddRectFilled(toast_min, toast_max, ImGui::ColorConvertFloat4ToU32(Color::panelColor(theme)), 12.0f * scale);
-    draw_list->AddRect(toast_min, toast_max, Color::panelBorder(theme), 12.0f * scale, 0, 1.5f * scale);
+    draw_list->AddRectFilled(toast_min, toast_max, ImGui::ColorConvertFloat4ToU32(Color::panelColor(theme)), 12.0f * scale.uniform());
+    draw_list->AddRect(toast_min, toast_max, Color::panelBorder(theme), 12.0f * scale.uniform(), 0, 1.5f * scale.uniform());
 
     const ImVec2 title_pos(toast_min.x + pad_x, toast_min.y + pad_y);
     draw_list->AddText(title_font, title_font_size, title_pos, Color::white_black(theme),
                        title.c_str(), nullptr, wrap_w);
 
-    const ImVec2 body_pos(toast_min.x + pad_x, title_pos.y + title_size.y + 4.0f * scale);
+    const ImVec2 body_pos(toast_min.x + pad_x, title_pos.y + title_size.y + 4.0f * scale.y);
     draw_list->AddText(body_font, body_font_size, body_pos, Color::dwhite_lblack(theme),
                        description.c_str(), nullptr, wrap_w);
 }
 
-void PlannerPanel::DrawTaskList(float scale, bool theme, float window_height)
+void PlannerPanel::DrawTaskList(const UiScale& scale, bool theme, float window_height)
 {
     ImGui::PushStyleColor(ImGuiCol_ScrollbarBg, Color::panelColor(theme));
     ImGui::PushStyleColor(ImGuiCol_ScrollbarGrab, Color::panelBorder(theme));
     ImGui::PushStyleColor(ImGuiCol_ScrollbarGrabHovered, IM_COL32(255, 130, 30, 180));
     ImGui::PushStyleColor(ImGuiCol_ScrollbarGrabActive, IM_COL32(255, 130, 30, 255));
     // Height reaches the real window bottom rather than a fixed 650*scale.
-    const float panel_top = 220.0f * scale;
-    const float panel_bottom_margin = 10.0f * scale;
-    const float panel_h = std::max(200.0f * scale, window_height - panel_top - panel_bottom_margin);
-    BeginFixedPanel("MissionPlannerPanel", ImVec2(70 * scale, panel_top), ImVec2(450 * scale, panel_h),
+    const float panel_top = 220.0f * scale.y;
+    const float panel_bottom_margin = 10.0f * scale.y;
+    const float panel_h = std::max(200.0f * scale.y, window_height - panel_top - panel_bottom_margin);
+    BeginFixedPanel("MissionPlannerPanel", ImVec2(70 * scale.x, panel_top), ImVec2(450 * scale.x, panel_h),
                      scale, theme, 0, ImVec2(8, 8));
 
     // Fetched fresh further down too -- Clear can destroy the root this same frame.
@@ -353,8 +353,8 @@ void PlannerPanel::DrawTaskList(float scale, bool theme, float window_height)
     char count_text[24];
     std::snprintf(count_text, sizeof(count_text), "%zu item%s", count, count == 1 ? "" : "s");
     const ImVec2 count_text_size = ImGui::CalcTextSize(count_text);
-    const float pill_w = count_text_size.x + 20.0f * scale;
-    const float pill_h = count_text_size.y + 6.0f * scale;
+    const float pill_w = count_text_size.x + 20.0f * scale.x;
+    const float pill_h = count_text_size.y + 6.0f * scale.y;
     const float pill_x = ImGui::GetWindowContentRegionMax().x - pill_w;
 
     size_t error_count = 0, warning_count = 0;
@@ -377,9 +377,9 @@ void PlannerPanel::DrawTaskList(float scale, bool theme, float window_height)
                            : warning_count > 0 ? IM_COL32(150, 110, 20, 255)
                                                 : Color::panelBorder(theme);
     const ImVec2 status_label_size = ImGui::CalcTextSize(status_text);
-    const float status_w = status_label_size.x + 20.0f * scale;
-    const float status_h = status_label_size.y + 6.0f * scale;
-    const float status_x = pill_x - 8.0f * scale - status_w;
+    const float status_w = status_label_size.x + 20.0f * scale.x;
+    const float status_h = status_label_size.y + 6.0f * scale.y;
+    const float status_x = pill_x - 8.0f * scale.x - status_w;
     const float pills_left_x = (count > 0) ? status_x : pill_x;
 
     ImGui::PushFont(winInit.getFont(24));  // bold 24
@@ -395,7 +395,7 @@ void PlannerPanel::DrawTaskList(float scale, bool theme, float window_height)
     const std::string plan_name = planner_.plan_name().empty() ? "untitled" : planner_.plan_name();
     const float prefix_w = ImGui::CalcTextSize("- ").x;
     const float name_budget = std::max(0.0f,
-        pills_left_x - 8.0f * scale - title_end_x - ImGui::GetStyle().ItemSpacing.x - prefix_w);
+        pills_left_x - 8.0f * scale.x - title_end_x - ImGui::GetStyle().ItemSpacing.x - prefix_w);
     ImGui::Text("- %s", TruncateToWidth(plan_name, name_budget).c_str());
     ImGui::PopStyleColor();
     const float header_center_y = header_top_y + title_h * 0.5f;
@@ -407,7 +407,7 @@ void PlannerPanel::DrawTaskList(float scale, bool theme, float window_height)
         const ImVec2 status_screen_pos = ImGui::GetCursorScreenPos();
         header_draw_list->AddRectFilled(status_screen_pos, ImVec2(status_screen_pos.x + status_w, status_screen_pos.y + status_h),
                                         status_bg, status_h * 0.5f);
-        ImGui::SetCursorScreenPos(ImVec2(status_screen_pos.x + 10.0f * scale, status_screen_pos.y + 3.0f * scale));
+        ImGui::SetCursorScreenPos(ImVec2(status_screen_pos.x + 10.0f * scale.x, status_screen_pos.y + 3.0f * scale.y));
         ImGui::PushStyleColor(ImGuiCol_Text, status_has_issues ? IM_COL32(255, 255, 255, 255) : Color::white_black(theme));
         ImGui::TextUnformatted(status_text);
         ImGui::PopStyleColor();
@@ -431,14 +431,14 @@ void PlannerPanel::DrawTaskList(float scale, bool theme, float window_height)
         const ImVec2 screen_pos = ImGui::GetCursorScreenPos();
         header_draw_list->AddRectFilled(screen_pos, ImVec2(screen_pos.x + pill_w, screen_pos.y + pill_h),
                                  Color::panelBorder(theme), pill_h * 0.5f);
-        ImGui::SetCursorScreenPos(ImVec2(screen_pos.x + 10.0f * scale, screen_pos.y + 3.0f * scale));
+        ImGui::SetCursorScreenPos(ImVec2(screen_pos.x + 10.0f * scale.x, screen_pos.y + 3.0f * scale.y));
         ImGui::PushStyleColor(ImGuiCol_Text, Color::white_black(theme));
         ImGui::TextUnformatted(count_text);
         ImGui::PopStyleColor();
     }
 
     // Pinned explicitly -- the pills above were placed via manual SetCursorPos.
-    ImGui::SetCursorPosY(header_top_y + title_h + 8.0f * scale);
+    ImGui::SetCursorPosY(header_top_y + title_h + 8.0f * scale.y);
     ImGui::PushStyleColor(ImGuiCol_Separator, Color::panelBorder(theme));
     ImGui::Separator();
     ImGui::PopStyleColor();
@@ -448,8 +448,8 @@ void PlannerPanel::DrawTaskList(float scale, bool theme, float window_height)
         ? static_cast<const SequenceNode *>(root) : nullptr;
 
     // Rows scroll in their own child, leaving room below for the footer.
-    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(16.0f * scale, 10.0f * scale));
-    const float footer_h = ImGui::GetFrameHeightWithSpacing() + 16.0f * scale;
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(16.0f * scale.x, 10.0f * scale.y));
+    const float footer_h = ImGui::GetFrameHeightWithSpacing() + 16.0f * scale.y;
     ImGui::PopStyleVar();
     const float rows_h = std::max(0.0f, ImGui::GetContentRegionAvail().y - footer_h);
     ImGui::BeginChild("TaskRowsScroll", ImVec2(0, rows_h), false);
@@ -483,7 +483,7 @@ void PlannerPanel::DrawTaskList(float scale, bool theme, float window_height)
                     const std::string current = params.value(param_name, std::string());
                     char buffer[128];
                     std::snprintf(buffer, sizeof(buffer), "%s", current.c_str());
-                    ImGui::SetNextItemWidth(140.0f * scale);
+                    ImGui::SetNextItemWidth(140.0f * scale.x);
                     if (ImGui::InputText(param_name.c_str(), buffer, sizeof(buffer))) {
                         set_param(param_name, std::string(buffer));
                     }
@@ -494,19 +494,19 @@ void PlannerPanel::DrawTaskList(float scale, bool theme, float window_height)
                         static_cast<float>(current.size() > 1 ? current[1] : 0.0),
                         static_cast<float>(current.size() > 2 ? current[2] : 0.0),
                     };
-                    ImGui::SetNextItemWidth(220.0f * scale);
+                    ImGui::SetNextItemWidth(220.0f * scale.x);
                     if (ImGui::InputFloat3(param_name.c_str(), xyz)) {
                         set_param(param_name, nlohmann::json::array({xyz[0], xyz[1], xyz[2]}));
                     }
                 } else if (param_spec.type == "int") {
                     int value = params.value(param_name, 0);
-                    ImGui::SetNextItemWidth(140.0f * scale);
+                    ImGui::SetNextItemWidth(140.0f * scale.x);
                     if (ImGui::InputInt(param_name.c_str(), &value)) {
                         set_param(param_name, value);
                     }
                 } else {
                     float value = static_cast<float>(params.value(param_name, 0.0));
-                    ImGui::SetNextItemWidth(140.0f * scale);
+                    ImGui::SetNextItemWidth(140.0f * scale.x);
                     if (ImGui::InputFloat(param_name.c_str(), &value)) {
                         set_param(param_name, static_cast<double>(value));
                     }
@@ -588,9 +588,9 @@ void PlannerPanel::DrawTaskList(float scale, bool theme, float window_height)
             if (!first_row) {
                 const ImVec2 sep_pos = ImGui::GetCursorScreenPos();
                 ImGui::GetWindowDrawList()->AddLine(
-                    ImVec2(sep_pos.x, sep_pos.y - 5.0f * scale),
-                    ImVec2(sep_pos.x + row_width, sep_pos.y - 5.0f * scale),
-                    Color::panelBorder(theme), 1.0f * scale);
+                    ImVec2(sep_pos.x, sep_pos.y - 5.0f * scale.y),
+                    ImVec2(sep_pos.x + row_width, sep_pos.y - 5.0f * scale.y),
+                    Color::panelBorder(theme), 1.0f * scale.uniform());
             }
             first_row = false;
 
@@ -629,23 +629,23 @@ void PlannerPanel::DrawTaskList(float scale, bool theme, float window_height)
                                                         : accent;
 
                 const ImVec2 row_start = ImGui::GetCursorScreenPos();
-                const float badge_radius = 12.0f * scale;
+                const float badge_radius = 12.0f * scale.uniform();
                 const float badge_diameter = badge_radius * 2.0f;
                 const ImVec2 badge_center(row_start.x + badge_radius, row_start.y + badge_radius);
 
                 const float button_size = ImGui::GetFrameHeight();
                 const float buttons_w = button_size * 3.0f + ImGui::GetStyle().ItemSpacing.x * 2.0f;
-                const float content_w = row_width - buttons_w - 8.0f * scale;
+                const float content_w = row_width - buttons_w - 8.0f * scale.x;
 
                 ImDrawList *draw_list = ImGui::GetWindowDrawList();
-                draw_list->AddCircle(badge_center, badge_radius, status_color, 0, 1.5f * scale);
+                draw_list->AddCircle(badge_center, badge_radius, status_color, 0, 1.5f * scale.uniform());
                 char index_label[16];
                 std::snprintf(index_label, sizeof(index_label), "%d", display_index);
                 const ImVec2 index_size = ImGui::CalcTextSize(index_label);
                 draw_list->AddText(ImVec2(badge_center.x - index_size.x * 0.5f, badge_center.y - index_size.y * 0.5f),
                                    Color::white_black(theme), index_label);
 
-                ImGui::SetCursorScreenPos(ImVec2(row_start.x + badge_diameter + 12.0f * scale, row_start.y));
+                ImGui::SetCursorScreenPos(ImVec2(row_start.x + badge_diameter + 12.0f * scale.x, row_start.y));
                 ImGui::BeginGroup();
                 ImGui::PushFont(winInit.getFont(181));
                 const float title_line_h = ImGui::GetFontSize();
@@ -666,7 +666,7 @@ void PlannerPanel::DrawTaskList(float scale, bool theme, float window_height)
                     row_start, ImVec2(row_start.x + content_w, row_start.y + row_height));
                 if (content_hovered) {
                     draw_list->AddRectFilled(row_start, ImVec2(row_start.x + content_w, row_start.y + row_height),
-                                             IM_COL32(255, 255, 255, 15), 6.0f * scale);
+                                             IM_COL32(255, 255, 255, 15), 6.0f * scale.uniform());
                 }
                 if (content_hovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
                     expanded_task_index_ = (expanded_task_index_ == static_cast<int>(i)) ? -1 : static_cast<int>(i);
@@ -695,11 +695,11 @@ void PlannerPanel::DrawTaskList(float scale, bool theme, float window_height)
                 ImGui::PopID();
 
                 ImGui::SetCursorScreenPos(row_start);
-                ImGui::Dummy(ImVec2(row_width, row_height + 10.0f * scale));
+                ImGui::Dummy(ImVec2(row_width, row_height + 10.0f * scale.y));
 
                 if (expanded_task_index_ == static_cast<int>(i)) {
                     ImGui::PushID(static_cast<int>(i));
-                    ImGui::Indent(badge_diameter + 12.0f * scale);
+                    ImGui::Indent(badge_diameter + 12.0f * scale.x);
                     ImGui::PushStyleColor(ImGuiCol_Text, Color::white_black(theme));
                     ImGui::PushStyleColor(ImGuiCol_FrameBg, Color::panelBorder(theme));
                     ImGui::PushStyleColor(ImGuiCol_FrameBgHovered, Color::panelBorder(theme));
@@ -722,7 +722,7 @@ void PlannerPanel::DrawTaskList(float scale, bool theme, float window_height)
                         const Condition &condition = run_until->conditions_any[c];
                         ImGui::PushID(static_cast<int>(c));
 
-                        ImGui::SetNextItemWidth(140.0f * scale);
+                        ImGui::SetNextItemWidth(140.0f * scale.x);
                         if (ImGui::BeginCombo("##Cond", condition.cond.c_str())) {
                             for (const auto &name : available_conditions) {
                                 if (ImGui::Selectable(name.c_str(), name == condition.cond)) {
@@ -736,7 +736,7 @@ void PlannerPanel::DrawTaskList(float scale, bool theme, float window_height)
                         ImGui::SameLine();
 
                         const std::string current_op = condition.op.value_or("(none)");
-                        ImGui::SetNextItemWidth(70.0f * scale);
+                        ImGui::SetNextItemWidth(70.0f * scale.x);
                         if (ImGui::BeginCombo("##Op", current_op.c_str())) {
                             for (const char *op : kOps) {
                                 if (ImGui::Selectable(op, current_op == op)) {
@@ -756,7 +756,7 @@ void PlannerPanel::DrawTaskList(float scale, bool theme, float window_height)
 
                         if (condition.op) {
                             ImGui::SameLine();
-                            ImGui::SetNextItemWidth(90.0f * scale);
+                            ImGui::SetNextItemWidth(90.0f * scale.x);
                             if (ConditionValueIsInt(condition.cond)) {
                                 int value = static_cast<int>(condition.value.value_or(0.0));
                                 if (ImGui::InputInt("##Value", &value)) {
@@ -798,7 +798,7 @@ void PlannerPanel::DrawTaskList(float scale, bool theme, float window_height)
                     ImGui::PopStyleColor(5);  // Button/ButtonHovered/Header/HeaderHovered/HeaderActive
                     } else if (repeat) {
                         int count = repeat->count;
-                        ImGui::SetNextItemWidth(90.0f * scale);
+                        ImGui::SetNextItemWidth(90.0f * scale.x);
                         // step=0 disables the +/- buttons.
                         if (ImGui::InputInt("Count", &count, 0, 0)) {
                             planner_.set_repeat_count(i, count);
@@ -806,7 +806,7 @@ void PlannerPanel::DrawTaskList(float scale, bool theme, float window_height)
                         ImGui::SameLine();
                     } else {
                         int max_attempts = retry->max_attempts;
-                        ImGui::SetNextItemWidth(90.0f * scale);
+                        ImGui::SetNextItemWidth(90.0f * scale.x);
                         if (ImGui::InputInt("Max attempts", &max_attempts, 0, 0)) {
                             planner_.set_retry_max_attempts(i, max_attempts);
                         }
@@ -826,7 +826,7 @@ void PlannerPanel::DrawTaskList(float scale, bool theme, float window_height)
                     ImGui::PushStyleColor(ImGuiCol_Separator, Color::panelBorder(theme));
                     ImGui::Separator();
                     ImGui::PopStyleColor();
-                    ImGui::Indent(16.0f * scale);
+                    ImGui::Indent(16.0f * scale.x);
 
                     if (inner_child && inner_child->kind() == NodeKind::Sequence) {
                         const auto &inner = static_cast<const SequenceNode &>(*inner_child);
@@ -864,7 +864,7 @@ void PlannerPanel::DrawTaskList(float scale, bool theme, float window_height)
                             const float nested_row_width = ImGui::GetContentRegionAvail().x;
                             const float nested_button_size = ImGui::GetFrameHeight();
                             const float nested_buttons_w = nested_button_size * 3.0f + ImGui::GetStyle().ItemSpacing.x * 2.0f;
-                            const float nested_content_w = nested_row_width - nested_buttons_w - 8.0f * scale;
+                            const float nested_content_w = nested_row_width - nested_buttons_w - 8.0f * scale.x;
 
                             ImGui::BeginGroup();
                             ImGui::PushStyleColor(ImGuiCol_Text, nested_color);
@@ -882,7 +882,7 @@ void PlannerPanel::DrawTaskList(float scale, bool theme, float window_height)
                             if (nested_hovered) {
                                 ImGui::GetWindowDrawList()->AddRectFilled(
                                     nested_row_start, ImVec2(nested_row_start.x + nested_content_w, nested_row_start.y + nested_row_height),
-                                    IM_COL32(255, 255, 255, 15), 4.0f * scale);
+                                    IM_COL32(255, 255, 255, 15), 4.0f * scale.uniform());
                             }
                             if (nested_hovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
                                 expanded_group_task_index_ =
@@ -918,12 +918,12 @@ void PlannerPanel::DrawTaskList(float scale, bool theme, float window_height)
                                 ImGui::PushStyleColor(ImGuiCol_FrameBgHovered, Color::panelBorder(theme));
                                 ImGui::PushStyleColor(ImGuiCol_FrameBgActive, Color::panelBorder(theme));
                                 ImGui::PushStyleColor(ImGuiCol_CheckMark, IM_COL32(255, 130, 30, 255));
-                                ImGui::Indent(12.0f * scale);
+                                ImGui::Indent(12.0f * scale.x);
                                 draw_param_editor(nested_task.params, nested_spec->params,
                                     [&](const std::string &param_name, const nlohmann::json &value) {
                                         planner_.set_group_task_param(i, t, param_name, value);
                                     });
-                                ImGui::Unindent(12.0f * scale);
+                                ImGui::Unindent(12.0f * scale.x);
                                 ImGui::PopStyleColor(5);
                             }
                             ImGui::PopID();
@@ -959,8 +959,8 @@ void PlannerPanel::DrawTaskList(float scale, bool theme, float window_height)
                         }
                     }
 
-                    ImGui::Unindent(16.0f * scale);
-                    ImGui::Unindent(badge_diameter + 12.0f * scale);
+                    ImGui::Unindent(16.0f * scale.x);
+                    ImGui::Unindent(badge_diameter + 12.0f * scale.x);
                     ImGui::Spacing();
                     ImGui::PopID();
                 }
@@ -982,24 +982,24 @@ void PlannerPanel::DrawTaskList(float scale, bool theme, float window_height)
                                                     : Color::panelBorder(theme);
 
             const ImVec2 row_start = ImGui::GetCursorScreenPos();
-            const float badge_radius = 12.0f * scale;
+            const float badge_radius = 12.0f * scale.uniform();
             const float badge_diameter = badge_radius * 2.0f;
             const ImVec2 badge_center(row_start.x + badge_radius, row_start.y + badge_radius);
 
             // Hoisted so the hover/click check below can exclude the button strip.
             const float button_size = ImGui::GetFrameHeight();
             const float buttons_w = button_size * 3.0f + ImGui::GetStyle().ItemSpacing.x * 2.0f;
-            const float content_w = row_width - buttons_w - 8.0f * scale;
+            const float content_w = row_width - buttons_w - 8.0f * scale.x;
 
             ImDrawList *draw_list = ImGui::GetWindowDrawList();
-            draw_list->AddCircle(badge_center, badge_radius, status_color, 0, 1.5f * scale);
+            draw_list->AddCircle(badge_center, badge_radius, status_color, 0, 1.5f * scale.uniform());
             char index_label[16];
             std::snprintf(index_label, sizeof(index_label), "%d", display_index);
             const ImVec2 index_size = ImGui::CalcTextSize(index_label);
             draw_list->AddText(ImVec2(badge_center.x - index_size.x * 0.5f, badge_center.y - index_size.y * 0.5f),
                                Color::white_black(theme), index_label);
 
-            ImGui::SetCursorScreenPos(ImVec2(row_start.x + badge_diameter + 12.0f * scale, row_start.y));
+            ImGui::SetCursorScreenPos(ImVec2(row_start.x + badge_diameter + 12.0f * scale.x, row_start.y));
             ImGui::BeginGroup();
             ImGui::PushFont(winInit.getFont(181));
             ImGui::PushStyleColor(ImGuiCol_Text, has_error || has_warning ? status_color : Color::white_black(theme));
@@ -1018,10 +1018,10 @@ void PlannerPanel::DrawTaskList(float scale, bool theme, float window_height)
                 row_start, ImVec2(row_start.x + content_w, row_start.y + row_height));
             if (is_selected) {
                 draw_list->AddRectFilled(row_start, ImVec2(row_start.x + content_w, row_start.y + row_height),
-                                         IM_COL32(255, 130, 30, 35), 6.0f * scale);
+                                         IM_COL32(255, 130, 30, 35), 6.0f * scale.uniform());
             } else if (content_hovered) {
                 draw_list->AddRectFilled(row_start, ImVec2(row_start.x + content_w, row_start.y + row_height),
-                                         IM_COL32(255, 255, 255, 15), 6.0f * scale);
+                                         IM_COL32(255, 255, 255, 15), 6.0f * scale.uniform());
             }
             if (content_hovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
                 if (ImGui::GetIO().KeyCtrl) {
@@ -1058,12 +1058,12 @@ void PlannerPanel::DrawTaskList(float scale, bool theme, float window_height)
 
             // Dummy() reserves the row's space -- a manual SetCursorScreenPos alone doesn't extend the content region.
             ImGui::SetCursorScreenPos(row_start);
-            ImGui::Dummy(ImVec2(row_width, row_height + 10.0f * scale));
+            ImGui::Dummy(ImVec2(row_width, row_height + 10.0f * scale.y));
 
             // spec re-checked here too -- SelectTask() (a map-marker click) can bypass the click-site gate above.
             if (expanded_task_index_ == static_cast<int>(i) && spec) {
                 ImGui::PushID(static_cast<int>(i));
-                ImGui::Indent(badge_diameter + 12.0f * scale);
+                ImGui::Indent(badge_diameter + 12.0f * scale.x);
                 ImGui::PushStyleColor(ImGuiCol_Text, Color::white_black(theme));
                 ImGui::PushStyleColor(ImGuiCol_FrameBg, Color::panelBorder(theme));
                 ImGui::PushStyleColor(ImGuiCol_FrameBgHovered, Color::panelBorder(theme));
@@ -1076,7 +1076,7 @@ void PlannerPanel::DrawTaskList(float scale, bool theme, float window_height)
                     });
 
                 ImGui::PopStyleColor(5);
-                ImGui::Unindent(badge_diameter + 12.0f * scale);
+                ImGui::Unindent(badge_diameter + 12.0f * scale.x);
                 ImGui::Spacing();
                 ImGui::PopID();
             }
@@ -1132,11 +1132,11 @@ void PlannerPanel::DrawTaskList(float scale, bool theme, float window_height)
     ImGui::PopStyleColor();
 
     // Centered in the space left below the divider, rather than hugging its top.
-    const float button_h = ImGui::GetFontSize() + 20.0f * scale;  // matches the FramePadding pushed below
+    const float button_h = ImGui::GetFontSize() + 20.0f * scale.y;  // matches the FramePadding pushed below
     const float band_remaining = ImGui::GetContentRegionAvail().y;
     ImGui::SetCursorPosY(ImGui::GetCursorPosY() + std::max(0.0f, (band_remaining - button_h) * 0.5f));
 
-    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(16.0f * scale, 10.0f * scale));
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(16.0f * scale.x, 10.0f * scale.y));
 
     // --- Upload: publish the plan, track the vehicle's validation of it --
     {
@@ -1193,15 +1193,15 @@ void PlannerPanel::DrawTaskList(float scale, bool theme, float window_height)
                 // Dim dash rather than an empty box -- reads as "nothing yet", not a glitch.
                 footer_draw_list->AddLine(ImVec2(icon_center.x - icon_size * 0.3f, icon_center.y),
                                           ImVec2(icon_center.x + icon_size * 0.3f, icon_center.y),
-                                          Color::dwhite_lblack(theme), 2.5f * scale);
+                                          Color::dwhite_lblack(theme), 2.5f * scale.uniform());
                 tooltip_header = "Not uploaded yet";
                 break;
             case UploadStatus::Uploading:
-                footer_draw_list->AddCircle(icon_center, icon_size * 0.5f, IM_COL32(245, 200, 76, 255), 0, 2.0f * scale);
+                footer_draw_list->AddCircle(icon_center, icon_size * 0.5f, IM_COL32(245, 200, 76, 255), 0, 2.0f * scale.uniform());
                 tooltip_header = "Uploading -- waiting for vehicle...";
                 break;
             case UploadStatus::TimedOut:
-                DrawCross(footer_draw_list, icon_center, icon_size, IM_COL32(255, 92, 92, 255), 2.5f * scale);
+                DrawCross(footer_draw_list, icon_center, icon_size, IM_COL32(255, 92, 92, 255), 2.5f * scale.uniform());
                 tooltip_header = "No response from vehicle -- click Upload to retry";
                 break;
             case UploadStatus::Validated: {
@@ -1211,13 +1211,13 @@ void PlannerPanel::DrawTaskList(float scale, bool theme, float window_height)
                     if (issue.severity == Severity::Error) { ++up_errors; } else { ++up_warnings; }
                 }
                 if (up_errors > 0) {
-                    DrawCross(footer_draw_list, icon_center, icon_size, IM_COL32(255, 92, 92, 255), 2.5f * scale);
+                    DrawCross(footer_draw_list, icon_center, icon_size, IM_COL32(255, 92, 92, 255), 2.5f * scale.uniform());
                     tooltip_header = std::to_string(up_errors) + (up_errors == 1 ? " error" : " errors") + " on vehicle";
                 } else if (up_warnings > 0) {
-                    DrawCheckmark(footer_draw_list, icon_center, icon_size, IM_COL32(245, 200, 76, 255), 2.5f * scale);
+                    DrawCheckmark(footer_draw_list, icon_center, icon_size, IM_COL32(245, 200, 76, 255), 2.5f * scale.uniform());
                     tooltip_header = std::to_string(up_warnings) + (up_warnings == 1 ? " warning" : " warnings") + " on vehicle";
                 } else {
-                    DrawCheckmark(footer_draw_list, icon_center, icon_size, IM_COL32(100, 220, 100, 255), 2.5f * scale);
+                    DrawCheckmark(footer_draw_list, icon_center, icon_size, IM_COL32(100, 220, 100, 255), 2.5f * scale.uniform());
                     tooltip_header = "Validated on vehicle -- no issues";
                 }
                 break;

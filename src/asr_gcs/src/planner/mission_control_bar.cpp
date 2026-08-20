@@ -47,14 +47,14 @@ void DrawCross(ImDrawList *draw_list, ImVec2 center, float size, ImU32 color, fl
 
 } // namespace
 
-float MissionControlBar::PanelTopY(float scale, float map_y, float map_h) const
+float MissionControlBar::PanelTopY(const UiScale& scale, float map_y, float map_h) const
 {
-    const float bar_h = ImGui::GetFontSize() + 20.0f * scale;
-    const float panel_h = bar_h + 16.0f * scale;
-    return map_y + map_h - panel_h - 20.0f * scale;
+    const float bar_h = ImGui::GetFontSize() + 20.0f * scale.y;
+    const float panel_h = bar_h + 16.0f * scale.y;
+    return map_y + map_h - panel_h - 20.0f * scale.y;
 }
 
-float MissionControlBar::Draw(Planner &planner, float scale, bool theme,
+float MissionControlBar::Draw(Planner &planner, const UiScale& scale, bool theme,
                                float map_x, float map_y, float map_w, float map_h,
                                const std::function<void(std::function<void()>)> &guard_execute)
 {
@@ -75,7 +75,7 @@ float MissionControlBar::Draw(Planner &planner, float scale, bool theme,
     const bool can_abort = mission_status == MissionStatus::Running;
 
     // --- Sizing: total width from the actual label sizes, then center on the map --
-    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(16.0f * scale, 10.0f * scale));
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(16.0f * scale.x, 10.0f * scale.y));
     const float frame_pad_x = ImGui::GetStyle().FramePadding.x;
     const float item_spacing = ImGui::GetStyle().ItemSpacing.x;
     static const char *kLabels[] = {"Load", "Clear", "Upload", "Execute", "Abort"};
@@ -83,22 +83,22 @@ float MissionControlBar::Draw(Planner &planner, float scale, bool theme,
     for (const char *label : kLabels) {
         content_w += ImGui::CalcTextSize(label).x + frame_pad_x * 2.0f;
     }
-    const float bar_h = ImGui::GetFontSize() + 20.0f * scale;
-    const float separator_w = 8.0f * scale;
+    const float bar_h = ImGui::GetFontSize() + 20.0f * scale.y;
+    const float separator_w = 8.0f * scale.x;
     content_w += bar_h;          // result icon, next to Upload -- icon_span == bar_h (same GetFrameHeight())
     content_w += separator_w;    // divider between the plan-staging group and Execute/Abort
     content_w += item_spacing * 6.0f;  // 6 gaps: Load|Clear|Upload|icon|separator|Execute|Abort
-    const float panel_w = content_w + 16.0f * scale;
-    const float panel_h = bar_h + 16.0f * scale;
+    const float panel_w = content_w + 16.0f * scale.x;
+    const float panel_h = bar_h + 16.0f * scale.y;
     ImGui::PopStyleVar();
 
     const float panel_x = map_x + (map_w - panel_w) * 0.5f;
-    const float panel_y = map_y + map_h - panel_h - 20.0f * scale;
+    const float panel_y = map_y + map_h - panel_h - 20.0f * scale.y;
 
     BeginFixedPanel("MissionControlBar", ImVec2(panel_x, panel_y), ImVec2(panel_w, panel_h),
                      scale, theme, 0, ImVec2(8, 8));
 
-    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(16.0f * scale, 10.0f * scale));
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(16.0f * scale.x, 10.0f * scale.y));
 
     PushThemedButtonStyle(theme, false);
     if (ImGui::Button("Load")) {
@@ -167,15 +167,15 @@ float MissionControlBar::Draw(Planner &planner, float scale, bool theme,
                 // Dim dash rather than an empty box -- reads as "nothing yet", not a glitch.
                 bar_draw_list->AddLine(ImVec2(icon_center.x - icon_size * 0.3f, icon_center.y),
                                        ImVec2(icon_center.x + icon_size * 0.3f, icon_center.y),
-                                       Color::dwhite_lblack(theme), 2.5f * scale);
+                                       Color::dwhite_lblack(theme), 2.5f * scale.uniform());
                 tooltip_header = "Not uploaded yet";
                 break;
             case UploadStatus::Uploading:
-                bar_draw_list->AddCircle(icon_center, icon_size * 0.5f, IM_COL32(245, 200, 76, 255), 0, 2.0f * scale);
+                bar_draw_list->AddCircle(icon_center, icon_size * 0.5f, IM_COL32(245, 200, 76, 255), 0, 2.0f * scale.uniform());
                 tooltip_header = "Uploading -- waiting for vehicle...";
                 break;
             case UploadStatus::TimedOut:
-                DrawCross(bar_draw_list, icon_center, icon_size, IM_COL32(255, 92, 92, 255), 2.5f * scale);
+                DrawCross(bar_draw_list, icon_center, icon_size, IM_COL32(255, 92, 92, 255), 2.5f * scale.uniform());
                 tooltip_header = "No response from vehicle -- click Upload to retry";
                 break;
             case UploadStatus::Validated: {
@@ -185,13 +185,13 @@ float MissionControlBar::Draw(Planner &planner, float scale, bool theme,
                     if (issue.severity == Severity::Error) { ++up_errors; } else { ++up_warnings; }
                 }
                 if (up_errors > 0) {
-                    DrawCross(bar_draw_list, icon_center, icon_size, IM_COL32(255, 92, 92, 255), 2.5f * scale);
+                    DrawCross(bar_draw_list, icon_center, icon_size, IM_COL32(255, 92, 92, 255), 2.5f * scale.uniform());
                     tooltip_header = std::to_string(up_errors) + (up_errors == 1 ? " error" : " errors") + " on vehicle";
                 } else if (up_warnings > 0) {
-                    DrawCheckmark(bar_draw_list, icon_center, icon_size, IM_COL32(245, 200, 76, 255), 2.5f * scale);
+                    DrawCheckmark(bar_draw_list, icon_center, icon_size, IM_COL32(245, 200, 76, 255), 2.5f * scale.uniform());
                     tooltip_header = std::to_string(up_warnings) + (up_warnings == 1 ? " warning" : " warnings") + " on vehicle";
                 } else {
-                    DrawCheckmark(bar_draw_list, icon_center, icon_size, IM_COL32(100, 220, 100, 255), 2.5f * scale);
+                    DrawCheckmark(bar_draw_list, icon_center, icon_size, IM_COL32(100, 220, 100, 255), 2.5f * scale.uniform());
                     tooltip_header = "Validated on vehicle -- no issues";
                 }
                 break;
@@ -219,7 +219,7 @@ float MissionControlBar::Draw(Planner &planner, float scale, bool theme,
         const ImVec2 sep_max = ImGui::GetItemRectMax();
         const float sep_x = (sep_min.x + sep_max.x) * 0.5f;
         ImGui::GetWindowDrawList()->AddLine(ImVec2(sep_x, sep_min.y), ImVec2(sep_x, sep_max.y),
-                                            Color::panelBorder(theme), 1.5f * scale);
+                                            Color::panelBorder(theme), 1.5f * scale.uniform());
     }
     ImGui::SameLine();
 

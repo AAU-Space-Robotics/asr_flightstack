@@ -9,10 +9,11 @@
 #include "imgui_internal.h"
 #include <opencv2/opencv.hpp>
 
+#include <algorithm>
 #include <cmath>
 #include <unordered_map>
 #include <string>
-#include <list>  
+#include <list>
 #include <vector>
 
 #include "state_manager.h"
@@ -54,6 +55,12 @@ namespace windowVar {
     extern int display_h;
     extern ImVec4 BackgroundColor;
 }
+
+struct UiScale {
+    float x = 1.0f;
+    float y = 1.0f;
+    float uniform() const { return std::min(x, y); }
+};
 
 class WindowInitializer {
     public:
