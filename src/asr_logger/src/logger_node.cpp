@@ -101,6 +101,18 @@ LoggerNode::LoggerNode()
         "out/comms_health", qos,
         std::bind(&LoggerNode::onCommsHealth, this, _1));
 
+    // The origin defines the frame every position in this log is expressed in. Latched
+    // QoS so a log opened after the last publication still receives it.
+    auto origin_qos = rclcpp::QoS(1).transient_local();
+
+    origin_gps_sub_ = create_subscription<asr_comms::msg::TelemetryOriginGPS>(
+        "out/origin_gps", origin_qos,
+        std::bind(&LoggerNode::onOriginGps, this, _1));
+
+    origin_offset_sub_ = create_subscription<geometry_msgs::msg::PoseStamped>(
+        "out/origin_offset", origin_qos,
+        std::bind(&LoggerNode::onOriginOffset, this, _1));
+
     flush_timer_ = create_wall_timer(
         std::chrono::seconds(1),
         std::bind(&LoggerNode::onFlushTimer, this));
@@ -171,6 +183,11 @@ void LoggerNode::initWriter()
         {"float",   "rx_kbps"}, {"float", "gcs_msg_age_ms"},
         {"uint8_t", "gcs_connected"},
     };
+    const std::vector<F> origin_fields = {
+        {"uint64_t", "timestamp"},
+        {"double", "lat"}, {"double", "lon"}, {"double", "alt"},
+        {"float", "offset_x"}, {"float", "offset_y"}, {"float", "offset_z"},
+    };
 
     const std::string path = makeLogFilename(log_dir_);
 
@@ -186,6 +203,7 @@ void LoggerNode::initWriter()
     writer_->writeMessageFormat("trajectory_setpoint",  trajectory_setpoint_fields);
     writer_->writeMessageFormat("control_detail",       control_detail_fields);
     writer_->writeMessageFormat("comms_health",         comms_health_fields);
+    writer_->writeMessageFormat("origin",               origin_fields);
 
     writer_->headerComplete();
 
@@ -197,6 +215,13 @@ void LoggerNode::initWriter()
     id_trajectory_setpoint_  = writer_->writeAddLoggedMessage("trajectory_setpoint");
     id_control_detail_ = writer_->writeAddLoggedMessage("control_detail");
     id_comms_health_   = writer_->writeAddLoggedMessage("comms_health");
+    id_origin_         = writer_->writeAddLoggedMessage("origin");
+
+    // With the "armed" trigger the writer opens mid-flight, after the origin was last
+    // published. Re-emit what we already hold so every log starts with its frame defined.
+    if (have_origin_gps_ || have_origin_offset_) {
+        writer_->writeData(id_origin_, origin_);
+    }
 
     RCLCPP_INFO(get_logger(), "Writing to: %s", path.c_str());
 }
@@ -332,6 +357,36 @@ void LoggerNode::onControlDetail(const asr_comms::msg::ControlDetail& msg)
         .hover_thrust_estimate = msg.hover_thrust_estimate,
     };
     writer_->writeData(id_control_detail_, frame);
+}
+
+void LoggerNode::onOriginGps(const asr_comms::msg::TelemetryOriginGPS& msg)
+{
+    origin_.timestamp = toUs(msg.timestamp);
+    origin_.lat = msg.latitude;
+    origin_.lon = msg.longitude;
+    origin_.alt = msg.altitude;
+    have_origin_gps_ = true;
+    writeOrigin();
+}
+
+void LoggerNode::onOriginOffset(const geometry_msgs::msg::PoseStamped& msg)
+{
+    origin_.timestamp = static_cast<uint64_t>(
+        rclcpp::Time(msg.header.stamp).nanoseconds() / 1000);
+    origin_.offset_x = static_cast<float>(msg.pose.position.x);
+    origin_.offset_y = static_cast<float>(msg.pose.position.y);
+    origin_.offset_z = static_cast<float>(msg.pose.position.z);
+    have_origin_offset_ = true;
+    writeOrigin();
+}
+
+// Only written once both halves are known, so a record never claims a frame it only
+// half describes. Both publishers repeat on a timer, so the wait is bounded.
+void LoggerNode::writeOrigin()
+{
+    if (!writer_) return;
+    if (!have_origin_gps_ || !have_origin_offset_) return;
+    writer_->writeData(id_origin_, origin_);
 }
 
 void LoggerNode::onFlushTimer()

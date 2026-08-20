@@ -14,6 +14,7 @@
 #include "planner/mission_control_bar.h"
 #include "planner/height_chart.h"
 #include "prearm_checklist.h"
+#include "analyze/analyze_panel.h"
 #include <implot.h>
 
 
@@ -539,6 +540,7 @@ int main(int argc, char **argv) {
     PlannerPanel planner_panel(planner);
     MissionControlBar mission_control_bar;
     PreArmChecklist prearm_checklist;
+    analyze::AnalyzePanel analyze_panel;
     bool arming_state = false;
     const bool require_checklist = ground_control->requireChecklist();
     const double min_battery_percent = ground_control->minBatteryPercent();
@@ -649,6 +651,7 @@ int main(int argc, char **argv) {
         {"send",        "send.png"},
         {"goto",        "goto.png"},
         {"goto_white",   "goto_white.png"},
+        {"analyze",      "problem-solving.png"},
         {"camera",          "camera.png"},
         {"camera_white",          "camera_white.png"}
     };
@@ -874,6 +877,22 @@ int main(int argc, char **argv) {
           // ground_control->addLogLine(LogLevel::ERROR,"Howdi");
            panel = 2;
 
+        }
+
+        GLuint Analyze_Icon = images.at("analyze");  // no light-theme variant yet -- same icon either way
+
+        if (panel == 3) {
+            ImVec2 highlight_center = ImVec2(30 * scale, 280 * scale);
+            float highlight_size = (26 + 2) * scale;
+            draw_list->AddRectFilled(
+                ImVec2(highlight_center.x - highlight_size, highlight_center.y - highlight_size),
+                ImVec2(highlight_center.x + highlight_size, highlight_center.y + highlight_size),
+                IM_COL32(255, 130, 30, 255),
+                12.0f
+            );
+        }
+        if (widgets.CustomButton(draw_list, ImVec2(30 * scale, 280 * scale),"Analyze",scale, Analyze_Icon, theme, 0, 2)) {
+            panel = 3;
         }
 
 
@@ -1245,6 +1264,12 @@ int main(int argc, char **argv) {
             //data_test = FetchWeather(Info.gps_status.latitude, Info.gps_status.longitude);
             //cout << data_test.temperature << " Cloud Cover: " << data_test.cloud_cover << " Windspeed: " << data_test.wind_speed_level << endl;
             
+        }
+        break;
+        case 3:
+        {
+            analyze_panel.Draw(scale, theme, static_cast<float>(x_sc), static_cast<float>(y_sc),
+                               location, map_zoom, placeholderTile);
         }
         break;
         default:

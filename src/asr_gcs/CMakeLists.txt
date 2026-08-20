@@ -41,6 +41,7 @@ find_package(OpenCV REQUIRED)
 find_package(ament_index_cpp REQUIRED)
 find_package(asr_autopilot REQUIRED)
 find_package(asr_mission REQUIRED)
+find_package(asr_logger REQUIRED)   # vendored ulog_cpp, for reading .ulg in the Analyze tab
 find_package(px4_msgs REQUIRED)
 find_package(CURL REQUIRED)
 
@@ -131,6 +132,8 @@ add_executable(interface
   src/planner/save_load_dialog.cpp
   src/planner/height_chart.cpp
   src/planner/mission_control_bar.cpp
+  src/analyze/ulog_data.cpp
+  src/analyze/analyze_panel.cpp
   ${imgui_SOURCE_DIR}/imgui.cpp
   ${imgui_SOURCE_DIR}/imgui_demo.cpp
   ${imgui_SOURCE_DIR}/imgui_draw.cpp
@@ -162,7 +165,8 @@ target_link_libraries(interface
   ${OpenCV_LIBS}
   asr_autopilot::asr_autopilot_core
   asr_mission::asr_mission_lib
-  CURL::libcurl 
+  asr_logger::ulog_cpp
+  CURL::libcurl
 
 )
 target_include_directories(interface

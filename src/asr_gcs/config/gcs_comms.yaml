@@ -20,7 +20,7 @@
 
 /asr/gcs/asr_logger_gcs:
   ros__parameters:
-    log_dir: "~/gcs_logs"        # one gcs_YYYYMMDD_HHMMSS.ulg per GCS session
+    log_dir: "~/asr_workspace/flight_logs/gcs"        # one gcs_YYYYMMDD_HHMMSS.ulg per GCS session
     sys_name: "asr_gcs"
 
 /asr/gcs/rtcm_reader:

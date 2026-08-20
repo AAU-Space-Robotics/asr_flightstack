@@ -83,7 +83,7 @@
     # Flight logging (ulog)
     log_mode: general        # general | control_inspection
     log_trigger: always      # always | armed — sim logs everything for easy debugging
-    log_dir: ~/flight_logs
+    log_dir: ~/asr_workspace/flight_logs/uav
 
     # Setup Parameters
     setup:
