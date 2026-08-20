@@ -883,8 +883,8 @@ int main(int argc, char **argv) {
         GLuint Analyze_Icon = images.at("analyze");  // no light-theme variant yet -- same icon either way
 
         if (panel == 3) {
-            ImVec2 highlight_center = ImVec2(30 * scale, 280 * scale);
-            float highlight_size = (26 + 2) * scale;
+            ImVec2 highlight_center = ImVec2(30 * scale.x, 280 * scale.y);
+            float highlight_size = (26 + 2) * scale.uniform();
             draw_list->AddRectFilled(
                 ImVec2(highlight_center.x - highlight_size, highlight_center.y - highlight_size),
                 ImVec2(highlight_center.x + highlight_size, highlight_center.y + highlight_size),
@@ -892,7 +892,7 @@ int main(int argc, char **argv) {
                 12.0f
             );
         }
-        if (widgets.CustomButton(draw_list, ImVec2(30 * scale, 280 * scale),"Analyze",scale, Analyze_Icon, theme, 0, 2)) {
+        if (widgets.CustomButton(draw_list, ImVec2(30 * scale.x, 280 * scale.y),"Analyze",scale, Analyze_Icon, theme, 0, 2)) {
             panel = 3;
         }
 

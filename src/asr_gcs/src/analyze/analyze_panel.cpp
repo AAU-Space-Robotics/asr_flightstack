@@ -80,7 +80,7 @@ void PushPlotTheme(bool theme)
 
 void PopPlotTheme() { ImPlot::PopStyleColor(8); }
 
-void PushPanelStyle(bool theme, float scale)
+void PushPanelStyle(bool theme, const UiScale& scale)
 {
     const ImVec4 surface = ImGui::ColorConvertU32ToFloat4(Color::dBlue_lGrey(theme));
     const ImVec4 border = ImGui::ColorConvertU32ToFloat4(Color::panelBorder(theme));
@@ -97,13 +97,13 @@ void PushPanelStyle(bool theme, float scale)
     ImVec4 sel_hover = accent;
     sel_hover.w = 0.48f;
 
-    ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 6.0f * scale);
+    ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 6.0f * scale.uniform());
     ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 1.0f);
-    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(7 * scale, 3 * scale));
-    ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(6 * scale, 5 * scale));
-    ImGui::PushStyleVar(ImGuiStyleVar_GrabRounding, 6.0f * scale);
-    ImGui::PushStyleVar(ImGuiStyleVar_ScrollbarRounding, 6.0f * scale);
-    ImGui::PushStyleVar(ImGuiStyleVar_PopupRounding, 8.0f * scale);
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(7 * scale.x, 3 * scale.y));
+    ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(6 * scale.x, 5 * scale.y));
+    ImGui::PushStyleVar(ImGuiStyleVar_GrabRounding, 6.0f * scale.uniform());
+    ImGui::PushStyleVar(ImGuiStyleVar_ScrollbarRounding, 6.0f * scale.uniform());
+    ImGui::PushStyleVar(ImGuiStyleVar_PopupRounding, 8.0f * scale.uniform());
 
     ImGui::PushStyleColor(ImGuiCol_Text, text);
     ImGui::PushStyleColor(ImGuiCol_TextDisabled, HintColor(theme));
@@ -318,7 +318,7 @@ void AnalyzePanel::RemoveSeries(size_t plot_index)
 
 // ---------------------------------------------------------------------------
 
-void AnalyzePanel::DrawBrowser(float scale, bool theme, ImVec2 pos, ImVec2 size)
+void AnalyzePanel::DrawBrowser(const UiScale& scale, bool theme, ImVec2 pos, ImVec2 size)
 {
     BeginFixedPanel("AnalyzeBrowser", pos, size, scale, theme, 0, ImVec2(10, 8), true);
     PushPanelStyle(theme, scale);
@@ -329,7 +329,7 @@ void AnalyzePanel::DrawBrowser(float scale, bool theme, ImVec2 pos, ImVec2 size)
 
     char buf[512];
     std::snprintf(buf, sizeof(buf), "%s", browser_path_.c_str());
-    ImGui::SetNextItemWidth(size.x - 90 * scale);
+    ImGui::SetNextItemWidth(size.x - 90 * scale.x);
     if (ImGui::InputText("##analyze_path", buf, sizeof(buf),
                           ImGuiInputTextFlags_EnterReturnsTrue)) {
         browser_path_ = buf;
@@ -368,7 +368,7 @@ void AnalyzePanel::DrawBrowser(float scale, bool theme, ImVec2 pos, ImVec2 size)
 
             ImGui::TextColored(BadgeColor(entry.source, theme), "%-3s",
                                 SourceName(entry.source));
-            ImGui::SameLine(0, 6 * scale);
+            ImGui::SameLine(0, 6 * scale.x);
 
             char label[256];
             std::snprintf(label, sizeof(label), "%s  %.0fs##%s",
@@ -403,7 +403,7 @@ void AnalyzePanel::DrawBrowser(float scale, bool theme, ImVec2 pos, ImVec2 size)
     EndFixedPanel();
 }
 
-void AnalyzePanel::DrawLoadedList(float scale, bool theme, ImVec2 pos, ImVec2 size)
+void AnalyzePanel::DrawLoadedList(const UiScale& scale, bool theme, ImVec2 pos, ImVec2 size)
 {
     BeginFixedPanel("AnalyzeLoaded", pos, size, scale, theme, 0, ImVec2(10, 8), true);
     PushPanelStyle(theme, scale);
@@ -419,7 +419,7 @@ void AnalyzePanel::DrawLoadedList(float scale, bool theme, ImVec2 pos, ImVec2 si
 
         ImGui::ColorButton("##color", PaletteColor(f.color_index, theme),
                             ImGuiColorEditFlags_NoTooltip | ImGuiColorEditFlags_NoPicker,
-                            ImVec2(12 * scale, 12 * scale));
+                            ImVec2(12 * scale.uniform(), 12 * scale.uniform()));
         ImGui::SameLine();
 
         bool selected = (selected_file_ == static_cast<int>(i));
@@ -441,7 +441,7 @@ void AnalyzePanel::DrawLoadedList(float scale, bool theme, ImVec2 pos, ImVec2 si
             ImGui::EndTooltip();
         }
 
-        ImGui::Indent(18 * scale);
+        ImGui::Indent(18 * scale.x);
         if (f.log->track().valid()) {
             ImGui::Checkbox("track", &f.show_track);
         } else {
@@ -486,7 +486,7 @@ void AnalyzePanel::DrawLoadedList(float scale, bool theme, ImVec2 pos, ImVec2 si
                 ImGui::TextColored(GoodColor(theme), "%s", f.align_note.c_str());
             }
         }
-        ImGui::Unindent(18 * scale);
+        ImGui::Unindent(18 * scale.x);
 
         for (const auto &w : f.log->warnings()) {
             ImGui::PushStyleColor(ImGuiCol_Text, WarnColor(theme));
@@ -520,7 +520,7 @@ void AnalyzePanel::DrawLoadedList(float scale, bool theme, ImVec2 pos, ImVec2 si
     EndFixedPanel();
 }
 
-void AnalyzePanel::DrawFieldTree(float scale, bool theme, ImVec2 pos, ImVec2 size)
+void AnalyzePanel::DrawFieldTree(const UiScale& scale, bool theme, ImVec2 pos, ImVec2 size)
 {
     BeginFixedPanel("AnalyzeFields", pos, size, scale, theme, 0, ImVec2(10, 8), true);
     PushPanelStyle(theme, scale);
@@ -608,7 +608,7 @@ void AnalyzePanel::DrawFieldTree(float scale, bool theme, ImVec2 pos, ImVec2 siz
     EndFixedPanel();
 }
 
-void AnalyzePanel::DrawPlots(float scale, bool theme, ImVec2 pos, ImVec2 size)
+void AnalyzePanel::DrawPlots(const UiScale& scale, bool theme, ImVec2 pos, ImVec2 size)
 {
     BeginFixedPanel("AnalyzePlots", pos, size, scale, theme, 0, ImVec2(6, 6));
 
@@ -636,7 +636,7 @@ void AnalyzePanel::DrawPlots(float scale, bool theme, ImVec2 pos, ImVec2 size)
                            "Uncheck to zoom and pan Y by hand.");
     }
     if (plotted_.empty()) {
-        ImGui::SameLine(0, 12 * scale);
+        ImGui::SameLine(0, 12 * scale.x);
         ImGui::TextColored(HintColor(theme), "click or drag a field onto a plot");
     }
     ImGui::PopFont();
@@ -644,11 +644,11 @@ void AnalyzePanel::DrawPlots(float scale, bool theme, ImVec2 pos, ImVec2 size)
     PushPlotTheme(theme);
 
     const float toolbar_h = ImGui::GetCursorPosY();
-    const float avail_h = size.y - toolbar_h - 12 * scale;
-    const float header_h = 20 * scale;
-    const float min_plot_h = 150 * scale;
+    const float avail_h = size.y - toolbar_h - 12 * scale.y;
+    const float header_h = 20 * scale.y;
+    const float min_plot_h = 150 * scale.y;
     const float plot_h =
-        std::max(min_plot_h, avail_h / std::max(1, pane_count_) - header_h - 4 * scale);
+        std::max(min_plot_h, avail_h / std::max(1, pane_count_) - header_h - 4 * scale.y);
 
     ImGui::BeginChild("##analyze_panes", ImVec2(0, 0), false);
 
@@ -692,7 +692,7 @@ void AnalyzePanel::DrawPlots(float scale, bool theme, ImVec2 pos, ImVec2 size)
             ImGui::PopID();
         }
         if (pane_count_ > 1) {
-            ImGui::SameLine(0, 14 * scale);
+            ImGui::SameLine(0, 14 * scale.x);
             if (ImGui::Button("Remove")) pane_to_remove = pane;
             if (ImGui::IsItemHovered()) ImGui::SetTooltip("remove this plot and its fields");
         }
@@ -720,7 +720,7 @@ void AnalyzePanel::DrawPlots(float scale, bool theme, ImVec2 pos, ImVec2 size)
                               p.field.c_str(), files_[p.file_index].log->name().c_str());
                 ImPlotSpec spec;
                 spec.LineColor = PaletteColor(p.color_index, theme);
-                spec.LineWeight = 1.6f * scale;
+                spec.LineWeight = 1.6f * scale.uniform();
                 ImPlot::PlotLine(label, s->t.data(), s->v.data(),
                                  static_cast<int>(s->t.size()), spec);
             }
@@ -728,7 +728,7 @@ void AnalyzePanel::DrawPlots(float scale, bool theme, ImVec2 pos, ImVec2 size)
             
             if (cursor_valid_) {
                 ImPlot::DragLineX(pane, &cursor_t_, AccentColor(theme),
-                                   1.5f * scale);
+                                   1.5f * scale.uniform());
             }
 
             if (ImPlot::BeginDragDropTargetPlot()) {
@@ -755,7 +755,7 @@ void AnalyzePanel::DrawPlots(float scale, bool theme, ImVec2 pos, ImVec2 size)
     EndFixedPanel();
 }
 
-void AnalyzePanel::DrawMap(float scale, bool theme, ImVec2 pos, ImVec2 size,
+void AnalyzePanel::DrawMap(const UiScale& scale, bool theme, ImVec2 pos, ImVec2 size,
                             Location &location, int &map_zoom, unsigned int placeholder_tile)
 {
     // Centre on the midpoint of the first visible track.
@@ -781,7 +781,7 @@ void AnalyzePanel::DrawMap(float scale, bool theme, ImVec2 pos, ImVec2 size,
                                 "open the matching flight controller log",
                                 "to see the path."};
         for (int i = 0; i < 4; ++i) {
-            dl->AddText(ImVec2(origin.x + 16 * scale, origin.y + (16 + i * 18) * scale),
+            dl->AddText(ImVec2(origin.x + 16 * scale.x, origin.y + (16 + i * 18) * scale.y),
                         ImGui::ColorConvertFloat4ToU32(HintColor(theme)), lines[i]);
         }
         ImGui::PopFont();
@@ -800,7 +800,7 @@ void AnalyzePanel::DrawMap(float scale, bool theme, ImVec2 pos, ImVec2 size,
         dl->PushClipRect(clip_min, clip_max, true);
 
         const ImVec2 origin = ImGui::GetWindowPos();
-        float note_y = size.y - 22 * scale;
+        float note_y = size.y - 22 * scale.y;
 
         for (const auto &f : files_) {
             if (!f.show_track || !f.log->track().valid()) continue;
@@ -822,7 +822,7 @@ void AnalyzePanel::DrawMap(float scale, bool theme, ImVec2 pos, ImVec2 size,
             for (size_t i = 1; i < tr.lat.size(); ++i) {
                 const ImVec2 cur = project(i);
                 const bool past = !in_span || tr.t[i] <= cursor_t_;
-                dl->AddLine(prev, cur, past ? col : faded, 2.0f * scale);
+                dl->AddLine(prev, cur, past ? col : faded, 2.0f * scale.uniform());
                 prev = cur;
             }
 
@@ -831,17 +831,17 @@ void AnalyzePanel::DrawMap(float scale, bool theme, ImVec2 pos, ImVec2 size,
                 const ImVec2 at =
                     location.latLonToScreenPos(lat, lon, center_lat, center_lon, map_pos,
                                                 size.x, size.y, scale, map_zoom);
-                const float r = 9.0f * scale;
+                const float r = 9.0f * scale.uniform();
                 dl->AddLine(ImVec2(at.x - r * 1.9f, at.y), ImVec2(at.x - r * 0.6f, at.y),
-                            IM_COL32(255, 255, 255, 220), 1.5f * scale);
+                            IM_COL32(255, 255, 255, 220), 1.5f * scale.uniform());
                 dl->AddLine(ImVec2(at.x + r * 0.6f, at.y), ImVec2(at.x + r * 1.9f, at.y),
-                            IM_COL32(255, 255, 255, 220), 1.5f * scale);
+                            IM_COL32(255, 255, 255, 220), 1.5f * scale.uniform());
                 dl->AddLine(ImVec2(at.x, at.y - r * 1.9f), ImVec2(at.x, at.y - r * 0.6f),
-                            IM_COL32(255, 255, 255, 220), 1.5f * scale);
+                            IM_COL32(255, 255, 255, 220), 1.5f * scale.uniform());
                 dl->AddLine(ImVec2(at.x, at.y + r * 0.6f), ImVec2(at.x, at.y + r * 1.9f),
-                            IM_COL32(255, 255, 255, 220), 1.5f * scale);
+                            IM_COL32(255, 255, 255, 220), 1.5f * scale.uniform());
                 dl->AddCircleFilled(at, r * 0.55f, col);
-                dl->AddCircle(at, r, IM_COL32(255, 255, 255, 230), 16, 1.8f * scale);
+                dl->AddCircle(at, r, IM_COL32(255, 255, 255, 230), 16, 1.8f * scale.uniform());
             } else if (cursor_valid_) {
                 const double gap = cursor_t_ < tr.t.front() ? tr.t.front() - cursor_t_
                                                              : cursor_t_ - tr.t.back();
@@ -850,10 +850,10 @@ void AnalyzePanel::DrawMap(float scale, bool theme, ImVec2 pos, ImVec2 size,
                               f.log->name().c_str(), gap,
                               cursor_t_ < tr.t.front() ? "before" : "after");
                 ImGui::PushFont(winInit.getFont(14));
-                dl->AddText(ImVec2(origin.x + 12 * scale, origin.y + note_y),
+                dl->AddText(ImVec2(origin.x + 12 * scale.x, origin.y + note_y),
                             ImGui::ColorConvertFloat4ToU32(WarnColor(theme)), note);
                 ImGui::PopFont();
-                note_y -= 18 * scale;
+                note_y -= 18 * scale.y;
             }
         }
         dl->PopClipRect();
@@ -896,7 +896,7 @@ bool AnalyzePanel::BuildXySamples(const XyCurve &curve, std::vector<double> &xs,
     return xs.size() > 1;
 }
 
-void AnalyzePanel::DrawXyPlot(float scale, bool theme, ImVec2 pos, ImVec2 size)
+void AnalyzePanel::DrawXyPlot(const UiScale& scale, bool theme, ImVec2 pos, ImVec2 size)
 {
     BeginFixedPanel("AnalyzeXy", pos, size, scale, theme, 0, ImVec2(8, 6), true);
     ImGui::PushFont(winInit.getFont(14));
@@ -987,7 +987,7 @@ void AnalyzePanel::DrawXyPlot(float scale, bool theme, ImVec2 pos, ImVec2 size)
                           curve.y.field.c_str());
             ImPlotSpec spec;
             spec.LineColor = PaletteColor(curve.color_index, theme);
-            spec.LineWeight = 1.6f * scale;
+            spec.LineWeight = 1.6f * scale.uniform();
             ImPlot::PlotLine(label, xs.data(), ys.data(), static_cast<int>(xs.size()), spec);
 
             if (cursor_valid_ && cursor_t_ >= ts.front() && cursor_t_ <= ts.back()) {
@@ -996,9 +996,9 @@ void AnalyzePanel::DrawXyPlot(float scale, bool theme, ImVec2 pos, ImVec2 size)
                 const ImVec2 px = ImPlot::PlotToPixels(xs[k], ys[k]);
                 ImDrawList *dl = ImPlot::GetPlotDrawList();
                 ImPlot::PushPlotClipRect();
-                dl->AddCircleFilled(px, 4.5f * scale,
+                dl->AddCircleFilled(px, 4.5f * scale.uniform(),
                                      ImGui::ColorConvertFloat4ToU32(PaletteColor(curve.color_index, theme)));
-                dl->AddCircle(px, 6.5f * scale, IM_COL32(255, 255, 255, 230), 16, 1.6f * scale);
+                dl->AddCircle(px, 6.5f * scale.uniform(), IM_COL32(255, 255, 255, 230), 16, 1.6f * scale.uniform());
                 ImPlot::PopPlotClipRect();
             }
         }
@@ -1010,7 +1010,7 @@ void AnalyzePanel::DrawXyPlot(float scale, bool theme, ImVec2 pos, ImVec2 size)
     EndFixedPanel();
 }
 
-void AnalyzePanel::DrawCursorReadout(float scale, bool theme, ImVec2 pos, ImVec2 size)
+void AnalyzePanel::DrawCursorReadout(const UiScale& scale, bool theme, ImVec2 pos, ImVec2 size)
 {
     BeginFixedPanel("AnalyzeCursor", pos, size, scale, theme, 0, ImVec2(10, 8), true);
     PushPanelStyle(theme, scale);
@@ -1036,8 +1036,8 @@ void AnalyzePanel::DrawCursorReadout(float scale, bool theme, ImVec2 pos, ImVec2
             if (!TrackPosAt(f.log->track(), cursor_t_, lat, lon)) continue;
             ImGui::ColorButton("##t", PaletteColor(f.color_index, theme),
                                 ImGuiColorEditFlags_NoTooltip | ImGuiColorEditFlags_NoPicker,
-                                ImVec2(10 * scale, 10 * scale));
-            ImGui::SameLine(0, 6 * scale);
+                                ImVec2(10 * scale.uniform(), 10 * scale.uniform()));
+            ImGui::SameLine(0, 6 * scale.x);
             ImGui::Text("%.7f, %.7f", lat, lon);
         }
         ImGui::Separator();
@@ -1048,8 +1048,8 @@ void AnalyzePanel::DrawCursorReadout(float scale, bool theme, ImVec2 pos, ImVec2
             double v;
             ImGui::ColorButton("##c", PaletteColor(p.color_index, theme),
                                 ImGuiColorEditFlags_NoTooltip | ImGuiColorEditFlags_NoPicker,
-                                ImVec2(10 * scale, 10 * scale));
-            ImGui::SameLine(0, 6 * scale);
+                                ImVec2(10 * scale.uniform(), 10 * scale.uniform()));
+            ImGui::SameLine(0, 6 * scale.x);
             if (SampleAt(*s, cursor_t_, v)) {
                 ImGui::Text("%s.%s = %.4g", p.topic.c_str(), p.field.c_str(), v);
             } else {
@@ -1069,39 +1069,40 @@ void AnalyzePanel::DrawCursorReadout(float scale, bool theme, ImVec2 pos, ImVec2
 
 // ---------------------------------------------------------------------------
 
-void AnalyzePanel::Draw(float scale, bool theme, float display_w, float display_h,
+void AnalyzePanel::Draw(const UiScale& scale, bool theme, float display_w, float display_h,
                          Location &location, int &map_zoom, unsigned int placeholder_tile)
 {
-    const float top_y = 70 * scale;
-    const float margin = 10 * scale;
-    const float content_h = std::max(200 * scale, display_h - top_y - 3 * margin);
+    const float top_y = 70 * scale.y;
+    const float margin_x = 10 * scale.x;
+    const float margin_y = 10 * scale.y;
+    const float content_h = std::max(200 * scale.y, display_h - top_y - 3 * margin_y);
 
-    const float left_x = 70 * scale;
-    const float left_w = 400 * scale;
+    const float left_x = 70 * scale.x;
+    const float left_w = 400 * scale.x;
     // The tree is the panel that actually needs room; the other two are mostly chrome.
     const float browser_h = content_h * 0.30f;
     const float loaded_h = content_h * 0.20f;
-    const float fields_h = content_h - browser_h - loaded_h - 2 * margin;
+    const float fields_h = content_h - browser_h - loaded_h - 2 * margin_y;
 
 
     if (!scanned_once_) Rescan();
 
     DrawBrowser(scale, theme, ImVec2(left_x, top_y), ImVec2(left_w, browser_h));
-    DrawLoadedList(scale, theme, ImVec2(left_x, top_y + browser_h + margin),
+    DrawLoadedList(scale, theme, ImVec2(left_x, top_y + browser_h + margin_y),
                    ImVec2(left_w, loaded_h));
-    DrawFieldTree(scale, theme, ImVec2(left_x, top_y + browser_h + loaded_h + 2 * margin),
+    DrawFieldTree(scale, theme, ImVec2(left_x, top_y + browser_h + loaded_h + 2 * margin_y),
                   ImVec2(left_w, fields_h));
 
-    const float right_x = left_x + left_w + margin;
-    const float right_w = std::max(400 * scale, display_w - right_x - margin);
-    const float map_w = std::min(520 * scale, right_w * 0.36f);
-    const float plot_w = right_w - map_w - margin;
+    const float right_x = left_x + left_w + margin_x;
+    const float right_w = std::max(400 * scale.x, display_w - right_x - margin_x);
+    const float map_w = std::min(520 * scale.x, right_w * 0.36f);
+    const float plot_w = right_w - map_w - margin_x;
 
     DrawPlots(scale, theme, ImVec2(right_x, top_y), ImVec2(plot_w, content_h));
 
-    const float map_x = right_x + plot_w + margin;
-    const float tab_h = 26 * scale;
-    const float map_h = content_h * 0.62f - tab_h - 4 * scale;
+    const float map_x = right_x + plot_w + margin_x;
+    const float tab_h = 26 * scale.y;
+    const float map_h = content_h * 0.62f - tab_h - 4 * scale.y;
 
     ImGui::SetCursorPos(ImVec2(map_x, top_y));
     ImGui::PushFont(winInit.getFont(14));
@@ -1128,8 +1129,8 @@ void AnalyzePanel::Draw(float scale, bool theme, float display_w, float display_
     } else {
         DrawXyPlot(scale, theme, view_pos, view_size);
     }
-    DrawCursorReadout(scale, theme, ImVec2(map_x, view_pos.y + map_h + margin),
-                       ImVec2(map_w, content_h - tab_h - map_h - margin));
+    DrawCursorReadout(scale, theme, ImVec2(map_x, view_pos.y + map_h + margin_y),
+                       ImVec2(map_w, content_h - tab_h - map_h - margin_y));
 }
 
 }  // namespace analyze

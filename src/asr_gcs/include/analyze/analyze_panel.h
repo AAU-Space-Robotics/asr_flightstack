@@ -6,6 +6,7 @@
 
 #include <imgui.h>
 
+#include "app_window.h"
 #include "analyze/ulog_data.h"
 
 class Location;
@@ -17,7 +18,7 @@ class AnalyzePanel {
 public:
     AnalyzePanel();
 
-    void Draw(float scale, bool theme, float display_w, float display_h,
+    void Draw(const UiScale& scale, bool theme, float display_w, float display_h,
               Location &location, int &map_zoom, unsigned int placeholder_tile);
 
 private:
@@ -51,16 +52,16 @@ private:
 
     enum class RightView { Map, Xy };
 
-    void DrawBrowser(float scale, bool theme, ImVec2 pos, ImVec2 size);
-    void DrawLoadedList(float scale, bool theme, ImVec2 pos, ImVec2 size);
-    void DrawFieldTree(float scale, bool theme, ImVec2 pos, ImVec2 size);
-    void DrawPlots(float scale, bool theme, ImVec2 pos, ImVec2 size);
-    void DrawMap(float scale, bool theme, ImVec2 pos, ImVec2 size,
+    void DrawBrowser(const UiScale& scale, bool theme, ImVec2 pos, ImVec2 size);
+    void DrawLoadedList(const UiScale& scale, bool theme, ImVec2 pos, ImVec2 size);
+    void DrawFieldTree(const UiScale& scale, bool theme, ImVec2 pos, ImVec2 size);
+    void DrawPlots(const UiScale& scale, bool theme, ImVec2 pos, ImVec2 size);
+    void DrawMap(const UiScale& scale, bool theme, ImVec2 pos, ImVec2 size,
                  Location &location, int &map_zoom, unsigned int placeholder_tile);
-    void DrawXyPlot(float scale, bool theme, ImVec2 pos, ImVec2 size);
+    void DrawXyPlot(const UiScale& scale, bool theme, ImVec2 pos, ImVec2 size);
     bool BuildXySamples(const XyCurve &curve, std::vector<double> &xs, std::vector<double> &ys,
                         std::vector<double> &ts);
-    void DrawCursorReadout(float scale, bool theme, ImVec2 pos, ImVec2 size);
+    void DrawCursorReadout(const UiScale& scale, bool theme, ImVec2 pos, ImVec2 size);
 
    
     bool OpenLog(const std::string &path);
