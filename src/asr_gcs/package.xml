@@ -18,6 +18,7 @@
   <depend>opencv2</depend>
   <depend>asr_autopilot</depend>
   <depend>asr_mission</depend>
+  <depend>asr_logger</depend>
 
   <!-- System dependencies -->
   <exec_depend>libglfw3</exec_depend>

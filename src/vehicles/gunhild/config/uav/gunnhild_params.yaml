@@ -84,7 +84,7 @@
     # Flight logging (ulog)
     log_mode: general        # general | control_inspection
     log_trigger: armed       # always | armed — armed: log only while armed, one file per flight
-    log_dir: ~/flight_logs
+    log_dir: ~/asr_workspace/flight_logs/uav
     sys_name: asr_gunnhild      # vehicle name written to the ulog header
 
     # Setup Parameters

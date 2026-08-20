@@ -12,6 +12,8 @@
 #include "asr_comms/msg/trajectory_setpoint.hpp"
 #include "asr_comms/msg/control_detail.hpp"
 #include "asr_comms/msg/comms_health.hpp"
+#include "asr_comms/msg/telemetry_origin_gps.hpp"
+#include "geometry_msgs/msg/pose_stamped.hpp"
 
 #include "simple_writer.hpp"
 
@@ -92,6 +94,16 @@ struct UlogCommsHealth {
     uint8_t  gcs_connected;                      // 0/1
 };
 
+// The frame everything else in this log is expressed in. Without it a log's positions
+// cannot be placed on a map or compared against the flight controller's own frame, since
+// the origin is chosen at runtime (the GCS "Origin" button) and is otherwise unrecorded.
+// Local offset and geodetic origin travel together so one record fully defines the frame.
+struct UlogOrigin {
+    uint64_t timestamp;                          // us
+    double   lat, lon, alt;                      // geodetic origin (deg, deg, m)
+    float    offset_x, offset_y, offset_z;       // local origin in the PX4 frame (m)
+};
+
 // ---------------------------------------------------------------------------
 
 class LoggerNode : public rclcpp::Node {
@@ -114,6 +126,9 @@ private:
     void onTrajectorySetpoint(const asr_comms::msg::TrajectorySetpoint& msg);
     void onControlDetail(const asr_comms::msg::ControlDetail& msg);
     void onCommsHealth(const asr_comms::msg::CommsHealth& msg);
+    void onOriginGps(const asr_comms::msg::TelemetryOriginGPS& msg);
+    void onOriginOffset(const geometry_msgs::msg::PoseStamped& msg);
+    void writeOrigin();
     void onFlushTimer();
 
     std::unique_ptr<ulog_cpp::SimpleWriter> writer_;
@@ -130,6 +145,13 @@ private:
     uint16_t id_trajectory_setpoint_{};
     uint16_t id_control_detail_{};
     uint16_t id_comms_health_{};
+    uint16_t id_origin_{};
+
+    // The two halves arrive on separate topics at different rates, so the latest of each
+    // is held and written together whenever either changes.
+    UlogOrigin origin_{};
+    bool have_origin_gps_{false};
+    bool have_origin_offset_{false};
 
     rclcpp::Subscription<asr_comms::msg::TelemetryPosition>::SharedPtr position_sub_;
     rclcpp::Subscription<asr_comms::msg::TelemetryAttitude>::SharedPtr attitude_sub_;
@@ -139,6 +161,8 @@ private:
     rclcpp::Subscription<asr_comms::msg::TrajectorySetpoint>::SharedPtr trajectory_setpoint_sub_;
     rclcpp::Subscription<asr_comms::msg::ControlDetail>::SharedPtr control_detail_sub_;
     rclcpp::Subscription<asr_comms::msg::CommsHealth>::SharedPtr comms_health_sub_;
+    rclcpp::Subscription<asr_comms::msg::TelemetryOriginGPS>::SharedPtr origin_gps_sub_;
+    rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr origin_offset_sub_;
     rclcpp::TimerBase::SharedPtr flush_timer_;
 };
 
